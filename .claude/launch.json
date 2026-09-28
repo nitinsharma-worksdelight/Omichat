@@ -1,0 +1,40 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=pglite://.data/preview",
+        "npm",
+        "run",
+        "dev",
+        "-w",
+        "@omni/server"
+      ],
+      "port": 4000
+    },
+    {
+      "name": "widget-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@omni/widget"
+      ],
+      "port": 5180
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@omni/dashboard"
+      ],
+      "port": 5173
+    }
+  ]
+}

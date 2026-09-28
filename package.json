@@ -1,0 +1,23 @@
+{
+  "name": "omnichannel-ai",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @omni/server",
+    "dev:worker": "npm run dev:worker -w @omni/server",
+    "dev:dashboard": "npm run dev -w @omni/dashboard",
+    "dev:widget": "npm run dev -w @omni/widget",
+    "db:migrate": "npm run db:migrate -w @omni/server",
+    "db:seed": "npm run db:seed -w @omni/server",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "verify:phase": "node scripts/verify-phase.mjs"
+  }
+}

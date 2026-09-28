@@ -1,0 +1,132 @@
+import { DateTime } from 'luxon';
+import type { DateOverride, TimeRange, WeeklyHours, Weekday } from '../../db/schema';
+
+export interface CalendarRules {
+  timezone: string;
+  slotMinutes: number;
+  slotIntervalMinutes: number | null;
+  bufferMinutes: number;
+  minNoticeMinutes: number;
+  maxDaysAhead: number;
+  maxPerDay: number | null;
+  weeklyHours: WeeklyHours;
+  dateOverrides: DateOverride[];
+}
+
+export interface Interval {
+  start: Date;
+  end: Date;
+}
+
+export interface Slot {
+  start: string; // ISO UTC
+  end: string;
+  /** Calendar-local "YYYY-MM-DDTHH:mm" — the format booking tools accept. */
+  local: string;
+  label: string;
+}
+
+const WEEKDAYS: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export function validateHours(ranges: TimeRange[]): string | null {
+  for (const r of ranges) {
+    if (!TIME_RE.test(r.start) || !(TIME_RE.test(r.end) || r.end === '24:00')) return `Invalid time range ${r.start}-${r.end}`;
+    if (r.end <= r.start) return `Range ${r.start}-${r.end} ends before it starts`;
+  }
+  return null;
+}
+
+function hoursFor(rules: CalendarRules, date: DateTime): TimeRange[] {
+  const iso = date.toISODate()!;
+  const override = rules.dateOverrides.find((o) => o.date === iso);
+  if (override) return override.hours;
+  return rules.weeklyHours[WEEKDAYS[date.weekday - 1]!] ?? [];
+}
+
+function overlaps(a: Interval, b: Interval): boolean {
+  return a.start < b.end && b.start < a.end;
+}
+
+export function formatSlotLabel(start: DateTime): string {
+  return start.toFormat("ccc d LLL yyyy, h:mm a");
+}
+
+/**
+ * Open slots between two calendar-local dates (inclusive). Pure: the caller supplies busy intervals
+ * (booked appointments plus any external-calendar busy time) and the current time.
+ */
+export function computeSlots(
+  rules: CalendarRules,
+  busy: Interval[],
+  range: { from: string; to: string },
+  now: Date,
+  opts: { limit?: number; bookedPerDay?: Map<string, number> } = {},
+): Slot[] {
+  const zone = rules.timezone;
+  const nowLocal = DateTime.fromJSDate(now, { zone });
+  const earliest = nowLocal.plus({ minutes: rules.minNoticeMinutes });
+  const lastDay = nowLocal.startOf('day').plus({ days: rules.maxDaysAhead });
+  let day = DateTime.fromISO(range.from, { zone }).startOf('day');
+  const end = DateTime.min(DateTime.fromISO(range.to, { zone }).startOf('day'), lastDay);
+  if (day < nowLocal.startOf('day')) day = nowLocal.startOf('day');
+  const step = rules.slotIntervalMinutes ?? rules.slotMinutes;
+  const padded = busy.map((b) => ({
+    start: new Date(b.start.getTime() - rules.bufferMinutes * 60_000),
+    end: new Date(b.end.getTime() + rules.bufferMinutes * 60_000),
+  }));
+  const slots: Slot[] = [];
+  const limit = opts.limit ?? 500;
+
+  for (; day <= end && slots.length < limit; day = day.plus({ days: 1 })) {
+    const iso = day.toISODate()!;
+    if (rules.maxPerDay !== null && (opts.bookedPerDay?.get(iso) ?? 0) >= rules.maxPerDay) continue;
+    for (const r of hoursFor(rules, day)) {
+      const windowStart = DateTime.fromISO(`${iso}T${r.start}`, { zone });
+      const windowEnd = r.end === '24:00' ? day.plus({ days: 1 }) : DateTime.fromISO(`${iso}T${r.end}`, { zone });
+      for (let s = windowStart; s.plus({ minutes: rules.slotMinutes }) <= windowEnd; s = s.plus({ minutes: step })) {
+        if (s < earliest) continue;
+        const e = s.plus({ minutes: rules.slotMinutes });
+        const interval = { start: s.toJSDate(), end: e.toJSDate() };
+        if (padded.some((b) => overlaps(interval, b))) continue;
+        slots.push({
+          start: s.toUTC().toISO()!,
+          end: e.toUTC().toISO()!,
+          local: s.toFormat("yyyy-LL-dd'T'HH:mm"),
+          label: formatSlotLabel(s),
+        });
+        if (slots.length >= limit) break;
+      }
+    }
+  }
+  return slots;
+}
+
+/** Calendar-local "YYYY-MM-DDTHH:mm" (or a full ISO string with offset) → Date. */
+export function parseLocalStart(input: string, timezone: string): Date | null {
+  const hasOffset = /([zZ]|[+-]\d{2}:?\d{2})$/.test(input);
+  const dt = hasOffset ? DateTime.fromISO(input) : DateTime.fromISO(input, { zone: timezone });
+  return dt.isValid ? dt.toJSDate() : null;
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  return hours % 24 === 0 ? `${hours / 24} day${hours === 24 ? '' : 's'}` : `${hours} hour${hours === 1 ? '' : 's'}`;
+}
+
+/** Why a specific start time can't be booked, or null when it can. */
+export function checkSlot(rules: CalendarRules, busy: Interval[], start: Date, now: Date, bookedPerDay?: Map<string, number>): string | null {
+  const local = DateTime.fromJSDate(start, { zone: rules.timezone });
+  const iso = local.toISODate()!;
+  if (local < DateTime.fromJSDate(now, { zone: rules.timezone }).plus({ minutes: rules.minNoticeMinutes })) {
+    return `That time is too soon — bookings need at least ${formatDuration(rules.minNoticeMinutes)} notice.`;
+  }
+  const slots = computeSlots(rules, busy, { from: iso, to: iso }, now, { bookedPerDay });
+  if (slots.some((s) => new Date(s.start).getTime() === start.getTime())) return null;
+  const open = computeSlots(rules, [], { from: iso, to: iso }, now);
+  if (!open.some((s) => new Date(s.start).getTime() === start.getTime())) {
+    return 'That time is outside the available booking hours.';
+  }
+  return 'That time is already taken.';
+}

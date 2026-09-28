@@ -1,0 +1,1 @@
+ALTER TABLE "conversations" ADD COLUMN "summary_details" jsonb;

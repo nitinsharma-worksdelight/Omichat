@@ -1,0 +1,1 @@
+ALTER TABLE "workflows" ADD COLUMN "identified_only" boolean DEFAULT false NOT NULL;

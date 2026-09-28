@@ -1,0 +1,15 @@
+{
+  "name": "@omni/widget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/widget.ts --bundle --minify --format=iife --target=es2019 --outfile=dist/widget.js",
+    "dev": "esbuild src/widget.ts --bundle --format=iife --target=es2019 --outdir=dist --servedir=. --serve=5180 --watch=forever",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "typescript": "^6.0.3"
+  }
+}
