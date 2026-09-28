@@ -1,0 +1,67 @@
+# Render Blueprint for the Omichat backend (the dashboard is deployed on Vercel).
+#
+# One web service runs the API and its background jobs (RUN_WORKERS_IN_API defaults to true), with Postgres
+# (pgvector) and Key Value (Redis) on Render's private network. Database migrations run when the API starts.
+#
+# JWT_SECRET and ENCRYPTION_KEY are generated once by Render. Never change ENCRYPTION_KEY afterwards: it encrypts
+# stored webhook and workflow secrets. Render asks for OPENAI_API_KEY and DASHBOARD_ORIGINS when the Blueprint is
+# created. After the first deploy, set PUBLIC_API_URL to this service's URL (it goes into the widget embed code).
+#
+# Free plans are for trying it out: the API sleeps after 15 minutes without requests, and the free database
+# expires after 30 days unless upgraded. Each piece can be upgraded in place.
+
+services:
+  - type: web
+    name: omichat-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./apps/server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: omichat-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: omichat-queue
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      # The dashboard's address on Vercel, e.g. https://omichat.vercel.app (comma-separate several).
+      - key: DASHBOARD_ORIGINS
+        sync: false
+      - key: LLM_PROVIDER
+        value: openai
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      # USD per 1M tokens, for cost tracking and monthly budgets.
+      - key: LLM_PRICE_INPUT_PER_MTOK
+        value: "0.15"
+      - key: LLM_PRICE_CACHED_INPUT_PER_MTOK
+        value: "0.075"
+      - key: LLM_PRICE_OUTPUT_PER_MTOK
+        value: "0.60"
+
+  - type: keyvalue
+    name: omichat-queue
+    plan: free
+    region: singapore
+    # Queued jobs must never be evicted to make room.
+    maxmemoryPolicy: noeviction
+    ipAllowList: [] # private network only
+
+databases:
+  - name: omichat-db
+    plan: free
+    region: singapore
+    databaseName: omichat
+    user: omichat
+    ipAllowList: [] # private network only
