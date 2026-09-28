@@ -4,6 +4,7 @@ dist/
 .env
 .env.*
 !.env.example
+!apps/dashboard/.env.production
 *.log
 coverage/
 .DS_Store
