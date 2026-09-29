@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, MessageSquare, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ArrowUp, ChevronDown, KeyRound, MessageSquare, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus } from 'lucide-react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useConfirm } from '../../components/feedback-context';
 import { Modal } from '../../components/overlay';
@@ -363,6 +363,12 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
   const colorValid = /^#[0-9a-fA-F]{6}$/.test(form.primaryColor);
   const selectedBot = bots.data?.find((b) => b.id === form.botId);
+  // What the widget itself would show: the bot's name, and its enabled starters ("talk to the team" ones need handoff on).
+  const org = useOrg();
+  const assistantName = selectedBot?.config.persona.assistantName || 'Assistant';
+  const starters = (selectedBot?.config.conversationStarters ?? []).filter(
+    (s) => s.enabled && (s.action !== 'handoff' || selectedBot?.config.handoff.enabled),
+  );
 
   const save = useAction(
     () => {
@@ -467,9 +473,12 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
         <WidgetPreview
           color={colorValid ? form.primaryColor : '#4f46e5'}
           position={form.position}
-          title={form.title || selectedBot?.config.persona.companyName || form.name}
-          subtitle={form.subtitle}
+          title={form.title || selectedBot?.config.persona.companyName || org.data?.name || assistantName}
+          subtitle={form.subtitle || `${assistantName} · usually replies instantly`}
           greeting={form.greeting || selectedBot?.config.persona.greeting || 'Hi! How can I help?'}
+          assistantName={assistantName}
+          avatarUrl={form.avatarUrl.trim()}
+          starters={starters}
           launcherText={form.launcherText}
           draggable={form.draggable}
         />
@@ -478,12 +487,51 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
   );
 }
 
+/** Up to two initials for a picture-less avatar, as the widget shows them: "Bright Smile Dental" → "BS". */
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((word) => /[\p{L}\p{N}]/u.exec(word)?.[0] ?? '')
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
+/** The assistant's picture in the preview: the avatar image, or the initials when there's none (or it won't load). */
+function PreviewFace({ src, name, className }: { src: string; name: string; className: string }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  return (
+    <span
+      aria-hidden
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--c)_12%,transparent)] font-semibold text-(--c) dark:bg-[color-mix(in_srgb,var(--c)_24%,transparent)] dark:text-[color-mix(in_srgb,var(--c)_40%,#fff)] ${className}`}
+    >
+      {src && failed !== src ? <img src={src} alt="" className="size-full object-cover" onError={() => setFailed(src)} /> : initialsOf(name)}
+    </span>
+  );
+}
+
+const MAGNET_PATHS = (
+  <>
+    <path d="M5 4v8a7 7 0 0 0 14 0V4h-5v8a2 2 0 0 1-4 0V4Z" />
+    <path d="M5 8h5" />
+    <path d="M14 8h5" />
+  </>
+);
+
+/**
+ * A small copy of the website chat as visitors see it with these settings (in the dashboard's light or dark mode,
+ * like the widget follows the visitor's): the chat open over its bubble.
+ */
 function WidgetPreview({
   color,
   position,
   title,
   subtitle,
   greeting,
+  assistantName,
+  avatarUrl,
+  starters,
   launcherText,
   draggable,
 }: {
@@ -492,31 +540,91 @@ function WidgetPreview({
   title: string;
   subtitle: string;
   greeting: string;
+  assistantName: string;
+  avatarUrl: string;
+  starters: Array<{ id: string; label: string }>;
   launcherText: string;
   draggable: boolean;
 }) {
   return (
     <div aria-label="Widget preview" className="sticky top-0 self-start">
       <p className="mb-2 text-xs font-medium text-muted">Preview</p>
-      <div className={`flex h-96 flex-col justify-end gap-3 rounded-lg border border-border bg-surface-2 p-3 ${position === 'left' ? 'items-start' : 'items-end'}`}>
-        <div className="w-full overflow-hidden rounded-xl border border-border bg-surface shadow-pop">
-          <div className="px-3 py-2.5 text-white" style={{ background: color }}>
-            <p className="truncate text-[13px] font-semibold">{title}</p>
-            {subtitle && <p className="truncate text-[11px] opacity-85">{subtitle}</p>}
+      <div
+        style={{ '--c': color } as CSSProperties}
+        className={`flex flex-col gap-2.5 rounded-lg bg-[#eceef2] p-3 dark:bg-[#1b1d22] ${position === 'left' ? 'items-start' : 'items-end'}`}
+      >
+        <div className="w-full overflow-hidden rounded-2xl bg-white shadow-[0_0_0_1px_rgba(15,23,42,.06),0_12px_28px_-6px_rgba(15,23,42,.16)] dark:bg-[#121418] dark:shadow-[0_0_0_1px_rgba(255,255,255,.07),0_16px_32px_-8px_rgba(0,0,0,.5)]">
+          <div className="flex items-center gap-2 border-b border-[#eceef2] py-2.5 pr-2 pl-3 dark:border-[#23262e]">
+            <span className="relative shrink-0">
+              <PreviewFace src={avatarUrl} name={title} className="size-8 text-[11px]" />
+              <span className="absolute -right-px -bottom-px size-2.5 rounded-full border-2 border-white bg-[#16a34a] dark:border-[#121418] dark:bg-[#22c55e]" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] leading-4 font-semibold text-[#14161b] dark:text-[#eef0f4]">{title}</span>
+              <span className="mt-0.5 flex items-center gap-1 text-[10.5px] leading-4 text-[#5b6475] dark:text-[#a1a9b7]">
+                <span className="shrink-0 rounded-full bg-[color-mix(in_srgb,var(--c)_10%,transparent)] px-1 text-[8px] leading-3.5 font-bold tracking-wider text-(--c) dark:bg-[color-mix(in_srgb,var(--c)_24%,transparent)] dark:text-[color-mix(in_srgb,var(--c)_40%,#fff)]">
+                  AI
+                </span>
+                <span className="truncate">{subtitle}</span>
+              </span>
+            </span>
+            <ChevronDown className="size-4 shrink-0 text-[#5b6475] dark:text-[#a1a9b7]" aria-hidden />
           </div>
-          <div className="space-y-2 p-3">
-            <p className="max-w-[85%] rounded-2xl rounded-bl-md bg-surface-2 px-2.5 py-1.5 text-xs text-fg">{greeting}</p>
-            <p className="ml-auto max-w-[70%] rounded-2xl rounded-br-md px-2.5 py-1.5 text-xs text-white" style={{ background: color }}>
-              Do you have openings this week?
+          <div className="space-y-2.5 px-3 pt-3 pb-2">
+            <div className="flex items-end gap-1.5">
+              <PreviewFace src={avatarUrl} name={title} className="mb-4 size-5 text-[7.5px]" />
+              <div className="min-w-0">
+                <p className="rounded-[14px] rounded-bl-[5px] bg-[#f2f3f6] px-2.5 py-1.5 text-xs leading-[17px] text-[#14161b] dark:bg-[#1e2129] dark:text-[#e8eaef]">
+                  {greeting}
+                </p>
+                <p className="mt-0.5 pl-1 text-[10px] leading-3.5 text-[#6b7280] dark:text-[#8f98a8]">{assistantName} · Just now</p>
+              </div>
+            </div>
+            {starters.length ? (
+              <div className="flex flex-col items-end gap-1.5 pl-6">
+                {starters.slice(0, 3).map((s) => (
+                  <span
+                    key={s.id}
+                    className="max-w-full truncate rounded-full border border-[color-mix(in_srgb,var(--c)_32%,transparent)] bg-white px-2.5 py-1 text-[11px] leading-4 font-medium text-(--c) dark:border-[color-mix(in_srgb,color-mix(in_srgb,var(--c)_70%,#fff)_50%,transparent)] dark:bg-transparent dark:text-[color-mix(in_srgb,var(--c)_45%,#fff)]"
+                  >
+                    {s.label}
+                  </span>
+                ))}
+                {starters.length > 3 && <span className="text-[10px] text-[#6b7280] dark:text-[#8f98a8]">+{starters.length - 3} more</span>}
+              </div>
+            ) : (
+              <div className="flex justify-end">
+                <p className="max-w-[75%] rounded-[14px] rounded-br-[5px] bg-(--c) px-2.5 py-1.5 text-xs leading-[17px] text-white">Do you have openings this week?</p>
+              </div>
+            )}
+          </div>
+          <div className="px-2.5">
+            <div className="flex items-center gap-2 rounded-xl border border-[#dfe2e8] bg-white py-1 pr-1 pl-2.5 dark:border-[#2b2f38] dark:bg-[#1a1d23]">
+              <span className="flex-1 truncate text-[11px] text-[#6b7280] dark:text-[#8f98a8]">Write a message…</span>
+              <span className="flex size-6 items-center justify-center rounded-lg bg-(--c) text-white">
+                <ArrowUp className="size-3.5" strokeWidth={2.5} aria-hidden />
+              </span>
+            </div>
+          </div>
+          <div className="px-2 pt-2 pb-2.5 text-center text-[9px] leading-3 text-[#6b7280] dark:text-[#8f98a8]">
+            <p>Chats are recorded so our team can assist you.</p>
+            <p>
+              Powered by{' '}
+              <span className="font-semibold whitespace-nowrap text-[#3f4654] dark:text-[#c9ced8]">
+                <svg viewBox="0 0 24 24" className="mr-0.5 inline size-2.5 align-[-1px]" fill="none" stroke="currentColor" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  {MAGNET_PATHS}
+                </svg>
+                LeadsMagnet AI
+              </span>
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {launcherText && <span className="rounded-full bg-surface px-2.5 py-1 text-xs text-fg shadow-pop">{launcherText}</span>}
-          <span className="flex size-11 items-center justify-center rounded-full text-white shadow-pop" style={{ background: color }}>
-            <MessageSquare className="size-5" aria-hidden />
-          </span>
-        </div>
+        <span
+          className={`flex h-10 items-center justify-center gap-1.5 rounded-full bg-(--c) text-xs font-semibold text-white shadow-[0_8px_18px_-6px_color-mix(in_srgb,var(--c)_45%,transparent)] ${launcherText ? 'max-w-full pr-3.5 pl-3' : 'w-10'}`}
+        >
+          <ChevronDown className="size-4 shrink-0" strokeWidth={2.25} aria-hidden />
+          {launcherText && <span className="truncate">{launcherText}</span>}
+        </span>
       </div>
       {draggable && <p className="mt-2 text-xs text-muted">Starts here; visitors can drag it anywhere.</p>}
     </div>

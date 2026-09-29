@@ -620,6 +620,12 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   - **Kept from the design only in part:** the greeting shows the time it appeared (not a permanent "Just now"); a
     draggable bubble neither lifts on hover nor grows while dragged (either would shift where a drag starts); the
     typing bubble stays under the chat as before; the "Drag to move" tip stops once the bubble has been moved.
+- **2026-09-29 — Settings preview matches the redesign** (on request). The preview in Settings → Website chat is now a
+  small copy of the new widget: light header with the avatar (or initials) and online dot, the "AI" label and the
+  subtitle the widget would show, the greeting with its picture and "Maya · Just now", the selected bot's enabled
+  starters (up to 3, "+N more"; a sample visitor message when there are none), the message box, the new footer, and
+  the bubble with its chevron (and launcher text). It follows every field as you type (colour, position, title,
+  subtitle, avatar, launcher text, bot) and the dashboard's light or dark mode, like the widget follows the visitor's.
 
 ## Remaining issues
 
@@ -969,6 +975,9 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   - Docs: `PROGRESS.md`
 - **Website chat redesign (2026-09-29):**
   - Widget: `apps/widget/src/widget.ts`
+  - Docs: `PROGRESS.md`
+- **Settings preview (2026-09-29):**
+  - Dashboard: `apps/dashboard/src/pages/settings/SettingsPage.tsx` (`WidgetPreview`)
   - Docs: `PROGRESS.md`
 - **Conversation starters (2026-09-29):**
   - Server: `apps/server/src/modules/bots/config.ts` (schema, checks, `offeredStarters`, `handoffStarter`),
@@ -1652,6 +1661,11 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     restored open appears in place with no animation and no wrong frames
   - your demo page (:5180 with your :4000) showed your colour, logo, greeting and starters; no messages were sent
     there (they would call OpenAI). The temporary launch configs were removed; your servers weren't touched.
+
+- **Settings preview (2026-09-29):** the dashboard typechecks and builds. Checked in a browser on isolated ports: the
+  preview showed the bot's title, "AI" label, greeting, its enabled starters and the new footer; changing the colour
+  (teal), position (left), launcher text and a broken avatar link updated it at once (initials instead of the broken
+  image); dark mode used the widget's dark colours. The dialog was closed without saving; your servers weren't touched.
 
 ### Verification log
 
