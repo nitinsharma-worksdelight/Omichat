@@ -553,8 +553,9 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     - with dragging off, the widget looks and behaves exactly as before
 - **2026-09-29 — Website chat: "Powered by" line and the visitor's IP address** (audited, then approved: IP on the
   conversation, a `TRUST_PROXY` setting, plain text, none for playground chats).
-  - **Footer:** "Powered by LeadsMagnet AI" under the message box, left-aligned with it (11px, the widget's muted
-    colour, plain text). Nothing else in the widget changed.
+  - **Footer:** under the message box, centred on two lines: "Powered by LeadsMagnet AI" and "Chats are recorded so
+    our team can assist you." (11px, the widget's muted colour, plain text; 8px below the box, 10px above the bottom
+    edge). Nothing else in the widget changed.
   - **Visitor IP:** taken server-side from `req.ip` (never from anything the visitor sends), cleaned up
     (`::ffff:1.2.3.4` → `1.2.3.4`; anything that isn't an IP is skipped), and kept on the conversation as
     `metadata.visitorIp` and `visitorIpAt`:
@@ -568,6 +569,13 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     the proxies' addresses and ranges (e.g. `uniquelocal`). Fastify ignores a number of hops (it can't tell a proxy
     from a visitor), so a number is refused at startup. A debug-level log of the forwarded addresses at session start
     helps find the right value.
+- **2026-09-29 — Website chat: the bubble no longer jumps on load** (root cause reported first, then approved).
+  - **Cause:** the widget was added to the page at the default spot (bottom right) straight away, and its settings
+    (side, dragging, the saved spot) were applied only when they arrived from the API, so the frames drawn meanwhile
+    showed the bubble on the right before it jumped to the saved spot.
+  - **Fix:** the widget stays hidden until its settings are applied, then appears in the same step, so its first
+    visible frame is its final look and place. No timers or delays. A chat restored open is focused once it's shown.
+    An unknown or disabled key still never shows it, as before.
 
 ## Remaining issues
 
@@ -910,6 +918,9 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     `apps/dashboard/src/lib/types.ts` (`metadata` on the conversation)
   - Tests: `apps/server/test/widget-visitor-ip.test.ts` (new)
   - Docs: `docs/API.md`, `apps/server/.env.example`, `PROGRESS.md`
+- **Website chat: no bubble jump on load (2026-09-29):**
+  - Widget: `apps/widget/src/widget.ts`
+  - Docs: `PROGRESS.md`
 - **Website chat: embed address and draggable bubble (2026-09-29):**
   - Server: `apps/server/src/config/env.ts` (`PUBLIC_API_URL` optional), `apps/server/src/modules/channels/service.ts`,
     `apps/server/src/http/routes/channels.ts`, `apps/server/src/main.ts`, `apps/server/src/db/schema/channels.ts`
@@ -1523,6 +1534,19 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   - **Details panel** (added on request): a website chat's Details showed "IP address 127.0.0.1" with "Last seen …" on
     hover; a playground chat showed no such row.
 
+- **Website chat: no bubble jump on load (2026-09-29):** 225/225 tests pass (31 files) and the typecheck is clean on
+  all three apps. The widget is browser code, so the fix was checked in a browser on isolated ports (1280×800), with
+  the settings request slowed by 500ms and the bubble's spot sampled every frame:
+  - **Before the fix** (saved spot bottom left): the bubble was first shown bottom right, and 70 samples showed it
+    there before it jumped
+  - **After the fix**, your exact case (dragged from bottom right to bottom left, then reloaded): hidden while loading,
+    first shown at the saved spot, 0 samples anywhere else
+  - also correct from the first visible frame: Position set to bottom left without dragging; a chat restored open at a
+    moved spot (window placed beside the bubble, message box focused)
+  - an unknown key never shows the widget; dragging still moves the bubble without opening the chat, and a click still
+    opens it
+  - the temporary launch configs were removed; your :4000 and :5173 servers weren't touched
+
 ### Verification log
 
 <!-- verification-log:start -->
@@ -1706,6 +1730,7 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | 2026-09-29 | The bubble's spot is remembered per site in the visitor's browser as a fraction of the screen, tied to the starting side; the drag rules are pure functions tested in the server suite | Implementation |
 | 2026-09-29 | Visitor IP on the conversation's metadata (not the contact, whose snapshot goes to webhooks and workflows), a `TRUST_PROXY` setting, a plain-text "Powered by" line, and no IP for playground chats | User |
 | 2026-09-29 | `TRUST_PROXY` takes proxy addresses and ranges only; a number of hops is refused because Fastify ignores it (it can't tell a proxy from a visitor) | Implementation |
+| 2026-09-29 | The widget stays hidden until its settings are applied instead of drawing the default spot first; no timers or delays | User |
 
 ## Next phase
 

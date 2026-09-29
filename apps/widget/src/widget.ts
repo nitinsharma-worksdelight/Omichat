@@ -129,6 +129,7 @@ const STYLES = `
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--fg);
   position: fixed; bottom: 20px; z-index: 2147483000; }
 .root.right { right: 20px; } .root.left { left: 20px; }
+.root:not(.ready) { visibility: hidden; }
 @media (prefers-color-scheme: dark) {
   .root { --bg: #0f172a; --fg: #e2e8f0; --muted: #94a3b8; --line: #1e293b; --bubble: #1e293b; }
 }
@@ -164,7 +165,7 @@ const STYLES = `
 @keyframes b { 0%, 60%, 100% { opacity: .3; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .dots i { animation: none; } .launcher { transition: none; } }
 form { display: flex; gap: 8px; padding: 10px 12px 6px; border-top: 1px solid var(--line); }
-.brand { padding: 0 12px 8px; font-size: 11px; line-height: 16px; color: var(--muted); }
+.brand { padding: 2px 16px 10px; text-align: center; font-size: 11px; line-height: 16px; color: var(--muted); }
 textarea { flex: 1; resize: none; max-height: 120px; min-height: 40px; padding: 10px 12px; border: 1px solid var(--line);
   border-radius: 12px; font: inherit; color: inherit; background: transparent; outline: none; }
 textarea:focus { border-color: var(--c); }
@@ -252,6 +253,8 @@ class ChatWidget {
   private press: { id: number; x: number; y: number; left: number; top: number; type: string; dragging: boolean } | null = null;
   /** The click the browser sends when a drag is released: it isn't a request to open the chat. */
   private swallowClick = false;
+  /** The chat opened (e.g. restored as open) before the widget could be shown: focus its input once it's shown. */
+  private focusWhenReady = false;
 
   constructor() {
     const host = el('div');
@@ -311,7 +314,8 @@ class ChatWidget {
       this.input.style.height = `${Math.min(this.input.scrollHeight, 120)}px`;
     });
 
-    const brand = el('div', 'brand', 'Powered by LeadsMagnet AI');
+    const brand = el('div', 'brand');
+    brand.append(el('div', undefined, 'Powered by LeadsMagnet AI'), el('div', undefined, 'Chats are recorded so our team can assist you.'));
     this.panel.append(head, this.log, this.statusLine, this.errorLine, form, brand);
     this.launcher = el('button', 'launcher icon-only');
     this.launcher.innerHTML = ICON_CHAT;
@@ -357,6 +361,10 @@ class ChatWidget {
       }
       // After the launcher text: the bubble's final size decides where it may go.
       if (t.draggable) this.enableDragging();
+      // Everything above is applied in this same step, so the widget's first visible frame is its final look and place.
+      this.root.classList.add('ready');
+      if (this.focusWhenReady && this.root.classList.contains('open')) this.input.focus();
+      this.focusWhenReady = false;
     } catch {
       this.root.style.display = 'none'; // unknown/disabled key: stay invisible on the host page
     }
@@ -369,7 +377,11 @@ class ChatWidget {
     this.launcher.setAttribute('aria-expanded', String(open));
     store('open', open ? '1' : null);
     if (open) {
-      void this.ensureSession().then(() => this.input.focus());
+      void this.ensureSession().then(() => {
+        // A hidden input can't take focus: wait until the widget is shown.
+        if (this.root.classList.contains('ready')) this.input.focus();
+        else this.focusWhenReady = true;
+      });
     }
   }
 
