@@ -492,7 +492,9 @@ export function QueryState({ isLoading, error, onRetry, children, rows }: { isLo
 
 export function Table({ className, children }: { className?: string; children: ReactNode }) {
   return (
-    <div className={cx('overflow-x-auto', className)}>
+    // `relative` keeps positioned bits inside (like a header's screen-reader-only "Actions"), so a wide table scrolls
+    // in its own box instead of stretching the page.
+    <div className={cx('relative overflow-x-auto', className)}>
       <table className="w-full border-collapse text-left text-sm">{children}</table>
     </div>
   );

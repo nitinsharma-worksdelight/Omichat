@@ -682,6 +682,22 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   every page and survives a reload (remembered in this browser). The bot editor no longer shrinks the menu by itself;
   it follows the same setting. The collapsed look is unchanged (icons with tooltips, names for screen readers, the
   approvals dot). One place, the shared layout; no page has its own copy.
+- **2026-09-30 — Wide tables no longer stretch the page** (on request). The knowledge base page scrolled sideways at
+  1024px. The cause wasn't the table: the table already scrolls in its own box, but its header's hidden "Actions"
+  label (for screen readers) is positioned outside that box and pushed the page wider. The shared table box now keeps
+  such labels inside, so a wide table scrolls by itself. This covers the same header in the other five tables (team,
+  API keys, workflows, webhooks, custom fields). Screen readers still hear "Actions"; row menus are unchanged.
+- **2026-09-30 — Demo page for testers** (on request). `apps/dashboard/public/demo.html` is a stand-in website that
+  Vercel publishes as-is next to the dashboard: `https://dashboard-khaki-three-37.vercel.app/demo.html?key=pk_…`. It
+  shows the business's name and colour from the chat's public settings, three short testing tips, and the chat bubble
+  from the live API; it says so plainly when the link has no key, the chat is off or unknown, or the chat can't load.
+  Search engines are asked not to index it.
+  - **Safety:** the page shares its address with the dashboard (where the login is kept), so it only ever loads the
+    chat from the live API; `&api=` works only when the page runs on this computer (localhost), for local testing.
+  - **Setup for testers (no code):** Settings → Website chat → New website chat for the bot to test, allowed website
+    `https://dashboard-khaki-three-37.vercel.app`; share the link with its key; turn it off or delete it afterwards.
+    Tester chats are real website chats (Conversations, Leads, automations, booking emails).
+  - Nothing else changed: the widget, the API, the dashboard app and `apps/widget/demo.html` (the local :5180 page).
 
 ## Remaining issues
 
@@ -693,7 +709,7 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | README still says 71 tests (now 238) | Docs | Not planned |
 | The widget shows the browser's raw error ("Failed to fetch") when a message can't be sent over the network (found while testing starters; typed messages did this before) | P3 | Not planned |
 | A second tab opened before the visitor's first message keeps showing the conversation starters until it's reloaded (a click there adds its message to the same chat) | P3 | Not planned |
-| At 1024px wide, a knowledge base's documents table doesn't shrink, so the page scrolls sideways (198px with the menu expanded, 38px collapsed; found while checking the menu change, not caused by it) | P3 | Not planned |
+| ~~At 1024px wide, a knowledge base's documents table doesn't shrink, so the page scrolls sideways (198px with the menu expanded, 38px collapsed; found while checking the menu change, not caused by it)~~ | P3 | ✅ Fixed 2026-09-30 (the table scrolls in its own box) |
 | ~~`book_appointment` can return a cancelled or moved appointment as booked~~ | P0 | ✅ Fixed in Phase 2 |
 | ~~The AI is told a confirmation was sent when none is~~ | P0 | ✅ Fixed in Phase 2 |
 | ~~Buffers and the daily cap can break when two bookings happen at once~~ | P1 | ✅ Fixed in Phase 2 (verified by review only; see next row) |
@@ -1057,6 +1073,12 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   - Docs: `PROGRESS.md`
 - **Main menu collapses on every page (2026-09-30):**
   - Dashboard: `apps/dashboard/src/components/Layout.tsx` (one remembered setting and the button on every page)
+  - Docs: `PROGRESS.md`
+- **Wide tables no longer stretch the page (2026-09-30):**
+  - Dashboard: `apps/dashboard/src/components/ui.tsx` (`Table`'s scroll box is `relative`)
+  - Docs: `PROGRESS.md`
+- **Demo page for testers (2026-09-30):**
+  - Dashboard: `apps/dashboard/public/demo.html` (new; published as-is by the dashboard's Vercel build)
   - Docs: `PROGRESS.md`
 - **Conversation starters (2026-09-29):**
   - Server: `apps/server/src/modules/bots/config.ts` (schema, checks, `offeredStarters`, `handoffStarter`),
@@ -1819,6 +1841,30 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     under Remaining issues)
   - the bot editor at 1280 with the test chat open: settings area 405px expanded, 565px collapsed, no overflow
   - dark mode checked; no JavaScript errors or React warnings across all pages in both states
+
+- **Wide tables no longer stretch the page (2026-09-30):** typecheck clean on all three apps, the dashboard builds,
+  238/238 server tests pass (no server changes). Browser checks on isolated ports:
+  - found the cause first: hiding only the table header's screen-reader "Actions" label took the page's sideways
+    scroll from 198px to 0
+  - after the fix, at 1024px: the documents table (745px of content) scrolls inside its 470px box, the page doesn't
+    scroll; the label is still there for screen readers; putting the focus on a row's "…" button scrolled the table
+    to it, and its menu opened with View chunks, Edit, Re-ingest and Delete inside the box
+  - every page and every tab (knowledge, leads, settings' 4 tabs, automations' 4 tabs and the rest) at 1024, 1280 and
+    1440, menu expanded and collapsed: no sideways scrolling anywhere (checked that the width stayed the same during
+    each run)
+  - no JavaScript errors or React warnings
+
+- **Demo page for testers (2026-09-30):** typecheck clean, the dashboard builds and `dist/demo.html` is the page
+  unchanged (no server code changed). Browser checks on isolated ports with the fake model (no paid calls):
+  - with a website chat's key: "Bright Smile Dental" and its initials and colour in the header, "Welcome to Bright
+    Smile Dental", the ready line, and the chat bubble; a chat typed with real key presses got its reply, with the
+    greeting and quick options as on any website
+  - no key: the missing-key message and no chat loaded; an unknown key: the "isn't available" message and the widget
+    stayed hidden; the API unreachable: the "couldn't load" message
+  - the page's own code run with Vercel addresses always chose the live API, even with a crafted `&api=`; on
+    localhost it used `&api=` (or localhost:4000 by default)
+  - a phone width (375px) in dark mode: no sideways scrolling, the tips stacked; every request on a normal load
+    succeeded; the dashboard itself still opened at `/`
 
 ### Verification log
 
