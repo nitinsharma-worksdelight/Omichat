@@ -8,7 +8,7 @@ import { Button, cx, ErrorBanner, Spinner } from '../../components/ui';
 import { api, API_URL, get, post, type RequestOptions } from '../../lib/api';
 import { useSse } from '../../lib/sse';
 import { Link } from '../../lib/router';
-import type { ConversationStatus, PlaygroundSession, PublicMessage, Timeline, WidgetMessagesResponse } from '../../lib/types';
+import type { ConversationStatus, OfferedStarter, PlaygroundSession, PublicMessage, Timeline, WidgetMessagesResponse } from '../../lib/types';
 
 function mergeMessages(current: PublicMessage[], incoming: PublicMessage[]): PublicMessage[] {
   if (!incoming.length) return current;
@@ -39,9 +39,14 @@ export function Playground({ botId, dirty }: { botId: string; dirty: boolean }) 
   const messagesRef = useRef<PublicMessage[]>([]);
   messagesRef.current = messages;
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** Set at once (state updates later), so a double click or a quick second Enter sends nothing more. */
+  const busy = useRef(false);
+  /** Each starter's message id for its latest attempt: a retry after an unclear failure can't send it twice. */
+  const starterAttempts = useRef(new Map<string, string>());
 
   const start = useCallback(async () => {
     const gen = ++generation.current;
+    starterAttempts.current.clear();
     setSession(null);
     setStartError(null);
     setMessages([]);
@@ -148,30 +153,51 @@ export function Playground({ botId, dirty }: { botId: string; dirty: boolean }) 
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, streamText, activity, waiting]);
 
-  const send = async (e?: FormEvent) => {
-    e?.preventDefault();
-    const content = input.trim();
-    if (!content || !session || sending) return;
+  /** Sends one visitor message; true once the server has it. */
+  const deliver = async (content: string, clientMessageId: string, starterId?: string) => {
+    if (!session || busy.current) return false;
+    busy.current = true;
     const gen = generation.current;
     setSending(true);
-    setInput('');
     try {
       const res = await widget<{ conversationId: string; message: PublicMessage }>('/widget/v1/messages', {
         method: 'POST',
-        body: { content, clientMessageId: crypto.randomUUID() },
+        body: { content, clientMessageId, ...(starterId ? { starterId } : {}) },
       });
-      if (gen !== generation.current) return;
+      if (gen !== generation.current) return true;
       setMessages((m) => mergeMessages(m, [res.message]));
       setConversationId(res.conversationId);
       if (status !== 'human_active') setWaiting(true);
       refreshTimeline();
+      return true;
     } catch (err) {
-      setInput(content);
       toast.error(err);
+      return false;
     } finally {
+      busy.current = false;
       setSending(false);
     }
   };
+
+  const send = async (e?: FormEvent) => {
+    e?.preventDefault();
+    const content = input.trim();
+    if (!content || !session || busy.current) return;
+    setInput('');
+    if (!(await deliver(content, crypto.randomUUID()))) setInput(content);
+  };
+
+  const sendStarter = async (starter: OfferedStarter) => {
+    if (busy.current) return;
+    // The same id on a retry: if the first try did arrive after all, the server keeps one message.
+    const clientMessageId = starterAttempts.current.get(starter.id) ?? crypto.randomUUID();
+    starterAttempts.current.set(starter.id, clientMessageId);
+    await deliver(starter.message, clientMessageId, starter.id);
+  };
+
+  // Like the website chat: the starters show under the greeting until the visitor has written.
+  const starters = session?.starters ?? [];
+  const showStarters = starters.length > 0 && !messages.some((m) => m.role === 'user');
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -206,6 +232,21 @@ export function Playground({ botId, dirty }: { botId: string; dirty: boolean }) 
         ) : (
           <>
             {session.greeting && <Bubble role="assistant" name={session.botName} content={session.greeting} />}
+            {showStarters && (
+              <div role="group" aria-label="Quick options" className="flex flex-wrap justify-end gap-2">
+                {starters.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    disabled={sending}
+                    onClick={() => void sendStarter(s)}
+                    className="max-w-full rounded-2xl border border-accent px-3 py-1.5 text-left text-[13px] text-fg [overflow-wrap:anywhere] hover:bg-surface-2 disabled:cursor-default disabled:opacity-55"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {messages.map((m) => (
               <Bubble key={m.id} role={m.role} name={m.role === 'agent' ? 'Team' : session.botName} content={m.content} sources={m.sources} />
             ))}

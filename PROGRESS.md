@@ -576,6 +576,50 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   - **Fix:** the widget stays hidden until its settings are applied, then appears in the same step, so its first
     visible frame is its final look and place. No timers or delays. A chat restored open is focused once it's shown.
     An unknown or disabled key still never shows it, as before.
+- **2026-09-29 — Conversation starters** (audited, then approved: "send message" and "talk to the team" actions,
+  shown under the greeting until the visitor's first message, and in the Playground too).
+  - **Configuration:** a new "Conversation starters" tab in the bot editor (a `conversationStarters` section of the
+    bot's configuration: no new table or migration; bots saved before it have none). Admins add, edit, delete,
+    show or hide, and move starters up or down; an empty bot offers four editable suggestions (book, reschedule,
+    cancel, talk to the team). Each starter: button text (1–60 characters, one line), the message a click sends
+    (empty = the button text, up to 500), what a click does, shown or hidden, and its position. Up to 10 per bot;
+    the same text twice is refused (ignoring case), and so is a shown "talk to the team" starter while Human handoff
+    is off. Mistakes show on the field and on the tab.
+  - **Website chat:** the enabled starters come with the widget's settings and appear as buttons under the greeting,
+    only in a fresh chat; the visitor's first message (clicked or typed) removes them. Another tab opened before
+    that message keeps its starters until reloaded (a click there adds its message to the same chat). A click
+    sends the starter's message as the visitor's own: "send message" starters are answered by the AI with its usual
+    tools (booking, rescheduling, cancelling); "talk to the team" hands the chat to the team straight away, like a
+    handoff keyword, without asking the AI. The server checks the clicked starter against the bot's current ones: a
+    deleted, hidden or other bot's starter is just a message.
+  - **Double clicks and failures:** all starters are unclickable while a message is sending; a retry after a failed
+    send reuses the same message id, so the server keeps one message even if the first try got through. A failed
+    starter message is taken back off the screen and the starters come back.
+  - **Mobile and accessibility:** buttons wrap in the phone's full-screen chat and are 44px tall for fingers; they're
+    real buttons in a "Suggested questions" group, reachable with Tab, with a visible focus ring; pressed with the keyboard,
+    focus moves on to the message box (a tap doesn't pop up a phone's keyboard). Light and dark mode use the widget's
+    colours.
+  - **Fixed on the way:** a chat restored open could miss its greeting when its session came back before the widget's
+    settings; the greeting and starters now wait for both.
+  - **Playground:** shows the saved starters under the greeting and sends them like the widget does.
+- **2026-09-29 — Website chat redesign** (from the approved design canvas; choices: light header, "LeadsMagnet AI",
+  starters styled as the design's suggested questions). Looks only: `apps/widget/src/widget.ts` (its styles and the
+  DOM it builds); behaviour, APIs, drag and placement are unchanged, with the window still 380×640 and the bubble 56px.
+  - **Look:** the design's neutral light and dark colours, with the bot's colour (Settings → Website chat) as the only
+    accent and its tints mixed from it; a light header with the logo (or initials), an online dot, an "AI" label and a
+    chevron to minimize; messages in rows with a small picture and "Maya · 2:14 PM" underneath; the visitor's in the
+    bot's colour; the team's with a person icon, a "Team member" label and an outlined bubble; sources as chips; a
+    "Today" label over loaded history; a typing bubble with what the assistant is doing; a handoff divider; a red
+    error banner above a rounded message box with a focus ring, "Write a message…" and an arrow button; the footer
+    "Chats are recorded…" then "Powered by LeadsMagnet AI".
+  - **Bubble:** a new chat icon that turns into a chevron while the chat is open (pointing up when the window opens
+    below it); a keyboard focus ring; a "Drag to move" tip on hover while it's at its corner; a ring while dragged.
+    The window scales in from the bubble when the visitor opens it (not for a chat restored on page load, nor with
+    reduced motion).
+  - **Phone:** the design's larger sizes: 44px targets, 16px message text (so iPhones don't zoom), room for the home bar.
+  - **Kept from the design only in part:** the greeting shows the time it appeared (not a permanent "Just now"); a
+    draggable bubble neither lifts on hover nor grows while dragged (either would shift where a drag starts); the
+    typing bubble stays under the chat as before; the "Drag to move" tip stops once the bubble has been moved.
 
 ## Remaining issues
 
@@ -584,7 +628,9 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | ~~Anonymous visitor merged into an existing contact on an unverified email/phone~~ | P0 | ✅ Fixed in Phase 1 |
 | A genuine returning customer isn't linked until staff merge them (accepted trade-off; verification codes could auto-approve later) | P3 | Not planned yet |
 | Dashboard duplicate-review banner not checked in a browser (skipped by decision; the API flow behind it is tested) | Test gap | Next time the dashboard is previewed |
-| README still says 71 tests (now 225) | Docs | Not planned |
+| README still says 71 tests (now 238) | Docs | Not planned |
+| The widget shows the browser's raw error ("Failed to fetch") when a message can't be sent over the network (found while testing starters; typed messages did this before) | P3 | Not planned |
+| A second tab opened before the visitor's first message keeps showing the conversation starters until it's reloaded (a click there adds its message to the same chat) | P3 | Not planned |
 | ~~`book_appointment` can return a cancelled or moved appointment as booked~~ | P0 | ✅ Fixed in Phase 2 |
 | ~~The AI is told a confirmation was sent when none is~~ | P0 | ✅ Fixed in Phase 2 |
 | ~~Buffers and the daily cap can break when two bookings happen at once~~ | P1 | ✅ Fixed in Phase 2 (verified by review only; see next row) |
@@ -921,6 +967,20 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 - **Website chat: no bubble jump on load (2026-09-29):**
   - Widget: `apps/widget/src/widget.ts`
   - Docs: `PROGRESS.md`
+- **Website chat redesign (2026-09-29):**
+  - Widget: `apps/widget/src/widget.ts`
+  - Docs: `PROGRESS.md`
+- **Conversation starters (2026-09-29):**
+  - Server: `apps/server/src/modules/bots/config.ts` (schema, checks, `offeredStarters`, `handoffStarter`),
+    `apps/server/src/http/routes/widget.ts` (config `starters`, `starterId` on messages),
+    `apps/server/src/http/routes/bots.ts` (Playground `starters`), `apps/server/src/modules/ai/orchestrator.ts`
+    (handoff for a "talk to the team" starter)
+  - Widget: `apps/widget/src/starters.ts` (new), `apps/widget/src/widget.ts`
+  - Dashboard: `apps/dashboard/src/pages/bots/sections.tsx` (`StartersSection`),
+    `apps/dashboard/src/pages/bots/BotEditorPage.tsx` (the tab), `apps/dashboard/src/pages/bots/Playground.tsx`,
+    `apps/dashboard/src/lib/types.ts`
+  - Tests: `apps/server/test/conversation-starters.test.ts` (new)
+  - Docs: `docs/API.md`, `PROGRESS.md`
 - **Website chat: embed address and draggable bubble (2026-09-29):**
   - Server: `apps/server/src/config/env.ts` (`PUBLIC_API_URL` optional), `apps/server/src/modules/channels/service.ts`,
     `apps/server/src/http/routes/channels.ts`, `apps/server/src/main.ts`, `apps/server/src/db/schema/channels.ts`
@@ -1547,6 +1607,52 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     opens it
   - the temporary launch configs were removed; your :4000 and :5173 servers weren't touched
 
+- **Conversation starters (2026-09-29):** 238/238 tests pass (32 files; 13 new) and the typecheck is clean on all
+  three apps. With the new handoff check switched off, the "talk to the team" test failed; the rest cover the
+  configuration, the widget's settings and the widget's own rules.
+  - Covered: bots saved before starters have none; adding, editing, reordering (by `order`), hiding and deleting keep
+    ids and renumber; empty, too long, unknown action, 11 starters and the same text twice are refused with the field
+    at fault; "talk to the team" needs handoff on unless hidden; agents can't change them; the widget and Playground
+    get only enabled starters, in order, with the text a click sends and nothing internal; another organization's
+    widget gets none; a click reaches the AI with `starterId` saved on the message; "talk to the team" hands off
+    without the AI (status, reason, message, team notification); a hidden, deleted or other bot's starter is just a
+    message; the same message id twice keeps one message and one reply; a malformed `starterId` is refused; the
+    widget helper drops malformed starters and shows none once the visitor has written.
+  - **Browser check** on isolated ports with the fake model (no paid calls):
+    - widget: 4 starters under the greeting; a click (and a double click) sent one message, removed the starters,
+      and got the AI's reply; "talk to the team" posted the handoff message and "A member of our team will reply
+      here."; a returning visitor saw their chat and no starters
+    - a send that failed after reaching the server: the message was taken back, the starters came back, and the
+      retry (same id) left one message and one reply
+    - keyboard: Tab moved between starters with a visible focus ring; Enter sent one and moved focus to the message
+      box
+    - a chat restored open with the settings slowed down: the greeting and starters were there on the first visible
+      frame
+    - phone (375×812): full-screen chat, starters wrapped onto three rows inside it, 44px tall, no sideways scrolling;
+      light and dark mode readable
+    - dashboard: the tab loaded the saved starters; moving, hiding, a duplicate text and an empty new starter showed
+      on the fields; saving an empty one was refused with the tab marked; turning handoff off warned on the starter
+      and the save was refused; the empty state added the four suggestions; a good save (version 4) changed the
+      widget's list and order
+    - Playground: showed the saved starters; a double click sent one message; "talk to the team" handed off
+    - no server errors; the temporary launch configs were removed; your :4000 and :5173 servers weren't touched
+
+- **Website chat redesign (2026-09-29):** the typecheck is clean on all three apps and the widget tests pass (29/29:
+  drag, setup, visitor IP, starters). Checked in a browser against a test API with the fake model (no paid calls),
+  measuring against the design:
+  - window 380×640 with 20px corners; header 69px with the 40px picture ("BS"), online dot, "AI" label and a 40px
+    minimize button; 14.5px bubbles with the 6px tail corner; 36px suggested-question pills in the bot's colour; a
+    54px message box; the footer in the new order
+  - a conversation (visitor and AI rows with names and times), the typing bubble, "talk to the team" (handoff
+    divider), a staff reply (team member row), loaded history ("Today"), a failed send (error banner)
+  - dark mode (the design's dark colours, lighter shades of the bot's colour) and a phone (full screen, 16px title,
+    44px targets, 16px input, 28px bottom room, no sideways scrolling)
+  - the bubble: the tip on real hover, the drag ring, a drag landing exactly where it did before (72, 72) without
+    opening the chat, the window opening below it with both chevrons pointing up and scaling in from the bubble; a chat
+    restored open appears in place with no animation and no wrong frames
+  - your demo page (:5180 with your :4000) showed your colour, logo, greeting and starters; no messages were sent
+    there (they would call OpenAI). The temporary launch configs were removed; your servers weren't touched.
+
 ### Verification log
 
 <!-- verification-log:start -->
@@ -1731,6 +1837,9 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | 2026-09-29 | Visitor IP on the conversation's metadata (not the contact, whose snapshot goes to webhooks and workflows), a `TRUST_PROXY` setting, a plain-text "Powered by" line, and no IP for playground chats | User |
 | 2026-09-29 | `TRUST_PROXY` takes proxy addresses and ranges only; a number of hops is refused because Fastify ignores it (it can't tell a proxy from a visitor) | Implementation |
 | 2026-09-29 | The widget stays hidden until its settings are applied instead of drawing the default spot first; no timers or delays | User |
+| 2026-09-29 | Conversation starters: "send message" and "talk to the team" actions, shown under the greeting until the visitor's first message, and in the Playground | User |
+| 2026-09-29 | Starters live in the bot's configuration (no table or migration); the widget gets the text a click sends but not the action, and the server checks a clicked starter against the bot's current ones before handing off | Implementation |
+| 2026-09-29 | Widget redesign from the design canvas: light header, "LeadsMagnet AI" in the footer, starters as the design's suggested questions; the bot's colour stays the only accent | User |
 
 ## Next phase
 

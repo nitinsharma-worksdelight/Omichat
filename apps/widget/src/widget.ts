@@ -6,6 +6,7 @@
  */
 
 import { clamp, fromSaved, isDrag, parseSaved, placement, toSaved, type Point, type SavedPosition, type Side } from './drag';
+import { startersToOffer, type Starter } from './starters';
 
 interface Theme {
   primaryColor?: string;
@@ -23,6 +24,8 @@ interface WidgetConfig {
   greeting: string;
   assistantName: string;
   companyName: string;
+  /** Conversation starters (enabled ones, in order); absent from older servers. */
+  starters?: Starter[];
 }
 
 interface PublicMessage {
@@ -125,71 +128,198 @@ function timezone(): string | undefined {
 const STYLES = `
 :host { all: initial; }
 * { box-sizing: border-box; }
-.root { --c: #4f46e5; --bg: #ffffff; --fg: #0f172a; --muted: #64748b; --line: #e2e8f0; --bubble: #f1f5f9;
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--fg);
+.root { --c: #4f46e5;
+  --bg: #ffffff; --fg: #14161b; --title: #14161b; --fg-2: #5b6475; --muted: #6b7280; --strong: #3f4654;
+  --line: #e3e5ea; --line-soft: #eceef2; --field-line: #dfe2e8; --field-bg: #ffffff; --bubble: #f2f3f6; --chip-bg: #ffffff;
+  --online: #16a34a; --err-bg: #fef2f2; --err-line: #fde0e0; --err-fg: #b91c1c;
+  /* Tints of the bot's colour; neutral stand-ins where color-mix() isn't supported. */
+  --accent-text: var(--c); --avatar-fg: var(--c); --accent-line: var(--c);
+  --accent-soft: #eef0f4; --accent-pill: #eef0f4; --accent-hover: #f2f3f6; --accent-ring: rgba(15, 23, 42, .12);
+  --accent-shadow: rgba(15, 23, 42, .28); --accent-shadow-strong: rgba(15, 23, 42, .32); --drag-ring: rgba(15, 23, 42, .12);
+  --panel-shadow: 0 0 0 1px rgba(15, 23, 42, .06), 0 12px 28px -6px rgba(15, 23, 42, .16), 0 32px 64px -24px rgba(15, 23, 42, .24);
+  --launcher-shadow: 0 10px 24px -6px var(--accent-shadow), 0 2px 6px rgba(15, 23, 42, .14);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; color-scheme: light dark; color: var(--fg);
   position: fixed; bottom: 20px; z-index: 2147483000; }
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .root { --accent-line: color-mix(in srgb, var(--c) 32%, transparent); --accent-soft: color-mix(in srgb, var(--c) 12%, transparent);
+    --accent-pill: color-mix(in srgb, var(--c) 10%, transparent); --accent-hover: color-mix(in srgb, var(--c) 6%, transparent);
+    --accent-ring: color-mix(in srgb, var(--c) 16%, transparent); --accent-shadow: color-mix(in srgb, var(--c) 45%, transparent);
+    --accent-shadow-strong: color-mix(in srgb, var(--c) 55%, transparent); --drag-ring: color-mix(in srgb, var(--c) 18%, transparent); }
+}
+@media (prefers-color-scheme: dark) {
+  .root { --bg: #121418; --fg: #e8eaef; --title: #eef0f4; --fg-2: #a1a9b7; --muted: #8f98a8; --strong: #c9ced8;
+    --line: #2b2f38; --line-soft: #23262e; --field-line: #2b2f38; --field-bg: #1a1d23; --bubble: #1e2129; --chip-bg: transparent;
+    --online: #22c55e; --err-bg: rgba(239, 68, 68, .12); --err-line: rgba(239, 68, 68, .3); --err-fg: #fca5a5;
+    --accent-text: var(--fg); --avatar-fg: var(--fg); --accent-soft: #2b2f38; --accent-pill: #2b2f38;
+    --panel-shadow: 0 0 0 1px rgba(255, 255, 255, .07), 0 16px 32px -8px rgba(0, 0, 0, .5), 0 32px 64px -24px rgba(0, 0, 0, .6);
+    --launcher-shadow: 0 10px 24px -6px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .08); }
+  @supports (color: color-mix(in srgb, red 50%, blue)) {
+    /* Lighter shades of the bot's colour, readable on the dark surface. */
+    .root { --accent-text: color-mix(in srgb, var(--c) 45%, #fff); --avatar-fg: color-mix(in srgb, var(--c) 40%, #fff);
+      --accent-line: color-mix(in srgb, color-mix(in srgb, var(--c) 70%, #fff) 50%, transparent);
+      --accent-soft: color-mix(in srgb, var(--c) 24%, transparent); --accent-pill: color-mix(in srgb, var(--c) 24%, transparent);
+      --accent-hover: color-mix(in srgb, var(--c) 14%, transparent); }
+  }
+}
 .root.right { right: 20px; } .root.left { left: 20px; }
 .root:not(.ready) { visibility: hidden; }
-@media (prefers-color-scheme: dark) {
-  .root { --bg: #0f172a; --fg: #e2e8f0; --muted: #94a3b8; --line: #1e293b; --bubble: #1e293b; }
+button { font: inherit; }
+.launcher { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; height: 56px; min-width: 56px;
+  padding: 0 22px 0 18px; border: 0; border-radius: 28px; background: var(--c); color: #fff; cursor: pointer;
+  font-size: 15px; font-weight: 600; line-height: 20px; white-space: nowrap;
+  box-shadow: var(--launcher-shadow); transition: transform .15s, box-shadow .15s; }
+.launcher.icon-only { width: 56px; padding: 0; }
+.launcher svg { width: 22px; height: 22px; flex: none; }
+.launcher.icon-only .i-chat { width: 26px; height: 26px; }
+.launcher.icon-only .i-open { width: 24px; height: 24px; }
+.launcher .i-open, .root.open .launcher .i-chat { display: none; }
+.root.open .launcher .i-open { display: block; }
+.root.moved.below .launcher .i-open, .root.moved.below .head .x svg { transform: rotate(180deg); }
+.launcher:focus-visible { outline: none; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--c), var(--launcher-shadow); }
+.launcher.draggable { touch-action: none; -webkit-user-select: none; user-select: none; cursor: grab; }
+.root.dragging .launcher { cursor: grabbing; transform: none; transition: none;
+  box-shadow: 0 0 0 6px var(--drag-ring), 0 22px 40px -10px var(--accent-shadow-strong), 0 4px 10px rgba(15, 23, 42, .18); }
+@media (hover: hover) {
+  .launcher:hover { box-shadow: 0 16px 32px -8px var(--accent-shadow), 0 3px 8px rgba(15, 23, 42, .16); }
+  .launcher:not(.draggable):hover { transform: translateY(-2px); }
+  /* A tip to find out the bubble can be moved; once it has been, it's no longer needed. */
+  .launcher.draggable::after { content: 'Drag to move'; position: absolute; bottom: calc(100% + 12px); padding: 6px 10px;
+    border-radius: 8px; background: #14161b; color: #fff; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap;
+    pointer-events: none; opacity: 0; transition: opacity .15s; }
+  .root.right .launcher.draggable::after { right: 0; } .root.left .launcher.draggable::after { left: 0; }
+  .root:not(.moved):not(.open):not(.dragging) .launcher.draggable:hover::after { opacity: 1; transition-delay: .3s; }
 }
-.launcher { display: flex; align-items: center; gap: 8px; height: 56px; min-width: 56px; padding: 0 18px; border: 0;
-  border-radius: 28px; background: var(--c); color: #fff; cursor: pointer; font: 600 15px/1 inherit;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, .25); transition: transform .15s; }
-.launcher:hover { transform: translateY(-1px); }
-.launcher svg { width: 24px; height: 24px; flex: none; }
-.launcher.icon-only { padding: 0; justify-content: center; width: 56px; }
 .panel { position: absolute; bottom: 72px; width: 380px; height: min(640px, calc(100vh - 110px)); display: none;
-  flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
-  box-shadow: 0 16px 48px rgba(15, 23, 42, .28); }
-.root.right .panel { right: 0; } .root.left .panel { left: 0; }
+  flex-direction: column; background: var(--bg); border-radius: 20px; overflow: hidden; box-shadow: var(--panel-shadow);
+  transform-origin: calc(100% - 28px) calc(100% + 44px); }
+.root.right .panel { right: 0; } .root.left .panel { left: 0; transform-origin: 28px calc(100% + 44px); }
 .root.open .panel { display: flex; }
-.head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: var(--c); color: #fff; }
-.head img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: rgba(255,255,255,.2); }
-.head .t { font-weight: 600; font-size: 15px; } .head .s { font-size: 12px; opacity: .85; }
-.head .x { margin-left: auto; background: transparent; border: 0; color: #fff; cursor: pointer; padding: 6px; border-radius: 8px; }
-.head .x:hover { background: rgba(255,255,255,.15); }
-.log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-.msg { max-width: 85%; padding: 9px 12px; border-radius: 14px; white-space: pre-wrap; word-wrap: break-word; }
+/* Opened by the visitor, the window scales in from the bubble. */
+.root.anim.open .panel { animation: pop .2s cubic-bezier(.2, .9, .3, 1); }
+@keyframes pop { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
+.head { display: flex; align-items: center; gap: 12px; padding: 14px 12px 14px 16px; background: var(--bg); border-bottom: 1px solid var(--line-soft); }
+.face { position: relative; width: 40px; height: 40px; flex: none; }
+.face .av { width: 40px; height: 40px; font-size: 14px; letter-spacing: .02em; }
+.face .dot { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border-radius: 50%; background: var(--online); border: 2px solid var(--bg); }
+.titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.head .t { font-size: 15px; font-weight: 600; line-height: 20px; letter-spacing: -.01em; color: var(--title); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.head .s { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; line-height: 18px; color: var(--fg-2); }
+.head .s span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai { flex: none; padding: 0 6px; border-radius: 999px; background: var(--accent-pill); color: var(--accent-text); font-size: 10px; font-weight: 700; letter-spacing: .06em; line-height: 16px; }
+.head .x { flex: none; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 12px; background: transparent; color: var(--fg-2); cursor: pointer; }
+.head .x svg { width: 20px; height: 20px; transition: transform .15s; }
+.log { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 16px 12px; display: flex; flex-direction: column; gap: 12px; scrollbar-width: thin; }
+.day { align-self: center; font-size: 11.5px; font-weight: 500; line-height: 16px; color: var(--muted); }
+.row { display: flex; align-items: flex-end; gap: 8px; }
+.row.me { justify-content: flex-end; }
+.av { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%;
+  background: var(--accent-soft); color: var(--avatar-fg); font-size: 10.5px; font-weight: 600; }
+.av img { width: 100%; height: 100%; object-fit: cover; }
+.row .av { margin-bottom: 20px; }
+.av.person { background: var(--line-soft); color: var(--strong); }
+.av.person svg { width: 14px; height: 14px; }
+.col { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; max-width: 280px; }
+.row.me .col { align-items: flex-end; }
+.label { padding-left: 4px; font-size: 12px; font-weight: 600; line-height: 16px; color: var(--strong); }
+.msg { max-width: 100%; padding: 10px 14px; border-radius: 18px 18px 18px 6px; font-size: 14.5px; line-height: 21px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg a { color: inherit; text-decoration: underline; }
-.msg.user { align-self: flex-end; background: var(--c); color: #fff; border-bottom-right-radius: 4px; }
-.msg.assistant, .msg.agent { align-self: flex-start; background: var(--bubble); border-bottom-left-radius: 4px; }
-.who { align-self: flex-start; font-size: 11px; color: var(--muted); margin: 4px 0 -4px 4px; }
-.sources { align-self: flex-start; display: flex; flex-wrap: wrap; gap: 6px; margin-top: -2px; }
-.sources a { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; text-decoration: none; }
-.notice { align-self: center; font-size: 12px; color: var(--muted); text-align: center; padding: 4px 8px; }
-.status { min-height: 20px; padding: 0 16px 4px; font-size: 12px; color: var(--muted); }
-.dots { display: inline-flex; gap: 3px; vertical-align: middle; }
+.msg.assistant { background: var(--bubble); color: var(--fg); }
+.msg.agent { background: var(--bg); color: var(--fg); border: 1px solid var(--line); }
+.msg.user { background: var(--c); color: #fff; border-radius: 18px 18px 6px 18px; }
+.meta { padding: 0 4px; font-size: 11.5px; line-height: 16px; color: var(--muted); }
+.sources { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; margin-top: 2px; }
+.sources a { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 26px; padding: 0 10px; border: 1px solid var(--line);
+  border-radius: 13px; background: var(--chip-bg); color: var(--strong); font-size: 12px; font-weight: 500; text-decoration: none; }
+.sources a svg { width: 12px; height: 12px; flex: none; }
+.sources a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notice { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--fg-2); }
+.notice::before, .notice::after { content: ''; flex: 1; height: 1px; background: var(--line-soft); }
+.notice svg { width: 14px; height: 14px; flex: none; margin-right: -4px; }
+.starters { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding-left: 36px; margin-top: 4px; }
+.starter { max-width: 100%; min-height: 36px; padding: 7px 14px; border: 1px solid var(--accent-line); border-radius: 18px;
+  background: var(--chip-bg); color: var(--accent-text); font-size: 13.5px; font-weight: 500; line-height: 20px; text-align: right;
+  cursor: pointer; overflow-wrap: anywhere; transition: background-color .15s, border-color .15s; }
+.starter:focus-visible, .send:focus-visible, .head .x:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.starter:disabled { opacity: .55; cursor: default; }
+@media (pointer: coarse) { .starter { min-height: 44px; } }
+@media (hover: hover) {
+  .starter:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--c); }
+  .head .x:hover { background: var(--bubble); color: var(--fg); }
+  .sources a:hover { border-color: var(--fg-2); color: var(--fg); }
+}
+.status { display: flex; align-items: center; gap: 8px; padding: 0 16px 12px; }
+.status:empty { display: none; }
+.dots { display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 14px; border-radius: 18px 18px 18px 6px; background: var(--bubble); }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: b 1.2s infinite; }
 .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
-@keyframes b { 0%, 60%, 100% { opacity: .3; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
-@media (prefers-reduced-motion: reduce) { .dots i { animation: none; } .launcher { transition: none; } }
-form { display: flex; gap: 8px; padding: 10px 12px 6px; border-top: 1px solid var(--line); }
-.brand { padding: 2px 16px 10px; text-align: center; font-size: 11px; line-height: 16px; color: var(--muted); }
-textarea { flex: 1; resize: none; max-height: 120px; min-height: 40px; padding: 10px 12px; border: 1px solid var(--line);
-  border-radius: 12px; font: inherit; color: inherit; background: transparent; outline: none; }
-textarea:focus { border-color: var(--c); }
-.send { flex: none; width: 40px; height: 40px; border: 0; border-radius: 12px; background: var(--c); color: #fff; cursor: pointer; }
+@keyframes b { 0%, 60%, 100% { opacity: .35; transform: none; } 30% { opacity: .9; transform: translateY(-2px); } }
+.activity { min-width: 0; font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.err { display: flex; align-items: center; gap: 8px; margin: 0 12px 8px; padding: 8px 12px; border: 1px solid var(--err-line); border-radius: 12px;
+  background: var(--err-bg); color: var(--err-fg); font-size: 12.5px; font-weight: 500; line-height: 18px; }
+.err:empty { display: none; }
+.err::before { content: ''; width: 16px; height: 16px; flex: none; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E") center / contain no-repeat; }
+form { display: flex; align-items: flex-end; gap: 8px; margin: 4px 12px 0; padding: 6px 6px 6px 14px; border: 1px solid var(--field-line);
+  border-radius: 16px; background: var(--field-bg); box-shadow: 0 1px 2px rgba(15, 23, 42, .05); transition: border-color .15s, box-shadow .15s; }
+form:focus-within { border-color: var(--c); box-shadow: 0 0 0 3px var(--accent-ring); }
+textarea { flex: 1; min-width: 0; height: 40px; min-height: 40px; max-height: 120px; padding: 10px 0; border: 0; outline: none; resize: none;
+  background: transparent; color: var(--fg); font: inherit; font-size: 14.5px; line-height: 20px; }
+textarea::placeholder { color: var(--muted); opacity: 1; }
+.send { flex: none; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 12px;
+  background: var(--c); color: #fff; cursor: pointer; }
+.send svg { width: 18px; height: 18px; }
 .send:disabled { opacity: .5; cursor: default; }
-.err { padding: 0 16px 6px; font-size: 12px; color: #dc2626; }
+.brand { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 16px 12px; text-align: center;
+  font-size: 11px; line-height: 16px; color: var(--muted); }
+.bn { font-weight: 600; color: var(--strong); white-space: nowrap; }
+.bn svg { width: 12px; height: 12px; margin-right: 3px; vertical-align: -2px; }
 .root.moved { left: var(--x); top: var(--y); right: auto; bottom: auto; }
-.root.moved .panel { left: var(--panel-x, 0px); right: auto; height: var(--panel-h, min(640px, calc(100vh - 110px))); }
-.root.moved.below .panel { top: 72px; bottom: auto; }
-.launcher.draggable { touch-action: none; -webkit-user-select: none; user-select: none; }
-.root.dragging .launcher { cursor: grabbing; transform: none; transition: none; }
+.root.moved .panel { left: var(--panel-x, 0px); right: auto; height: var(--panel-h, min(640px, calc(100vh - 110px)));
+  transform-origin: calc(28px - var(--panel-x, 0px)) calc(100% + 44px); }
+.root.moved.below .panel { top: 72px; bottom: auto; transform-origin: calc(28px - var(--panel-x, 0px)) -44px; }
 @media (max-width: 480px) {
   .root.open, .root.open.moved { inset: 0; }
-  .root.open .panel, .root.open.moved .panel { position: fixed; inset: 0; width: 100%; height: 100%; border-radius: 0; bottom: 0; }
+  .root.open .panel, .root.open.moved .panel { position: fixed; inset: 0; width: 100%; height: 100%; border-radius: 0; bottom: 0;
+    box-shadow: none; transform-origin: 50% 100%; }
   .root.open .launcher { display: none; }
+  .head { padding: 12px 8px 12px 16px; }
+  .head .t { font-size: 16px; line-height: 21px; }
+  .head .s { font-size: 13px; }
+  .head .x { width: 44px; height: 44px; }
+  .head .x svg { width: 22px; height: 22px; }
+  .col { max-width: 290px; }
+  .msg { padding: 11px 15px; font-size: 15px; line-height: 22px; }
+  .meta { font-size: 12px; }
+  .starter { min-height: 44px; padding: 10px 16px; border-radius: 22px; font-size: 14.5px; }
+  form { margin: 8px 12px 0; padding: 6px 6px 6px 16px; border-radius: 18px; }
+  textarea { height: 44px; min-height: 44px; padding: 12px 0; font-size: 16px; }
+  .send { width: 44px; height: 44px; border-radius: 14px; }
+  .send svg { width: 20px; height: 20px; }
+  .brand { padding-bottom: max(28px, env(safe-area-inset-bottom)); font-size: 11.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dots i, .root.anim.open .panel { animation: none; }
+  .launcher, .starter, form, .head .x svg { transition: none; }
+  .launcher:not(.draggable):hover { transform: none; }
 }
 `;
 
 const ICON_CHAT =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-const ICON_CLOSE =
-  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+  '<svg class="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
+const ICON_CHEVRON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+/** The bubble's icons: a chat bubble while closed, a chevron towards the bubble while open. */
+const LAUNCHER_ICONS = `${ICON_CHAT}${ICON_CHEVRON.replace('<svg ', '<svg class="i-open" ')}`;
 const ICON_SEND =
-  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>';
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>';
+const ICON_DOC =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>';
+const ICON_PERSON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>';
+const ICON_MAGNET =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4v8a7 7 0 0 0 14 0V4h-5v8a2 2 0 0 1-4 0V4Z"/><path d="M5 8h5"/><path d="M14 8h5"/></svg>';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -213,6 +343,31 @@ function renderText(target: HTMLElement, text: string) {
       target.appendChild(document.createTextNode(part.replace(/\*\*(.+?)\*\*/g, '$1')));
     }
   });
+}
+
+/** Up to two initials for a picture-less avatar: "Bright Smile Dental" → "BS". */
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((word) => /[\p{L}\p{N}]/u.exec(word)?.[0] ?? '')
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
+/** A message's time in the visitor's own format, e.g. "2:14 PM". */
+function timeOf(at: Date): string {
+  return at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+/** The label over a day's messages: "Today", "Yesterday" or the date. */
+function dayOf(at: Date): string {
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (at.toDateString() === today.toDateString()) return 'Today';
+  if (at.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return at.toLocaleDateString([], { day: 'numeric', month: 'short', ...(at.getFullYear() === today.getFullYear() ? {} : { year: 'numeric' }) });
 }
 
 function viewport() {
@@ -241,6 +396,15 @@ class ChatWidget {
   private reconnectDelay = 1000;
   private sessionPromise: Promise<void> | null = null;
   private sending = false;
+  /** The messages the session started with (null until it has): the greeting and starters wait for it and the settings. */
+  private sessionMessages: PublicMessage[] | null = null;
+  private introShown = false;
+  /** The conversation starters on show; removed once the visitor has written. */
+  private starters: HTMLDivElement | null = null;
+  /** Each starter's message id for its latest attempt: a retry after an unclear failure can't send it twice. */
+  private readonly starterAttempts = new Map<string, string>();
+  /** The day of the last message shown, for the "Today" (or date) label over each day's first message. */
+  private lastDay: string | null = null;
 
   /** The side the business chose for the bubble (where it starts). */
   private side: Side = 'right';
@@ -270,28 +434,32 @@ class ChatWidget {
     this.panel.setAttribute('aria-label', 'Chat');
 
     const head = el('div', 'head');
-    const avatar = el('img');
-    avatar.alt = '';
-    avatar.style.display = 'none';
-    const titles = el('div');
+    const face = el('div', 'face');
+    face.append(this.botFace(), el('span', 'dot'));
+    const titles = el('div', 'titles');
     const title = el('div', 't', 'Chat with us');
-    const subtitle = el('div', 's', 'We typically reply in seconds');
-    titles.append(title, subtitle);
+    const byline = el('div', 's');
+    const subtitle = el('span', undefined, 'We typically reply in seconds');
+    byline.append(el('span', 'ai', 'AI'), subtitle);
+    titles.append(title, byline);
     const close = el('button', 'x');
-    close.innerHTML = ICON_CLOSE;
-    close.setAttribute('aria-label', 'Close chat');
+    close.type = 'button';
+    close.innerHTML = ICON_CHEVRON;
+    close.setAttribute('aria-label', 'Minimize chat');
     close.addEventListener('click', () => this.toggle(false));
-    head.append(avatar, titles, close);
+    head.append(face, titles, close);
 
     this.log = el('div', 'log');
+    this.log.setAttribute('role', 'log');
     this.log.setAttribute('aria-live', 'polite');
     this.statusLine = el('div', 'status');
     this.errorLine = el('div', 'err');
+    this.errorLine.setAttribute('role', 'alert');
 
     const form = el('form');
     this.input = el('textarea');
     this.input.rows = 1;
-    this.input.placeholder = 'Type your message…';
+    this.input.placeholder = 'Write a message…';
     this.input.setAttribute('aria-label', 'Message');
     this.input.maxLength = 4000;
     this.sendBtn = el('button', 'send');
@@ -315,10 +483,16 @@ class ChatWidget {
     });
 
     const brand = el('div', 'brand');
-    brand.append(el('div', undefined, 'Powered by LeadsMagnet AI'), el('div', undefined, 'Chats are recorded so our team can assist you.'));
+    const poweredBy = el('div', undefined, 'Powered by ');
+    const brandName = el('span', 'bn');
+    brandName.innerHTML = ICON_MAGNET;
+    brandName.append('LeadsMagnet AI');
+    poweredBy.append(brandName);
+    brand.append(el('div', undefined, 'Chats are recorded so our team can assist you.'), poweredBy);
     this.panel.append(head, this.log, this.statusLine, this.errorLine, form, brand);
     this.launcher = el('button', 'launcher icon-only');
-    this.launcher.innerHTML = ICON_CHAT;
+    this.launcher.type = 'button';
+    this.launcher.innerHTML = LAUNCHER_ICONS;
     this.launcher.setAttribute('aria-label', 'Open chat');
     this.launcher.addEventListener('click', () => {
       if (this.swallowClick) {
@@ -334,11 +508,11 @@ class ChatWidget {
       if (e.key === 'Escape') this.toggle(false);
     });
 
-    void this.loadConfig(title, subtitle, avatar);
+    void this.loadConfig(title, subtitle);
     if (store('open') === '1') this.toggle(true);
   }
 
-  private async loadConfig(title: HTMLElement, subtitle: HTMLElement, avatar: HTMLImageElement) {
+  private async loadConfig(title: HTMLElement, subtitle: HTMLElement) {
     try {
       const res = await fetch(`${API}/widget/v1/config?key=${encodeURIComponent(KEY)}`);
       if (!res.ok) throw new Error(String(res.status));
@@ -348,19 +522,25 @@ class ChatWidget {
       this.side = t.position === 'left' ? 'left' : 'right';
       this.root.classList.toggle('left', this.side === 'left');
       this.root.classList.toggle('right', this.side === 'right');
-      title.textContent = t.title || this.config.companyName || this.config.assistantName;
+      title.textContent = this.displayName();
+      this.panel.setAttribute('aria-label', `Chat with ${title.textContent}`);
       subtitle.textContent = t.subtitle || `${this.config.assistantName} · usually replies instantly`;
-      if (t.avatarUrl) {
-        avatar.src = t.avatarUrl;
-        avatar.style.display = '';
-      }
+      // The pictures and names drawn before the settings arrived (the header, or a chat restored with its history).
+      this.root.querySelectorAll<HTMLElement>('.av.bot').forEach((av) => this.fillFace(av));
+      this.root.querySelectorAll<HTMLElement>('.meta .name').forEach((name) => {
+        name.textContent = `${this.config!.assistantName} · `;
+      });
       if (t.launcherText) {
         this.launcher.classList.remove('icon-only');
-        this.launcher.innerHTML = `${ICON_CHAT}<span></span>`;
+        this.launcher.innerHTML = `${LAUNCHER_ICONS}<span></span>`;
         this.launcher.querySelector('span')!.textContent = t.launcherText;
+        // Its words are its name.
+        this.launcher.removeAttribute('aria-label');
       }
       // After the launcher text: the bubble's final size decides where it may go.
       if (t.draggable) this.enableDragging();
+      // A chat restored as open may have its session already.
+      this.showIntro();
       // Everything above is applied in this same step, so the widget's first visible frame is its final look and place.
       this.root.classList.add('ready');
       if (this.focusWhenReady && this.root.classList.contains('open')) this.input.focus();
@@ -373,8 +553,11 @@ class ChatWidget {
   toggle(force?: boolean) {
     const open = force ?? !this.root.classList.contains('open');
     if (open) this.placePanel();
+    // Opened by the visitor, the window scales in; a chat restored as the page loads is simply there.
+    this.root.classList.toggle('anim', this.root.classList.contains('ready'));
     this.root.classList.toggle('open', open);
     this.launcher.setAttribute('aria-expanded', String(open));
+    if (this.launcher.classList.contains('icon-only')) this.launcher.setAttribute('aria-label', open ? 'Close chat' : 'Open chat');
     store('open', open ? '1' : null);
     if (open) {
       void this.ensureSession().then(() => {
@@ -497,10 +680,9 @@ class ChatWidget {
       store('visitor', data.visitorId);
       this.conversationId = data.conversationId;
       this.setStatus(data.status);
-      if (!data.messages.length && this.log.childElementCount === 0 && this.config?.greeting) {
-        this.addBubble({ id: 'greeting', role: 'assistant', content: this.config.greeting, createdAt: '', sources: [] });
-      }
       data.messages.forEach((m) => this.addBubble(m));
+      this.sessionMessages ??= data.messages;
+      this.showIntro();
       this.error('');
       if (this.conversationId) this.openStream();
     } catch (err) {
@@ -509,23 +691,78 @@ class ChatWidget {
     }
   }
 
+  /** The greeting and the conversation starters, once both the settings and the session are in (either may come first). */
+  private showIntro() {
+    if (this.introShown || !this.config || !this.sessionMessages) return;
+    this.introShown = true;
+    // Only in a fresh chat: not over earlier messages, nor once the visitor has started writing.
+    if (this.sessionMessages.length || this.log.childElementCount) return;
+    // A brand-new chat needs no "Today" label.
+    this.lastDay = new Date().toDateString();
+    if (this.config.greeting) this.addBubble({ id: 'greeting', role: 'assistant', content: this.config.greeting, createdAt: '', sources: [] });
+    const starters = startersToOffer(this.config.starters, this.sessionMessages);
+    if (starters.length) this.renderStarters(starters);
+  }
+
+  private renderStarters(starters: Starter[]) {
+    const group = el('div', 'starters');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Suggested questions');
+    for (const starter of starters) {
+      const button = el('button', 'starter', starter.label);
+      button.type = 'button';
+      // Pressed with the keyboard (no pointer: detail 0), the message box is next; a tap doesn't pop up a phone's keyboard.
+      button.addEventListener('click', (e) => void this.sendStarter(starter, e.detail === 0));
+      group.append(button);
+    }
+    this.log.append(group);
+    this.starters = group;
+    this.scroll();
+  }
+
+  private removeStarters() {
+    this.starters?.remove();
+    this.starters = null;
+  }
+
+  private setStartersDisabled(disabled: boolean) {
+    this.starters?.querySelectorAll('button').forEach((b) => {
+      b.disabled = disabled;
+    });
+  }
+
   private async send() {
     const content = this.input.value.trim();
     if (!content || this.sending) return;
-    this.sending = true;
-    this.sendBtn.disabled = true;
-    const clientMessageId = uid();
-    const optimistic: PublicMessage = { id: `local-${clientMessageId}`, role: 'user', content, createdAt: new Date().toISOString(), sources: [] };
-    this.addBubble(optimistic);
     this.input.value = '';
     this.input.style.height = '';
+    await this.post(content, uid());
+  }
+
+  /** A click on a conversation starter sends its message as the visitor's; a failed one can be clicked again. */
+  private async sendStarter(starter: Starter, fromKeyboard: boolean) {
+    if (this.sending) return;
+    if (fromKeyboard) this.input.focus();
+    // The same id on a retry: if the first try did arrive after all, the server keeps one message.
+    const clientMessageId = this.starterAttempts.get(starter.id) ?? uid();
+    this.starterAttempts.set(starter.id, clientMessageId);
+    await this.post(starter.message, clientMessageId, starter.id);
+  }
+
+  /** Sends one visitor message, shown straight away. Starters stay unclickable meanwhile and go once it's in. */
+  private async post(content: string, clientMessageId: string, starterId?: string) {
+    this.sending = true;
+    this.sendBtn.disabled = true;
+    this.setStartersDisabled(true);
+    const optimistic: PublicMessage = { id: `local-${clientMessageId}`, role: 'user', content, createdAt: new Date().toISOString(), sources: [] };
+    const bubble = this.addBubble(optimistic);
     try {
       await this.ensureSession();
       const post = () =>
         fetch(`${API}/widget/v1/messages`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
-          body: JSON.stringify({ content, clientMessageId, pageUrl: pageUrl(), firstTouch: firstTouch(), timezone: timezone() }),
+          body: JSON.stringify({ content, clientMessageId, pageUrl: pageUrl(), firstTouch: firstTouch(), timezone: timezone(), starterId }),
         });
       let res = await post();
       if (res.status === 401) {
@@ -544,11 +781,18 @@ class ChatWidget {
       }
       if (this.status !== 'human_active') this.showTyping();
       this.error('');
+      this.removeStarters();
     } catch (err) {
       this.error((err as Error).message);
+      // Unsent: a starter's message comes back off the screen, so the visitor can simply click it again.
+      if (starterId) {
+        bubble?.remove();
+        this.rendered.delete(optimistic.id);
+      }
     } finally {
       this.sending = false;
       this.sendBtn.disabled = false;
+      this.setStartersDisabled(false);
     }
   }
 
@@ -621,12 +865,14 @@ class ChatWidget {
         break;
       case 'ai.delta': {
         if (!this.streamingBubble) {
-          this.streamingBubble = el('div', 'msg assistant');
+          // The reply's own row replaces the typing dots while its words arrive.
+          this.hideTyping();
+          this.streamingBubble = this.messageRow('assistant', new Date()).row;
           this.streamingBubble.dataset.raw = '';
           this.log.appendChild(this.streamingBubble);
         }
         this.streamingBubble.dataset.raw = (this.streamingBubble.dataset.raw ?? '') + String(data.text ?? '');
-        renderText(this.streamingBubble, this.streamingBubble.dataset.raw);
+        renderText(this.streamingBubble.querySelector<HTMLElement>('.msg')!, this.streamingBubble.dataset.raw);
         this.scroll();
         break;
       }
@@ -652,8 +898,10 @@ class ChatWidget {
     }
   }
 
-  private addBubble(m: PublicMessage) {
-    if (this.rendered.has(m.id)) return;
+  private addBubble(m: PublicMessage): HTMLElement | null {
+    if (this.rendered.has(m.id)) return null;
+    // A message of the visitor's from the server: they have written, so the starters are done.
+    if (m.role === 'user' && !m.id.startsWith('local-')) this.removeStarters();
     // Replace the optimistic copy of our own message once the server echoes it.
     if (m.role === 'user') {
       const local = [...this.log.querySelectorAll<HTMLElement>('.msg.user[data-local]')].find((n) => n.dataset.content === m.content);
@@ -662,31 +910,100 @@ class ChatWidget {
         local.dataset.id = m.id;
         this.rendered.add(m.id);
         this.track(m.id);
-        return;
+        return null;
       }
     }
     this.rendered.add(m.id);
     if (m.id !== 'greeting') this.track(m.id);
-    if (m.role === 'agent') this.log.appendChild(el('div', 'who', 'Team member'));
-    const bubble = el('div', `msg ${m.role}`);
+    const sent = new Date(m.createdAt);
+    const at = Number.isNaN(sent.getTime()) ? new Date() : sent;
+    this.dayLabel(at);
+    const { row, col, bubble, meta } = this.messageRow(m.role, at);
     renderText(bubble, m.content);
     if (m.id.startsWith('local-')) {
       bubble.setAttribute('data-local', '');
       bubble.dataset.content = m.content;
     }
-    this.log.appendChild(bubble);
     if (m.sources.length) {
       const wrap = el('div', 'sources');
       for (const s of m.sources.slice(0, 3)) {
-        const a = el('a', undefined, s.title.split(' › ').pop());
+        const a = el('a');
+        a.innerHTML = ICON_DOC;
+        a.append(el('span', undefined, s.title.split(' › ').pop()));
         a.href = s.url;
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         wrap.appendChild(a);
       }
-      this.log.appendChild(wrap);
+      col.insertBefore(wrap, meta);
     }
+    this.log.appendChild(row);
     this.scroll();
+    return row;
+  }
+
+  /**
+   * A message's row: the assistant's and the team's on the left with a picture, the visitor's on the right, each with
+   * its time underneath (and the assistant's name).
+   */
+  private messageRow(role: PublicMessage['role'], at: Date) {
+    const row = el('div', `row ${role === 'user' ? 'me' : role}`);
+    const col = el('div', 'col');
+    const bubble = el('div', `msg ${role}`);
+    const meta = el('div', 'meta');
+    if (role === 'assistant') {
+      row.append(this.botFace());
+      meta.append(el('span', 'name', this.config ? `${this.config.assistantName} · ` : ''));
+    } else if (role === 'agent') {
+      const face = el('div', 'av person');
+      face.setAttribute('aria-hidden', 'true');
+      face.innerHTML = ICON_PERSON;
+      row.append(face);
+      col.append(el('div', 'label', 'Team member'));
+    }
+    meta.append(timeOf(at));
+    col.append(bubble, meta);
+    row.append(col);
+    return { row, col, bubble, meta };
+  }
+
+  /** "Today" (or the date) over the first message of each day. */
+  private dayLabel(at: Date) {
+    const day = at.toDateString();
+    if (day === this.lastDay) return;
+    this.lastDay = day;
+    this.log.appendChild(el('div', 'day', dayOf(at)));
+  }
+
+  /** What the chat is called: the header title the business chose, else its name, else the assistant's. */
+  private displayName(): string {
+    const c = this.config;
+    return c ? c.theme.title || c.companyName || c.assistantName : '';
+  }
+
+  /** The assistant's picture: its logo, else the initials; filled in once the settings are in. */
+  private botFace(): HTMLElement {
+    const av = el('div', 'av bot');
+    av.setAttribute('aria-hidden', 'true');
+    this.fillFace(av);
+    return av;
+  }
+
+  private fillFace(av: HTMLElement) {
+    if (!this.config) return;
+    const initials = initialsOf(this.displayName());
+    av.textContent = initials;
+    const src = this.config.theme.avatarUrl;
+    if (!src) return;
+    const img = el('img');
+    img.alt = '';
+    // A logo that won't load leaves the initials.
+    img.addEventListener('error', () => {
+      av.textContent = initials;
+    });
+    img.src = src;
+    av.textContent = '';
+    av.append(img);
   }
 
   private track(id: string) {
@@ -698,18 +1015,24 @@ class ChatWidget {
     const previous = this.status;
     this.status = status;
     if (status === 'human_active' && previous) {
-      this.log.appendChild(el('div', 'notice', 'A member of our team will reply here.'));
+      const notice = el('div', 'notice');
+      notice.innerHTML = ICON_PERSON;
+      notice.append(el('span', undefined, 'A member of our team will reply here'));
+      this.log.appendChild(notice);
       this.hideTyping();
       this.scroll();
     }
   }
 
+  /** The assistant's picture and a bubble of dots under the chat, with what it's doing ("Checking availability…"). */
   private showTyping(label = '') {
     this.statusLine.textContent = '';
     const dots = el('span', 'dots');
     dots.append(el('i'), el('i'), el('i'));
-    this.statusLine.append(dots);
-    if (label) this.statusLine.append(document.createTextNode(`  ${label}`));
+    this.statusLine.append(this.botFace(), dots);
+    if (label) this.statusLine.append(el('span', 'activity', label));
+    // The chat area just got shorter: keep its latest message in view.
+    this.scroll();
   }
 
   private hideTyping() {

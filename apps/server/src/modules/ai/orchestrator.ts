@@ -8,7 +8,7 @@ import type { QueueDriver } from '../../infra/queue';
 import type { Logger } from '../../lib/logger';
 import { approvalState } from '../approvals/service';
 import type { AutomationService } from '../automation/service';
-import { STANDARD_LEAD_FIELDS } from '../bots/config';
+import { handoffStarter, STANDARD_LEAD_FIELDS } from '../bots/config';
 import type { BotsService, BotView } from '../bots/service';
 import type { ChannelRegistry } from '../channels/adapter';
 import { openingGreeting } from '../channels/service';
@@ -105,6 +105,8 @@ export class AiOrchestrator {
         fromStart: rows.length < limit,
         channelConfig: account?.config ?? null,
         page: typeof lastInbound?.metadata.pageUrl === 'string' ? lastInbound.metadata.pageUrl : null,
+        /** Web chat: the conversation starter each message came from, when the visitor clicked one. */
+        starterOf: new Map(rows.flatMap((r) => (typeof r.metadata.starterId === 'string' ? [[r.id, r.metadata.starterId] as const] : []))),
       };
     });
     const { conv, org } = state;
@@ -134,6 +136,12 @@ export class AiOrchestrator {
     );
 
     // ---- 2. Guards that don't need the model ----
+    // A "talk to the team" starter counts only while it's still one of this bot's enabled starters.
+    const chosen = handoffStarter(bot.config, pending.map((m) => state.starterOf.get(m.id)));
+    if (chosen) {
+      await this.handoff(scope, conv.id, bot, `Customer chose "${chosen.label}"`, bot.config.handoff.message);
+      return;
+    }
     if (bot.config.handoff.enabled && matchesHandoffKeyword(pendingText, bot.config.handoff.keywords)) {
       await this.handoff(scope, conv.id, bot, 'Customer asked for a person', bot.config.handoff.message);
       return;

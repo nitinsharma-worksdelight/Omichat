@@ -31,6 +31,7 @@ import {
   type BookingRequiredField,
   type BusinessProfile,
   type Calendar,
+  type ConversationStarter,
   type CustomFieldDef,
   type Effort,
   type Goals,
@@ -48,6 +49,7 @@ import {
   type QuestionType,
   type RuleOperator,
   type RuleValue,
+  type StarterAction,
   type Member,
   type Pipeline,
   type Tag,
@@ -830,6 +832,134 @@ export function HandoffSection({ value, onChange }: SectionProps<Handoff>) {
         <Textarea rows={3} maxLength={500} value={value.message} onChange={(e) => set('message', e.target.value)} />
       </Field>
       <Toggle label="Notify the team" description="In-app notification plus email to your notification addresses." checked={value.notifyTeam} onChange={(v) => set('notifyTeam', v)} />
+    </Section>
+  );
+}
+
+// ---------- Conversation starters ----------
+
+const MAX_STARTERS = 10;
+
+const STARTER_ACTIONS: Array<{ value: StarterAction; label: string }> = [
+  { value: 'message', label: 'Send the message' },
+  { value: 'handoff', label: 'Send it and hand off to the team' },
+];
+
+/** Examples to start from: editable, and not shown to visitors until saved. */
+const SUGGESTED_STARTERS: Array<Pick<ConversationStarter, 'label' | 'message' | 'action'>> = [
+  { label: 'Book an appointment', message: "I'd like to book an appointment.", action: 'message' },
+  { label: 'Reschedule my appointment', message: 'I need to reschedule my appointment.', action: 'message' },
+  { label: 'Cancel my appointment', message: 'I need to cancel my appointment.', action: 'message' },
+  { label: 'Talk to the team', message: "I'd like to talk to someone on your team.", action: 'handoff' },
+];
+
+export function StartersSection({
+  value,
+  onChange,
+  handoffEnabled,
+}: {
+  value: ConversationStarter[];
+  onChange: (value: ConversationStarter[]) => void;
+  handoffEnabled: boolean;
+}) {
+  // The list order is the display order.
+  const commit = (starters: ConversationStarter[]) => onChange(starters.map((s, order) => ({ ...s, order })));
+  const set = (i: number, patch: Partial<ConversationStarter>) => commit(value.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= value.length) return;
+    const starters = [...value];
+    [starters[i], starters[j]] = [starters[j]!, starters[i]!];
+    commit(starters);
+  };
+  const add = (starters: Array<Pick<ConversationStarter, 'label' | 'message' | 'action'>>) =>
+    commit(
+      [...value, ...starters.map((s) => ({ id: crypto.randomUUID(), label: s.label, message: s.message, action: s.action, enabled: true, order: 0 }))].slice(0, MAX_STARTERS),
+    );
+  const labelError = (s: ConversationStarter) => {
+    const label = s.label.trim().toLowerCase();
+    if (!label) return 'Add the text for the button.';
+    return value.filter((o) => o.label.trim().toLowerCase() === label).length > 1 ? 'Another starter has the same text.' : null;
+  };
+  const shown = value.filter((s) => s.enabled && (s.action !== 'handoff' || handoffEnabled)).length;
+
+  return (
+    <Section
+      title="Conversation starters"
+      description="Quick options the website chat shows under its greeting until the visitor writes. A click sends the message as the visitor's own, and the assistant answers it as usual."
+      actions={
+        <Button size="sm" icon={<Plus className="size-3.5" />} disabled={value.length >= MAX_STARTERS} onClick={() => add([{ label: '', message: '', action: 'message' }])}>
+          Add starter
+        </Button>
+      }
+    >
+      {value.length === 0 ? (
+        <Card>
+          <EmptyState
+            title="No conversation starters"
+            description="Visitors see just the greeting. Offer a few one-click options, such as booking an appointment or talking to your team."
+            action={
+              <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => add(SUGGESTED_STARTERS)}>
+                Add suggested starters
+              </Button>
+            }
+          />
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {value.map((s, i) => (
+            <Card key={s.id} role="group" aria-label={`Starter ${i + 1}`} className="space-y-3 p-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-muted">{i + 1}</span>
+                <div className="grid flex-1 grid-cols-[1fr_230px] gap-3">
+                  <Field label="Button text" error={labelError(s)}>
+                    <Input value={s.label} maxLength={60} placeholder="Book an appointment" onChange={(e) => set(i, { label: e.target.value })} />
+                  </Field>
+                  <Field label="When clicked">
+                    <Select value={s.action} onChange={(e) => set(i, { action: e.target.value as StarterAction })}>
+                      {STARTER_ACTIONS.map((a) => (
+                        <option key={a.value} value={a.value}>
+                          {a.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Message" hint="Sent as the visitor's message. Leave empty to send the button text." className="col-span-2">
+                    <Input
+                      value={s.message}
+                      maxLength={500}
+                      placeholder={s.label.trim() || "I'd like to book an appointment."}
+                      onChange={(e) => set(i, { message: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <div className="flex shrink-0 flex-col gap-1 pt-6">
+                  <IconButton label="Move up" size="sm" disabled={i === 0} onClick={() => move(i, -1)}>
+                    <ArrowUp className="size-4" />
+                  </IconButton>
+                  <IconButton label="Move down" size="sm" disabled={i === value.length - 1} onClick={() => move(i, 1)}>
+                    <ArrowDown className="size-4" />
+                  </IconButton>
+                  <IconButton label="Remove starter" size="sm" onClick={() => commit(value.filter((_, j) => j !== i))}>
+                    <Trash2 className="size-4" />
+                  </IconButton>
+                </div>
+              </div>
+              <div className="pl-9">
+                <Toggle size="sm" label={<span className="text-[13px] font-normal">Show in the chat</span>} checked={s.enabled} onChange={(enabled) => set(i, { enabled })} />
+              </div>
+              {s.enabled && s.action === 'handoff' && !handoffEnabled && (
+                <p className="pl-9 text-xs text-warning-text">
+                  Human handoff is off (Handoff tab), so this starter can't be saved as shown. Turn handoff on, choose “Send the message”, or hide it.
+                </p>
+              )}
+            </Card>
+          ))}
+          <p className="text-xs text-muted">
+            {shown} of {value.length} shown in the chat (up to {MAX_STARTERS}). Three to five short options work best.
+          </p>
+        </div>
+      )}
     </Section>
   );
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Container } from '../../container';
 import { parseInput, parsePatch } from '../../lib/validation';
 import { buildSystemPrompt } from '../../modules/ai/prompt';
+import { offeredStarters } from '../../modules/bots/config';
 import { BotCreateSchema, BotUpdateSchema } from '../../modules/bots/service';
 import { openingGreeting } from '../../modules/channels/service';
 import { hasAskFirst } from '../../modules/tools/types';
@@ -82,6 +83,12 @@ export async function registerBotRoutes(app: FastifyInstance, c: Container) {
     const channel = await c.channels.ensureSystemChannel(auth.orgId, 'playground');
     const visitorId = `pg_${auth.userId.slice(0, 8)}_${crypto.randomUUID()}`;
     const token = await c.tokens.signWidgetToken({ orgId: auth.orgId, channelAccountId: channel.id, visitorId, botId: bot.id });
-    return { token, visitorId, greeting: openingGreeting(channel.config, bot), botName: bot.config.persona.assistantName };
+    return {
+      token,
+      visitorId,
+      greeting: openingGreeting(channel.config, bot),
+      botName: bot.config.persona.assistantName,
+      starters: offeredStarters(bot.config),
+    };
   });
 }

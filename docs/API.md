@@ -55,7 +55,8 @@ Staff-only: deleting contacts and tags, changing custom-field definitions, calen
 - CRM actions (each off until set): `actions.lifecycleStages` — stages the assistant may set (`set_lifecycle_stage`; must be the organization's own); `actions.owners` — team members it may make a contact's owner (`assign_owner`; it sees names only; must be members); `actions.removeTags` — `remove_tags` for tags in `allowedTags`, or with no list only tags the assistant added; `actions.deals` — `create_deal` / `update_deal` in `pipelineId` (null = the first pipeline; one open deal per contact), with `canClose` needed to mark deals won or lost. Bots without these settings keep the same tools and prompt. Changes the assistant makes are recorded with actor `ai`.
 - Ask the team first: `actions.askFirst` lists actions that wait for the team's approval instead of happening at once — any of `book_appointment`, `reschedule_appointment`, `cancel_appointment`, `add_tags`, `remove_tags`, `set_lifecycle_stage`, `assign_owner`, `create_deal`, `update_deal` (workflows ask per workflow: `askFirst` on the workflow). Such a call is saved as a request (see Approvals); the assistant is told it's waiting and tells the customer a team member will confirm.
 - `GET /v1/ai/config` → `{ provider, model, reasoningEffort, utilityModel, utilityReasoningEffort, pricing: { model, utilityModel }, reasoningEfforts }` — the server's LLM configuration
-- `POST /v1/bots/:id/playground` → `{ token, visitorId, greeting, botName }` — use with the `/widget/v1` endpoints
+- `POST /v1/bots/:id/playground` → `{ token, visitorId, greeting, botName, starters }` — use with the `/widget/v1` endpoints; `starters` as in the widget's config
+- Conversation starters: `conversationStarters` lists up to 10 quick options the website chat shows under its greeting until the visitor writes. Each has an `id` (assigned when missing, kept on edits), a `label` (1–60 characters, one line), a `message` (up to 500 characters; empty sends the label), an `action` (`message`: the click sends the message and the AI answers it as usual; `handoff`: it also hands the chat to the team without asking the AI, like a handoff keyword), `enabled`, and `order` (the list is sorted by it and renumbered from 0 on every save). Labels must differ (ignoring case), and an enabled `handoff` starter needs `handoff.enabled`. Saving the list replaces it: leave one out to delete it.
 
 `BotView = { id, name, isActive, version, model: string|null, effort: low|medium|high|null, maxOutputTokens, knowledgeBaseIds[], config }` — `model`/`effort` are per-bot overrides; `null` (the default) follows the server's `LLM_MODEL` / `LLM_REASONING_EFFORT`. Send `null` to clear an override.
 
@@ -86,7 +87,9 @@ Staff-only: deleting contacts and tags, changing custom-field definitions, calen
                   "maxAiRepliesPerConversation": 60 },
   "actions": { "disabledTools": [], "allowedTags": [], "allowCreateTags": false, "workflowKeys": [],
                "lifecycleStages": [], "owners": [], "removeTags": false,
-               "deals": { "enabled": false, "pipelineId": null, "canClose": false }, "askFirst": [] }
+               "deals": { "enabled": false, "pipelineId": null, "canClose": false }, "askFirst": [] },
+  "conversationStarters": [{ "id": "uuid", "label": "Book an appointment", "message": "I'd like to book an appointment.",
+                             "action": "message|handoff", "enabled": true, "order": 0 }]
 }
 ```
 
@@ -221,10 +224,10 @@ Staff-only: deleting contacts and tags, changing custom-field definitions, calen
   — `marketingConsent` records an opt-in or opt-out (e.g. a form checkbox); `text`, the wording agreed to, is required for a yes. `source` is stored as the contact's first touch if it has none. `timezone` (IANA, e.g. `America/Vancouver`) is stored on the contact if none is known.
 
 ## Widget (public)
-- `GET /widget/v1/config?key=pk_…` → `{ theme, greeting, assistantName, companyName }`
+- `GET /widget/v1/config?key=pk_…` → `{ theme, greeting, assistantName, companyName, starters: [{ id, label, message }] }` — `starters`: the bot's enabled conversation starters, in order, each with the exact text a click sends (the action stays on the server)
 - `POST /widget/v1/sessions { key, visitorId? }` → `{ token, visitorId, conversationId, status, messages: PublicMessage[] }`
 - `GET /widget/v1/messages?after=<messageId>` → `{ conversationId, status, messages }`
-- `POST /widget/v1/messages { content, clientMessageId?, pageUrl?, firstTouch?, timezone? }` → `{ conversationId, message }` — `pageUrl` is stored without query parameters other than UTM tags and ad click ids; `firstTouch` (recorded by the widget on the visitor's first page load) is stored on the contact once; `timezone` (the browser's) is stored on the contact if none is known, and invalid values are ignored
+- `POST /widget/v1/messages { content, clientMessageId?, pageUrl?, firstTouch?, timezone?, starterId? }` → `{ conversationId, message }` — `starterId`: the conversation starter clicked, kept on the message; a `handoff` starter hands the chat to the team only while it's still one of the bot's enabled starters (otherwise it's an ordinary message). A repeated `clientMessageId` returns the stored message (`200`) instead of adding another. `pageUrl` is stored without query parameters other than UTM tags and ad click ids; `firstTouch` (recorded by the widget on the visitor's first page load) is stored on the contact once; `timezone` (the browser's) is stored on the contact if none is known, and invalid values are ignored
 - `GET /widget/v1/stream?conversationId=` — SSE events: `message` `{ message: PublicMessage }`, `ai.typing`, `ai.delta` `{ text }`, `ai.activity` `{ label }`, `ai.done` `{ messageId }`, `conversation.status` `{ status }` — nothing else: no handoff reasons and no staff-only events
 - `PublicMessage = { id, role: user|assistant|agent, content, createdAt, sources: [{ title, url }] }`
 - The visitor's IP address, as the server sees it (`TRUST_PROXY` decides which forwarded address counts; an address the visitor sends is never used), is kept on their conversation as `metadata.visitorIp` and `metadata.visitorIpAt`: set when their first message starts the conversation (opening the chat creates nothing), and updated when a new session starts from another address. Staff see it in `GET /v1/conversations/:id`; it's never returned to the widget, given to the AI, or included in webhooks. Playground chats don't record it.

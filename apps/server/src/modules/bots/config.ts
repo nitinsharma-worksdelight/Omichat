@@ -186,6 +186,41 @@ export const HandoffSchema = z.object({
   notifyTeam: z.boolean().default(true),
 });
 
+/** At most this many starters per bot (enabled or not). */
+export const MAX_CONVERSATION_STARTERS = 10;
+
+/**
+ * A quick option the website chat offers under its greeting until the visitor writes. Clicking it sends `message`
+ * (or the label when empty) as the visitor's message; `handoff` also hands the chat to the team, like a handoff keyword.
+ */
+export const ConversationStarterSchema = z.object({
+  /** Kept across edits; assigned when missing. */
+  id: z.string().uuid().optional(),
+  /** One line: line breaks and runs of spaces collapse. */
+  label: z
+    .string()
+    .trim()
+    .min(1)
+    .max(60)
+    .transform((label) => label.replace(/\s+/g, ' ')),
+  message: z.string().trim().max(500).default(''),
+  action: z.enum(['message', 'handoff']).default('message'),
+  enabled: z.boolean().default(true),
+  /** Display position; the list is sorted by it (then by list position) and renumbered from 0 on every save. */
+  order: z.number().int().min(0).max(1000).optional(),
+});
+
+export const ConversationStartersSchema = z
+  .array(ConversationStarterSchema)
+  .max(MAX_CONVERSATION_STARTERS)
+  .default([])
+  .transform((starters) =>
+    starters
+      .map((starter, index) => ({ starter, index }))
+      .sort((a, b) => (a.starter.order ?? a.index) - (b.starter.order ?? b.index) || a.index - b.index)
+      .map(({ starter }, order) => ({ ...starter, id: starter.id ?? crypto.randomUUID(), order })),
+  );
+
 export const GuardrailsSchema = z.object({
   stayOnTopic: z.boolean().default(true),
   forbiddenTopics: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
@@ -226,6 +261,7 @@ export const BotConfigSchema = z.object({
   handoff: HandoffSchema.default(HandoffSchema.parse({})),
   guardrails: GuardrailsSchema.default(GuardrailsSchema.parse({})),
   actions: ActionsSchema.default(ActionsSchema.parse({})),
+  conversationStarters: ConversationStartersSchema,
 });
 
 export type BotConfig = z.infer<typeof BotConfigSchema>;
@@ -233,6 +269,20 @@ export type BotConfigInput = z.input<typeof BotConfigSchema>;
 export type QualificationConfig = z.infer<typeof QualificationSchema>;
 export type QualificationQuestion = z.infer<typeof QualificationQuestionSchema>;
 export type QualificationRule = z.infer<typeof QualificationRuleSchema>;
+export type ConversationStarter = BotConfig['conversationStarters'][number];
+
+/** What the website chat shows: the enabled starters, in order, each with the exact text a click sends. */
+export function offeredStarters(config: BotConfig): Array<{ id: string; label: string; message: string }> {
+  return config.conversationStarters
+    .filter((s) => s.enabled && (s.action !== 'handoff' || config.handoff.enabled))
+    .map((s) => ({ id: s.id, label: s.label, message: s.message || s.label }));
+}
+
+/** The enabled "talk to the team" starter one of these (starter ids of the waiting messages) came from, if any. */
+export function handoffStarter(config: BotConfig, starterIds: Array<string | undefined>): ConversationStarter | null {
+  if (!config.handoff.enabled) return null;
+  return config.conversationStarters.find((s) => s.enabled && s.action === 'handoff' && starterIds.includes(s.id)) ?? null;
+}
 
 /** Provider-neutral reasoning depth; each LLM provider maps it (or omits it). */
 export const EffortSchema = z.enum(['low', 'medium', 'high']);
@@ -264,6 +314,18 @@ export function validateBotConfig(config: BotConfig): string[] {
   for (const f of config.leadCapture.fields) {
     if (seen.has(f.field)) problems.push(`leadCapture: duplicate field "${f.field}"`);
     seen.add(f.field);
+  }
+  const starterIds = new Set<string>();
+  const starterLabels = new Set<string>();
+  for (const s of config.conversationStarters) {
+    if (starterIds.has(s.id)) problems.push('conversationStarters: two starters have the same id');
+    starterIds.add(s.id);
+    const label = s.label.toLowerCase();
+    if (starterLabels.has(label)) problems.push(`conversationStarters: duplicate label "${s.label}"`);
+    starterLabels.add(label);
+    if (s.enabled && s.action === 'handoff' && !config.handoff.enabled) {
+      problems.push(`conversationStarters: "${s.label}" hands the chat to your team, but Human handoff is off`);
+    }
   }
   return problems;
 }

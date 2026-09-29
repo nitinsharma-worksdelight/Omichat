@@ -39,6 +39,7 @@ import {
   ModelSection,
   PersonaSection,
   QualificationSection,
+  StartersSection,
   type EditorContext,
   type PersonalityTemplate,
 } from './sections';
@@ -58,6 +59,7 @@ type TabId = BotConfigSection | 'model' | 'knowledge';
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'persona', label: 'Persona' },
+  { id: 'conversationStarters', label: 'Conversation starters' },
   { id: 'goals', label: 'Goals' },
   { id: 'instructions', label: 'Instructions' },
   { id: 'business', label: 'Business info' },
@@ -71,7 +73,19 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'knowledge', label: 'Knowledge' },
 ];
 
-const CONFIG_SECTIONS: BotConfigSection[] = ['persona', 'goals', 'instructions', 'business', 'leadCapture', 'qualification', 'booking', 'handoff', 'guardrails', 'actions'];
+const CONFIG_SECTIONS: BotConfigSection[] = [
+  'persona',
+  'conversationStarters',
+  'goals',
+  'instructions',
+  'business',
+  'leadCapture',
+  'qualification',
+  'booking',
+  'handoff',
+  'guardrails',
+  'actions',
+];
 
 function toDraft(bot: Bot): BotDraft {
   return {
@@ -81,7 +95,8 @@ function toDraft(bot: Bot): BotDraft {
     effort: bot.effort ?? '',
     maxOutputTokens: bot.maxOutputTokens,
     knowledgeBaseIds: [...bot.knowledgeBaseIds],
-    config: structuredClone(bot.config),
+    // A server from before conversation starters has none to send.
+    config: structuredClone({ ...bot.config, conversationStarters: bot.config.conversationStarters ?? [] }),
   };
 }
 
@@ -323,6 +338,13 @@ export function BotEditorPage({ botId }: { botId: string }) {
           <div className="mx-auto max-w-3xl space-y-4 px-8 py-6">
             {saveError ? <ErrorBanner error={saveError} title={details.length ? 'The configuration was not saved:' : undefined} details={details} /> : null}
             {tab === 'persona' && <PersonaSection value={draft.config.persona} onChange={(v) => setConfig('persona', v)} ctx={ctx} onApplyTemplate={(t) => void applyTemplate(t)} />}
+            {tab === 'conversationStarters' && (
+              <StartersSection
+                value={draft.config.conversationStarters}
+                onChange={(v) => setConfig('conversationStarters', v)}
+                handoffEnabled={draft.config.handoff.enabled}
+              />
+            )}
             {tab === 'goals' && <GoalsSection value={draft.config.goals} onChange={(v) => setConfig('goals', v)} ctx={ctx} />}
             {tab === 'instructions' && <InstructionsSection value={draft.config.instructions} onChange={(v) => setConfig('instructions', v)} />}
             {tab === 'business' && <BusinessSection value={draft.config.business} onChange={(v) => setConfig('business', v)} ctx={ctx} />}

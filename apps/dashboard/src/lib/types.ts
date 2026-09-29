@@ -314,6 +314,22 @@ export interface Actions {
   askFirst: AskFirstTool[];
 }
 
+/** What a conversation starter does when clicked: send its message, or send it and hand the chat to the team. */
+export type StarterAction = 'message' | 'handoff';
+
+/** A quick option the website chat offers under its greeting until the visitor writes. */
+export interface ConversationStarter {
+  id: string;
+  /** The button's text. */
+  label: string;
+  /** Sent as the visitor's message; empty = the label. */
+  message: string;
+  action: StarterAction;
+  enabled: boolean;
+  /** Display position, from 0; the list order. */
+  order: number;
+}
+
 export interface BotConfig {
   persona: Persona;
   goals: Goals;
@@ -325,6 +341,7 @@ export interface BotConfig {
   handoff: Handoff;
   guardrails: Guardrails;
   actions: Actions;
+  conversationStarters: ConversationStarter[];
 }
 
 export type BotConfigSection = keyof BotConfig;
@@ -353,11 +370,20 @@ export interface BotPreview {
   tools: Array<{ name: string; description: string; inputSchema: unknown }>;
 }
 
+/** A conversation starter as the chat shows it: `message` is exactly what a click sends. */
+export interface OfferedStarter {
+  id: string;
+  label: string;
+  message: string;
+}
+
 export interface PlaygroundSession {
   token: string;
   visitorId: string;
   greeting: string;
   botName: string;
+  /** The bot's enabled conversation starters, in order (absent from older servers). */
+  starters?: OfferedStarter[];
 }
 
 // ---------- widget ----------
