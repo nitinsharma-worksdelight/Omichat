@@ -536,6 +536,38 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     the activity feed; the timeline shows the request ("asked the team") and the decision.
   - **Workflows:** a workflow that asks first also admits web-chat visitors when it's "Identified customers only" (the
     person approving checks who is asking); the call tells the workflow who approved it (`trust.approvedBy`).
+- **2026-09-29 — Website chat: embed address and draggable bubble** (audited, then approved: both changes, dragging
+  only while the chat is closed).
+  - **Embed address:** the embed code showed `http://localhost:4000` in production because `PUBLIC_API_URL` defaulted
+    to it. It's now optional: unset, the embed code uses the address the request reached the API at (proxy-aware), so
+    it's right locally, on staging and in production with no setup; set it only for a custom domain (a trailing `/`
+    is trimmed). Production logs a warning if it's set to localhost.
+  - **Draggable bubble** (Settings → Website chat → Appearance, off by default):
+    - visitors drag the bubble anywhere, all four corners included, with a mouse, a finger or a pen, while the chat is
+      closed; a small movement (6px, 10px for touch) still counts as a click, and the click that ends a drag doesn't
+      open the chat
+    - the spot is remembered in the visitor's browser relative to the screen, so a corner stays a corner after
+      resizing or rotating; it's ignored if the business changes Position or turns dragging off
+    - the chat window opens where there's room (below a bubble in the top half, shifted to stay on screen); on phones
+      the open chat stays full screen
+    - with dragging off, the widget looks and behaves exactly as before
+- **2026-09-29 — Website chat: "Powered by" line and the visitor's IP address** (audited, then approved: IP on the
+  conversation, a `TRUST_PROXY` setting, plain text, none for playground chats).
+  - **Footer:** "Powered by LeadsMagnet AI" under the message box, left-aligned with it (11px, the widget's muted
+    colour, plain text). Nothing else in the widget changed.
+  - **Visitor IP:** taken server-side from `req.ip` (never from anything the visitor sends), cleaned up
+    (`::ffff:1.2.3.4` → `1.2.3.4`; anything that isn't an IP is skipped), and kept on the conversation as
+    `metadata.visitorIp` and `visitorIpAt`:
+    - a new visitor's first message sets it on the conversation it starts (opening the chat creates nothing)
+    - a returning visitor's new session updates it only if it changed
+    - playground chats record none (it would be the team member's address)
+    - it stays out of message records, the AI's input, the widget's responses and webhooks; staff see it on the
+      conversation page's Details panel ("IP address", with when it was last seen on hover; only when there is one)
+      and in `GET /v1/conversations/:id`
+  - **`TRUST_PROXY`:** which proxies to believe about the client's address: `true` (default, as before), `false`, or
+    the proxies' addresses and ranges (e.g. `uniquelocal`). Fastify ignores a number of hops (it can't tell a proxy
+    from a visitor), so a number is refused at startup. A debug-level log of the forwarded addresses at session start
+    helps find the right value.
 
 ## Remaining issues
 
@@ -544,7 +576,7 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | ~~Anonymous visitor merged into an existing contact on an unverified email/phone~~ | P0 | ✅ Fixed in Phase 1 |
 | A genuine returning customer isn't linked until staff merge them (accepted trade-off; verification codes could auto-approve later) | P3 | Not planned yet |
 | Dashboard duplicate-review banner not checked in a browser (skipped by decision; the API flow behind it is tested) | Test gap | Next time the dashboard is previewed |
-| README still says 71 tests (now 209) | Docs | Not planned |
+| README still says 71 tests (now 225) | Docs | Not planned |
 | ~~`book_appointment` can return a cancelled or moved appointment as booked~~ | P0 | ✅ Fixed in Phase 2 |
 | ~~The AI is told a confirmation was sent when none is~~ | P0 | ✅ Fixed in Phase 2 |
 | ~~Buffers and the daily cap can break when two bookings happen at once~~ | P1 | ✅ Fixed in Phase 2 (verified by review only; see next row) |
@@ -622,6 +654,10 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | After the team approves or declines, the assistant doesn't write to the customer by itself: the team's optional message is the reply, and the assistant knows the outcome on the customer's next message | P3 | Accepted (by design; F8 follow-ups could add one) |
 | Whether the real model tells customers to wait for the team (and never claims it's done) hasn't been tried; the fake model plays it in the tests | Test gap | Next real-model run (or Phase 4) |
 | Requests can be decided by staff only, not through the API | P3 | Not planned yet (an `approvals` API-key scope later if needed) |
+| The draggable bubble can't be moved with the keyboard (it stays a normal button; its spot is only cosmetic) | P3 | Accepted |
+| On Render, `TRUST_PROXY` is still the default (`true`), so a visitor can fake the IP stored on their conversation (and the widget's rate-limit key). Set it to the proxies in front of the API (Render's private network plus Cloudflare's published ranges) after checking the real forwarded addresses once with `LOG_LEVEL=debug` | P2 | Next deploy (needs your OK) |
+| A visitor's IP address is personal data: the privacy policy may need to mention it; it's deleted with the conversation or contact | Privacy | Your call |
+| Dragging with a real mouse was tried once in the browser check (the preview pane's scaling made aiming unreliable); the other checks drove the same code with pointer events | Test gap | Next time the widget is previewed |
 | Web-chat visitors can't prove who they are (for example with a code by email), so "identified" means chat-API customers only | Feature | Not planned yet |
 | No git baseline (Phase 0 skipped) | Process | Open |
 | DECISIONS.md and ARCHITECTURE.md mention files that don't exist | Docs | Not planned (those docs are frozen) |
@@ -866,6 +902,22 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     `apps/dashboard/src/pages/conversations/ConversationsPage.tsx`, `apps/dashboard/src/pages/bots/sections.tsx`,
     `apps/dashboard/src/pages/automations/AutomationsPage.tsx`
   - Docs: `docs/API.md`, `docs/IMPLEMENTATION_PLAN.md` (F5b marked as built), `PROGRESS.md`
+- **Website chat: "Powered by" line and the visitor's IP (2026-09-29):**
+  - Server: `apps/server/src/lib/ip.ts` (new), `apps/server/src/config/env.ts` (`TRUST_PROXY`), `apps/server/src/http/app.ts`,
+    `apps/server/src/http/routes/widget.ts`, `apps/server/src/modules/conversations/service.ts`
+  - Widget: `apps/widget/src/widget.ts`
+  - Dashboard: `apps/dashboard/src/pages/conversations/ConversationsPage.tsx` (the Details row),
+    `apps/dashboard/src/lib/types.ts` (`metadata` on the conversation)
+  - Tests: `apps/server/test/widget-visitor-ip.test.ts` (new)
+  - Docs: `docs/API.md`, `apps/server/.env.example`, `PROGRESS.md`
+- **Website chat: embed address and draggable bubble (2026-09-29):**
+  - Server: `apps/server/src/config/env.ts` (`PUBLIC_API_URL` optional), `apps/server/src/modules/channels/service.ts`,
+    `apps/server/src/http/routes/channels.ts`, `apps/server/src/main.ts`, `apps/server/src/db/schema/channels.ts`
+    (`draggable`)
+  - Widget: `apps/widget/src/drag.ts` (new), `apps/widget/src/widget.ts`
+  - Dashboard: `apps/dashboard/src/lib/types.ts`, `apps/dashboard/src/pages/settings/SettingsPage.tsx`
+  - Tests: `apps/server/test/widget-setup.test.ts` (new), `apps/server/test/widget-drag.test.ts` (new)
+  - Docs: `docs/API.md`, `apps/server/.env.example`, `render.yaml` (comment), `PROGRESS.md`
 - **After the F5a check-in (2026-09-29):**
   - Server: `apps/server/src/modules/tools/definitions.ts` (repeat `create_deal`), `apps/server/src/modules/ai/prompt.ts`
     (internal records; "(not given yet)"), `apps/server/src/modules/leads/capture.ts` (placeholders),
@@ -1084,6 +1136,18 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 - **API (changed):** the organization setting `currency` (ISO 4217); a contact's `ownerUserId` must be a member of the
   organization (400 otherwise).
 - **Behavior:** merging contacts moves deals; deleting a contact deletes its deals.
+
+**Website chat: visitor IP (2026-09-29):**
+- **DB:** none: the address is kept in the conversation's existing `metadata` JSON (`visitorIp`, `visitorIpAt`).
+- **Config:** new `TRUST_PROXY` (default `true`, as before).
+- **API (changed):** `GET /v1/conversations/:id` shows `metadata.visitorIp` for website chats. Nothing the widget reads
+  changed.
+
+**Website chat (2026-09-29):**
+- **DB:** none (the theme is JSON).
+- **API (changed):** `embedSnippet` uses `PUBLIC_API_URL` when set, else the address the request came in on;
+  `PUBLIC_API_URL` is optional (no localhost default). Channel `theme.draggable` (boolean, default off), returned by
+  `/widget/v1/config`.
 
 **F5b (Phase 14, second step):**
 - **DB:** migration `0011_action_approvals`: new table `action_approvals` (the request, its summary, status, result,
@@ -1426,6 +1490,39 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
       shows "Identified only" and "Asks the team first"
     - no server errors; the temporary launch configs were removed and your :4000 and :5173 servers weren't touched
 
+- **Website chat: embed address and draggable bubble (2026-09-29):** 217/217 tests pass (30 files; 8 new), and the
+  typecheck is clean on all three apps. The new tests were run on the unchanged code first: all failed (the embed code
+  said localhost, `PUBLIC_API_URL`'s trailing slash doubled, `draggable` was dropped, the drag rules didn't exist).
+  - **Browser check** on isolated ports (scratch API without `PUBLIC_API_URL`, dashboard, and the widget demo page):
+    - Settings → Website chat showed the embed code with `http://localhost:4100/widget.js` (the request's address);
+      the new "Draggable bubble" toggle saved on and off, with the preview hint
+    - at 1280×800: a drag moved the bubble to (72, 72) and the release click didn't open the chat; a normal click opened
+      the chat below it (on screen, full height); a drag while open was ignored; Escape closed it; a 3px wobble still
+      opened it; the spot survived a reload
+    - all four corners stopped 8px from the edges; a finger wobble wasn't a drag, a finger drag was; from the
+      bottom-right corner the chat opened above, lined up with the bubble
+    - resizing to 900×600 kept the bubble in its corner; on a phone (375×812) the saved corner was restored, a finger
+      drag moved it, and the open chat still filled the screen
+    - a real mouse drag moved the bubble without opening the chat; it also showed a drag whose release the page never
+      saw stayed "dragging": the widget now ends a drag when the pointer capture is lost (checked)
+    - with dragging off: the bubble sat 20px from its corner, drags did nothing, clicks opened the chat
+    - no console or server errors; the temporary launch configs were removed and your :4000 and :5173 servers weren't
+      touched
+
+- **Website chat: "Powered by" line and the visitor's IP (2026-09-29):** 225/225 tests pass (31 files; 8 new), and the
+  typecheck is clean on all three apps. With only the IP helper in place, the 5 behaviour tests failed on the old code
+  (no address was saved); the rest passed as guards.
+  - Covered: a new visitor's first message sets it and opening the chat creates no contact or conversation; a new
+    session from another address updates it, the same address writes nothing; addresses the visitor sends (body,
+    `X-Real-IP`) are ignored; playground chats record none; it's absent from the message, the AI's input and the
+    widget's responses; another organization can't reach the conversation; `TRUST_PROXY` with the proxy's range uses
+    the address the proxy saw (not the made-up one), `false` uses the socket's, and a number is refused.
+  - **Browser check** on isolated ports: the footer under the message box, lined up with it (11px, muted), on desktop
+    and in the phone's full-screen chat; a real chat from localhost stored `127.0.0.1` on the conversation; no console
+    or server errors. The temporary launch configs were removed; your :4000 and :5173 servers weren't touched.
+  - **Details panel** (added on request): a website chat's Details showed "IP address 127.0.0.1" with "Last seen …" on
+    hover; a playground chat showed no such row.
+
 ### Verification log
 
 <!-- verification-log:start -->
@@ -1605,6 +1702,10 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | 2026-09-29 | Only staff decide (agent and up); API keys can't | Implementation |
 | 2026-09-29 | An ask-first workflow that's also "Identified customers only" admits web-chat visitors: the approver checks who is asking, and the call carries `trust.approvedBy` | Implementation |
 | 2026-09-29 | The same request asked again in a conversation while it waits returns the waiting one; ask-first calls replay on retried turns whatever their tool | Implementation |
+| 2026-09-29 | Website chat: the embed code uses the address the request reached the API at unless `PUBLIC_API_URL` is set; the draggable bubble is opt-in per website chat and moves only while the chat is closed | User |
+| 2026-09-29 | The bubble's spot is remembered per site in the visitor's browser as a fraction of the screen, tied to the starting side; the drag rules are pure functions tested in the server suite | Implementation |
+| 2026-09-29 | Visitor IP on the conversation's metadata (not the contact, whose snapshot goes to webhooks and workflows), a `TRUST_PROXY` setting, a plain-text "Powered by" line, and no IP for playground chats | User |
+| 2026-09-29 | `TRUST_PROXY` takes proxy addresses and ranges only; a number of hops is refused because Fastify ignores it (it can't tell a proxy from a visitor) | Implementation |
 
 ## Next phase
 

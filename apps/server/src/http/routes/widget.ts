@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Container } from '../../container';
 import { badRequest, forbidden, notFound } from '../../lib/errors';
+import { normalizeIp } from '../../lib/ip';
 import { parseInput } from '../../lib/validation';
 import { openingGreeting } from '../../modules/channels/service';
 import { convChannel, type RealtimeEvent } from '../../modules/conversations/service';
@@ -46,6 +47,11 @@ export async function registerWidgetRoutes(app: FastifyInstance, c: Container) {
     const visitorId = input.visitorId && VISITOR_RE.test(input.visitorId) ? input.visitorId : crypto.randomUUID();
     const token = await c.tokens.signWidgetToken({ orgId: channel.organizationId, channelAccountId: channel.id, visitorId, origin });
     const open = await c.conversations.openForIdentity({ orgId: channel.organizationId }, channel.id, 'webchat', visitorId);
+    // The visitor's address as the server sees it (TRUST_PROXY decides which forwarded address counts), never one they
+    // send. A new visitor has no conversation yet: their first message records it.
+    req.log.debug({ addresses: req.ips }, 'widget session addresses');
+    const ip = normalizeIp(req.ip);
+    if (open && ip) await c.conversations.recordVisitorIp({ orgId: channel.organizationId }, open.id, ip);
     const messages = open ? await c.conversations.messages({ orgId: channel.organizationId }, open.id, { limit: 50 }) : [];
     return {
       token,
@@ -89,6 +95,7 @@ export async function registerWidgetRoutes(app: FastifyInstance, c: Container) {
       metadata: { pageUrl: input.pageUrl, userAgent: req.headers['user-agent']?.slice(0, 300) },
       firstTouch: input.firstTouch,
       timezone: input.timezone,
+      visitorIp: req.ip,
     });
     return reply.status(result.duplicate ? 200 : 201).send({ conversationId: result.conversationId, message: publicMessage(result.message) });
   });

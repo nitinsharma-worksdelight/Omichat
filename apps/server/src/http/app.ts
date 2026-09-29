@@ -26,7 +26,7 @@ export async function buildApp(c: Container): Promise<FastifyInstance> {
   const app = Fastify({
     loggerInstance: c.logger as FastifyBaseLogger,
     bodyLimit: 1_000_000,
-    trustProxy: true,
+    trustProxy: c.env.trustProxy,
   });
 
   // Widget endpoints are called from customer websites (origin checked per channel at session start);

@@ -387,6 +387,8 @@ export interface ChannelTheme {
   subtitle?: string;
   avatarUrl?: string;
   launcherText?: string;
+  /** Visitors may drag the bubble anywhere while the chat is closed; `position` is where it starts. */
+  draggable?: boolean;
 }
 
 export interface Channel {
@@ -612,6 +614,8 @@ export type SummaryRequest = { queued: true } | { queued: false; reason: 'ai_off
 
 export interface ConversationDetail extends Omit<ConversationListItem, 'contact' | 'lastMessage'> {
   contact: Contact;
+  /** Includes `visitorIp` / `visitorIpAt` for website chats: the visitor's address at their latest session. */
+  metadata: Record<string, unknown>;
 }
 
 export interface Citation {

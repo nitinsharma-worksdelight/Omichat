@@ -1,6 +1,6 @@
 # HTTP API reference (Phase 1)
 
-Base URL: `http://localhost:4000`. JSON everywhere. Errors: `{ "error": { "code", "message", "details"? } }`
+Base URL: your API's address (`http://localhost:4000` locally). JSON everywhere. Errors: `{ "error": { "code", "message", "details"? } }`
 (`details` for validation errors is `[{ path, message }]`).
 
 ## Authentication
@@ -91,7 +91,9 @@ Staff-only: deleting contacts and tags, changing custom-field definitions, calen
 ```
 
 ## Channels
-- `GET /v1/channels` → `[{ id, channel: webchat|playground|api, name, publicKey, botId, status, config: { allowedOrigins[], greeting, theme: { primaryColor, position, title, subtitle, avatarUrl, launcherText } }, embedSnippet }]`
+- `GET /v1/channels` → `[{ id, channel: webchat|playground|api, name, publicKey, botId, status, config: { allowedOrigins[], greeting, theme: { primaryColor, position, title, subtitle, avatarUrl, launcherText, draggable } }, embedSnippet }]`
+  - `embedSnippet` loads `<api>/widget.js`, where `<api>` is `PUBLIC_API_URL` when set, else the address the request reached the API at (so it's right locally, on staging and in production). Every channel response carries it.
+  - `theme.draggable` (default off): visitors can drag the chat bubble anywhere on the page while the chat is closed, and their browser remembers the spot; `position` is where it starts. The chat window opens where there's room; on phones the open chat stays full screen.
 - `POST /v1/channels/webchat { name, botId?, status?, config? }` · `PATCH /v1/channels/:id` (send `""` or `null` for a theme field to clear it) · `POST /v1/channels/:id/rotate-key` · `DELETE /v1/channels/:id`
 
 ## Contacts / leads (CRM)
@@ -225,4 +227,5 @@ Staff-only: deleting contacts and tags, changing custom-field definitions, calen
 - `POST /widget/v1/messages { content, clientMessageId?, pageUrl?, firstTouch?, timezone? }` → `{ conversationId, message }` — `pageUrl` is stored without query parameters other than UTM tags and ad click ids; `firstTouch` (recorded by the widget on the visitor's first page load) is stored on the contact once; `timezone` (the browser's) is stored on the contact if none is known, and invalid values are ignored
 - `GET /widget/v1/stream?conversationId=` — SSE events: `message` `{ message: PublicMessage }`, `ai.typing`, `ai.delta` `{ text }`, `ai.activity` `{ label }`, `ai.done` `{ messageId }`, `conversation.status` `{ status }` — nothing else: no handoff reasons and no staff-only events
 - `PublicMessage = { id, role: user|assistant|agent, content, createdAt, sources: [{ title, url }] }`
+- The visitor's IP address, as the server sees it (`TRUST_PROXY` decides which forwarded address counts; an address the visitor sends is never used), is kept on their conversation as `metadata.visitorIp` and `metadata.visitorIpAt`: set when their first message starts the conversation (opening the chat creates nothing), and updated when a new session starts from another address. Staff see it in `GET /v1/conversations/:id`; it's never returned to the widget, given to the AI, or included in webhooks. Playground chats don't record it.
 - `GET /widget.js` — the embeddable script: `<script src="https://api.example.com/widget.js" data-key="pk_…" async></script>`

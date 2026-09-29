@@ -358,6 +358,7 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
     subtitle: theme.subtitle ?? '',
     launcherText: theme.launcherText ?? '',
     avatarUrl: theme.avatarUrl ?? '',
+    draggable: theme.draggable ?? false,
   }));
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
   const colorValid = /^#[0-9a-fA-F]{6}$/.test(form.primaryColor);
@@ -365,7 +366,14 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
 
   const save = useAction(
     () => {
-      const themeBody: ChannelTheme = { primaryColor: form.primaryColor, position: form.position, title: form.title, subtitle: form.subtitle, launcherText: form.launcherText };
+      const themeBody: ChannelTheme = {
+        primaryColor: form.primaryColor,
+        position: form.position,
+        title: form.title,
+        subtitle: form.subtitle,
+        launcherText: form.launcherText,
+        draggable: form.draggable,
+      };
       if (form.avatarUrl.trim()) themeBody.avatarUrl = form.avatarUrl.trim();
       const body = {
         name: form.name.trim(),
@@ -448,6 +456,12 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
                 <Input type="url" value={form.avatarUrl} maxLength={500} placeholder="https://…/avatar.png" onChange={(e) => set('avatarUrl', e.target.value)} />
               </Field>
             </div>
+            <Toggle
+              label="Draggable bubble"
+              description="Visitors can drag the chat bubble anywhere on the page while the chat is closed, and it stays where they leave it. Position is where it starts."
+              checked={form.draggable}
+              onChange={(v) => set('draggable', v)}
+            />
           </fieldset>
         </div>
         <WidgetPreview
@@ -457,13 +471,30 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
           subtitle={form.subtitle}
           greeting={form.greeting || selectedBot?.config.persona.greeting || 'Hi! How can I help?'}
           launcherText={form.launcherText}
+          draggable={form.draggable}
         />
       </div>
     </Modal>
   );
 }
 
-function WidgetPreview({ color, position, title, subtitle, greeting, launcherText }: { color: string; position: 'left' | 'right'; title: string; subtitle: string; greeting: string; launcherText: string }) {
+function WidgetPreview({
+  color,
+  position,
+  title,
+  subtitle,
+  greeting,
+  launcherText,
+  draggable,
+}: {
+  color: string;
+  position: 'left' | 'right';
+  title: string;
+  subtitle: string;
+  greeting: string;
+  launcherText: string;
+  draggable: boolean;
+}) {
   return (
     <div aria-label="Widget preview" className="sticky top-0 self-start">
       <p className="mb-2 text-xs font-medium text-muted">Preview</p>
@@ -487,6 +518,7 @@ function WidgetPreview({ color, position, title, subtitle, greeting, launcherTex
           </span>
         </div>
       </div>
+      {draggable && <p className="mt-2 text-xs text-muted">Starts here; visitors can drag it anywhere.</p>}
     </div>
   );
 }

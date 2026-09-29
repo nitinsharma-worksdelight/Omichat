@@ -5,6 +5,8 @@
  * localStorage so the conversation survives reloads, and streams replies over SSE read with fetch().
  */
 
+import { clamp, fromSaved, isDrag, parseSaved, placement, toSaved, type Point, type SavedPosition, type Side } from './drag';
+
 interface Theme {
   primaryColor?: string;
   position?: 'right' | 'left';
@@ -12,6 +14,8 @@ interface Theme {
   subtitle?: string;
   avatarUrl?: string;
   launcherText?: string;
+  /** Visitors may drag the bubble anywhere while the chat is closed; `position` is where it starts. */
+  draggable?: boolean;
 }
 
 interface WidgetConfig {
@@ -159,16 +163,22 @@ const STYLES = `
 .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes b { 0%, 60%, 100% { opacity: .3; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .dots i { animation: none; } .launcher { transition: none; } }
-form { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+form { display: flex; gap: 8px; padding: 10px 12px 6px; border-top: 1px solid var(--line); }
+.brand { padding: 0 12px 8px; font-size: 11px; line-height: 16px; color: var(--muted); }
 textarea { flex: 1; resize: none; max-height: 120px; min-height: 40px; padding: 10px 12px; border: 1px solid var(--line);
   border-radius: 12px; font: inherit; color: inherit; background: transparent; outline: none; }
 textarea:focus { border-color: var(--c); }
 .send { flex: none; width: 40px; height: 40px; border: 0; border-radius: 12px; background: var(--c); color: #fff; cursor: pointer; }
 .send:disabled { opacity: .5; cursor: default; }
 .err { padding: 0 16px 6px; font-size: 12px; color: #dc2626; }
+.root.moved { left: var(--x); top: var(--y); right: auto; bottom: auto; }
+.root.moved .panel { left: var(--panel-x, 0px); right: auto; height: var(--panel-h, min(640px, calc(100vh - 110px))); }
+.root.moved.below .panel { top: 72px; bottom: auto; }
+.launcher.draggable { touch-action: none; -webkit-user-select: none; user-select: none; }
+.root.dragging .launcher { cursor: grabbing; transform: none; transition: none; }
 @media (max-width: 480px) {
-  .root.open { inset: 0; }
-  .root.open .panel { position: fixed; inset: 0; width: 100%; height: 100%; border-radius: 0; bottom: 0; }
+  .root.open, .root.open.moved { inset: 0; }
+  .root.open .panel, .root.open.moved .panel { position: fixed; inset: 0; width: 100%; height: 100%; border-radius: 0; bottom: 0; }
   .root.open .launcher { display: none; }
 }
 `;
@@ -204,6 +214,10 @@ function renderText(target: HTMLElement, text: string) {
   });
 }
 
+function viewport() {
+  return { width: document.documentElement.clientWidth || window.innerWidth, height: document.documentElement.clientHeight || window.innerHeight };
+}
+
 class ChatWidget {
   private readonly root: HTMLDivElement;
   private readonly panel: HTMLDivElement;
@@ -226,6 +240,18 @@ class ChatWidget {
   private reconnectDelay = 1000;
   private sessionPromise: Promise<void> | null = null;
   private sending = false;
+
+  /** The side the business chose for the bubble (where it starts). */
+  private side: Side = 'right';
+  /** Set once the configuration allows dragging. */
+  private draggable = false;
+  /** Where a visitor moved the bubble (its top-left corner), and that spot as remembered on this site. */
+  private moved: Point | null = null;
+  private saved: SavedPosition | null = null;
+  /** The press in progress on the bubble; it becomes a drag once it moves far enough. */
+  private press: { id: number; x: number; y: number; left: number; top: number; type: string; dragging: boolean } | null = null;
+  /** The click the browser sends when a drag is released: it isn't a request to open the chat. */
+  private swallowClick = false;
 
   constructor() {
     const host = el('div');
@@ -285,11 +311,18 @@ class ChatWidget {
       this.input.style.height = `${Math.min(this.input.scrollHeight, 120)}px`;
     });
 
-    this.panel.append(head, this.log, this.statusLine, this.errorLine, form);
+    const brand = el('div', 'brand', 'Powered by LeadsMagnet AI');
+    this.panel.append(head, this.log, this.statusLine, this.errorLine, form, brand);
     this.launcher = el('button', 'launcher icon-only');
     this.launcher.innerHTML = ICON_CHAT;
     this.launcher.setAttribute('aria-label', 'Open chat');
-    this.launcher.addEventListener('click', () => this.toggle());
+    this.launcher.addEventListener('click', () => {
+      if (this.swallowClick) {
+        this.swallowClick = false;
+        return;
+      }
+      this.toggle();
+    });
     this.root.append(this.panel, this.launcher);
     shadow.appendChild(this.root);
     document.body.appendChild(host);
@@ -308,7 +341,9 @@ class ChatWidget {
       this.config = (await res.json()) as WidgetConfig;
       const t = this.config.theme;
       if (t.primaryColor) this.root.style.setProperty('--c', t.primaryColor);
-      this.root.className = `root ${t.position === 'left' ? 'left' : 'right'}${this.root.classList.contains('open') ? ' open' : ''}`;
+      this.side = t.position === 'left' ? 'left' : 'right';
+      this.root.classList.toggle('left', this.side === 'left');
+      this.root.classList.toggle('right', this.side === 'right');
       title.textContent = t.title || this.config.companyName || this.config.assistantName;
       subtitle.textContent = t.subtitle || `${this.config.assistantName} · usually replies instantly`;
       if (t.avatarUrl) {
@@ -320,6 +355,8 @@ class ChatWidget {
         this.launcher.innerHTML = `${ICON_CHAT}<span></span>`;
         this.launcher.querySelector('span')!.textContent = t.launcherText;
       }
+      // After the launcher text: the bubble's final size decides where it may go.
+      if (t.draggable) this.enableDragging();
     } catch {
       this.root.style.display = 'none'; // unknown/disabled key: stay invisible on the host page
     }
@@ -327,12 +364,101 @@ class ChatWidget {
 
   toggle(force?: boolean) {
     const open = force ?? !this.root.classList.contains('open');
+    if (open) this.placePanel();
     this.root.classList.toggle('open', open);
     this.launcher.setAttribute('aria-expanded', String(open));
     store('open', open ? '1' : null);
     if (open) {
       void this.ensureSession().then(() => this.input.focus());
     }
+  }
+
+  /** Visitors may move the bubble anywhere while the chat is closed; the spot they leave it in is remembered here. */
+  private enableDragging() {
+    this.draggable = true;
+    this.launcher.classList.add('draggable');
+    this.saved = parseSaved(store('position'), this.side);
+    if (this.saved) this.refit();
+    this.launcher.addEventListener('pointerdown', (e) => this.pressStart(e));
+    this.launcher.addEventListener('pointermove', (e) => this.pressMove(e));
+    this.launcher.addEventListener('pointerup', (e) => this.pressEnd(e));
+    this.launcher.addEventListener('pointercancel', (e) => this.pressEnd(e));
+    // A release the page never saw (e.g. outside the window) still ends the drag.
+    this.launcher.addEventListener('lostpointercapture', (e) => this.pressEnd(e));
+    window.addEventListener('resize', () => this.refit());
+  }
+
+  private pressStart(e: PointerEvent) {
+    // Only while the chat is closed, and only a primary press (not a right-click or a second finger).
+    if (!this.draggable || this.root.classList.contains('open') || !e.isPrimary || e.button !== 0) return;
+    const r = this.launcher.getBoundingClientRect();
+    this.press = { id: e.pointerId, x: e.clientX, y: e.clientY, left: r.left, top: r.top, type: e.pointerType, dragging: false };
+    // Captured, so a quick drag keeps following the pointer after it leaves the bubble.
+    try {
+      this.launcher.setPointerCapture(e.pointerId);
+    } catch {
+      // Not an active pointer any more (or no capture support): the drag still follows while over the bubble.
+    }
+  }
+
+  private pressMove(e: PointerEvent) {
+    const press = this.press;
+    if (!press || e.pointerId !== press.id) return;
+    const dx = e.clientX - press.x;
+    const dy = e.clientY - press.y;
+    if (!press.dragging) {
+      if (!isDrag(dx, dy, press.type)) return;
+      press.dragging = true;
+      this.root.classList.add('dragging');
+    }
+    this.moveTo(clamp({ x: press.left + dx, y: press.top + dy }, this.bubbleSize(), viewport()));
+  }
+
+  private pressEnd(e: PointerEvent) {
+    const press = this.press;
+    if (!press || e.pointerId !== press.id) return;
+    this.press = null;
+    if (this.launcher.hasPointerCapture?.(e.pointerId)) this.launcher.releasePointerCapture(e.pointerId);
+    if (!press.dragging) return;
+    this.root.classList.remove('dragging');
+    // A mouse release is followed by a click in the same turn; a touch release by none. Either way it's over after this.
+    this.swallowClick = true;
+    setTimeout(() => {
+      this.swallowClick = false;
+    }, 0);
+    if (!this.moved) return;
+    this.saved = toSaved(this.moved, this.bubbleSize(), viewport(), this.side);
+    store('position', JSON.stringify(this.saved));
+  }
+
+  private moveTo(p: Point) {
+    this.moved = p;
+    this.root.classList.add('moved');
+    this.root.style.setProperty('--x', `${Math.round(p.x)}px`);
+    this.root.style.setProperty('--y', `${Math.round(p.y)}px`);
+  }
+
+  /** After a resize or rotation (or on load): the remembered spot, on this screen size. */
+  private refit() {
+    if (!this.saved && !this.moved) return;
+    const size = this.bubbleSize();
+    this.moveTo(this.saved ? fromSaved(this.saved, size, viewport()) : clamp(this.moved!, size, viewport()));
+    if (this.root.classList.contains('open')) this.placePanel();
+  }
+
+  /** The chat window of a moved bubble opens where there's room (the usual spot otherwise). */
+  private placePanel() {
+    if (!this.moved) return;
+    const { below, panelX, height } = placement(this.moved, this.bubbleSize(), viewport());
+    this.root.classList.toggle('below', below);
+    this.root.style.setProperty('--panel-x', `${Math.round(panelX)}px`);
+    this.root.style.setProperty('--panel-h', `${Math.round(height)}px`);
+  }
+
+  private bubbleSize() {
+    const r = this.launcher.getBoundingClientRect();
+    // Hidden (a phone's full-screen chat): its usual size.
+    return { width: r.width || 56, height: r.height || 56 };
   }
 
   private ensureSession(): Promise<void> {

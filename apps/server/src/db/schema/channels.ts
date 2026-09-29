@@ -13,6 +13,8 @@ export interface WidgetTheme {
   subtitle?: string;
   avatarUrl?: string;
   launcherText?: string;
+  /** Visitors may drag the bubble anywhere (while the chat is closed); `position` is where it starts. Off by default. */
+  draggable?: boolean;
 }
 
 export interface ChannelAccountConfig {

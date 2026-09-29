@@ -6,6 +6,7 @@ import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import type { PubSub } from '../../infra/pubsub';
 import type { QueueDriver } from '../../infra/queue';
 import { badRequest, notFound } from '../../lib/errors';
+import { normalizeIp } from '../../lib/ip';
 import { queryBool } from '../../lib/validation';
 import type { SummaryJob } from '../ai/summary';
 import { recordEvent } from '../automation/events';
@@ -31,6 +32,8 @@ export interface NormalizedInboundMessage {
   firstTouch?: unknown;
   /** The visitor's timezone (the widget reads the browser's); kept on the contact when none is known. */
   timezone?: string;
+  /** The website visitor's address as the server saw it (`req.ip`), kept on the conversation it creates (not for tests). */
+  visitorIp?: string | null;
 }
 
 export interface InboundResult {
@@ -131,6 +134,11 @@ export class ConversationsService {
       else delete metadata.pageUrl;
     }
 
+    const isTest = msg.isTest ?? account.channel === 'playground';
+    // A new conversation keeps where it came from; its messages don't carry the address.
+    const visitorIp = isTest ? null : normalizeIp(msg.visitorIp);
+    const conversationMetadata = visitorIp ? { ...metadata, visitorIp, visitorIpAt: new Date().toISOString() } : metadata;
+
     const result = await inScope(this.tenantDb, scope, async (tx) => {
       const conversation = await this.findOrCreateOpen(tx, {
         orgId: msg.orgId,
@@ -138,8 +146,8 @@ export class ConversationsService {
         channel: account.channel,
         contactId,
         botId: msg.botIdOverride ?? account.botId,
-        isTest: msg.isTest ?? account.channel === 'playground',
-        metadata,
+        isTest,
+        metadata: conversationMetadata,
       });
       const inserted = await tx
         .insert(schema.messages)
@@ -500,6 +508,20 @@ export class ConversationsService {
   }
 
   /** The visitor's open conversation on a channel account, if any (widget history restore). */
+  /**
+   * The website visitor's address at their latest chat session, on their open conversation. Written only when it
+   * changed, and never for test (playground) conversations.
+   */
+  async recordVisitorIp(scope: Scope, conversationId: string, ip: string): Promise<void> {
+    const c = schema.conversations;
+    await inScope(this.tenantDb, scope, (tx) =>
+      tx
+        .update(c)
+        .set({ metadata: sql`${c.metadata} || ${JSON.stringify({ visitorIp: ip, visitorIpAt: new Date().toISOString() })}::jsonb` })
+        .where(and(eq(c.id, conversationId), eq(c.organizationId, scope.orgId), eq(c.isTest, false), sql`${c.metadata} ->> 'visitorIp' is distinct from ${ip}`)),
+    );
+  }
+
   async openForIdentity(scope: Scope, channelAccountId: string, channel: ChannelType, externalUserId: string) {
     return inScope(this.tenantDb, scope, async (tx) => {
       const contactId = await this.contacts.findByIdentity(tx, scope.orgId, channel, externalUserId);

@@ -16,7 +16,7 @@ import {
   Send,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { TimelineList } from '../../components/activity';
 import { ApprovalCard, useApprovals } from '../../components/approvals';
 import { useToast } from '../../components/feedback-context';
@@ -274,6 +274,9 @@ function Thread({ conversationId }: { conversationId: string }) {
   }
   const conv = conversation.data;
   const contact = conv.contact;
+  // A website visitor's address as the server saw it at their latest chat session (staff only; not for test chats).
+  const visitorIp = typeof conv.metadata.visitorIp === 'string' ? conv.metadata.visitorIp : null;
+  const visitorIpAt = typeof conv.metadata.visitorIpAt === 'string' ? conv.metadata.visitorIpAt : null;
   const contactName = contact.name || contact.email || contact.phone || 'Anonymous visitor';
 
   return (
@@ -422,6 +425,16 @@ function Thread({ conversationId }: { conversationId: string }) {
                 ['Stage', contact.lifecycleStage],
                 ['Lead', <span key="t" className="flex items-center gap-1.5"><TierBadge tier={contact.leadTier} /> <span className="text-muted">score {contact.leadScore}</span></span>],
                 ['Qualification', <QualificationBadge key="q" status={contact.qualificationStatus} />],
+                ...(visitorIp
+                  ? [
+                      [
+                        'IP address',
+                        <span key="ip" className="font-mono text-[12.5px]" title={visitorIpAt ? `Last seen ${formatDateTime(visitorIpAt)}` : undefined}>
+                          {visitorIp}
+                        </span>,
+                      ] as [string, ReactNode],
+                    ]
+                  : []),
               ]}
             />
             {contact.tags.length > 0 && (

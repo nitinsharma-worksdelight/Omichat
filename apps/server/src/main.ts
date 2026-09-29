@@ -22,7 +22,7 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 await app.listen({ host: env.HOST, port: env.PORT });
 container.logger.info(
   {
-    url: env.PUBLIC_API_URL,
+    url: env.PUBLIC_API_URL ?? 'from each request',
     database: container.database.kind,
     queue: env.REDIS_URL ? 'bullmq' : 'inline',
     llm: container.llm.name,
@@ -33,6 +33,9 @@ container.logger.info(
   },
   'API ready',
 );
+if (env.NODE_ENV === 'production' && env.PUBLIC_API_URL && /\/\/(localhost|127\.0\.0\.1)(:|$)/.test(env.PUBLIC_API_URL)) {
+  container.logger.warn(`PUBLIC_API_URL is ${env.PUBLIC_API_URL}: embed codes will point there. Unset it to use the address the API is reached at.`);
+}
 if (container.llm.name === 'mock') {
   container.logger.warn('No LLM provider configured: the assistant replies with placeholder text. Set LLM_PROVIDER, LLM_MODEL and the API key in apps/server/.env.');
 } else {

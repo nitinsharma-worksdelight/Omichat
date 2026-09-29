@@ -20,8 +20,23 @@ const EnvSchema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     HOST: z.string().default('0.0.0.0'),
     PORT: z.coerce.number().int().default(4000),
-    PUBLIC_API_URL: z.string().url().default('http://localhost:4000'),
+    /**
+     * The API's public address, for the widget embed code. Optional: when unset, the address each request came in on
+     * is used (right locally, on staging and in production). Set it for a custom domain.
+     */
+    PUBLIC_API_URL: z.string().url().optional(),
     DASHBOARD_ORIGINS: z.string().default('http://localhost:5173'),
+    /**
+     * Which proxies in front of the API to believe about the client's address (X-Forwarded-For) and protocol:
+     * `true` (default: all), `false` (none), or a comma-separated list of the proxies' addresses and ranges, including
+     * `loopback`, `linklocal` and `uniquelocal` (private networks). Only listed proxies' forwarded addresses count, so a
+     * visitor can't make up theirs. A number of hops isn't accepted: it can't tell a proxy from a visitor.
+     */
+    TRUST_PROXY: z
+      .string()
+      .trim()
+      .optional()
+      .refine((v) => !v || !/^\d+$/.test(v), 'TRUST_PROXY takes the proxies’ addresses or ranges (e.g. uniquelocal), not a number of hops'),
 
     DATABASE_URL: z.string().default('pglite://.data/pglite'),
     DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
@@ -94,12 +109,21 @@ const EnvSchema = z
   })
   .transform((env) => ({
     ...env,
+    PUBLIC_API_URL: env.PUBLIC_API_URL?.replace(/\/+$/, ''),
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
     LLM_PROVIDER: env.LLM_PROVIDER ?? 'mock',
     EMBEDDINGS_PROVIDER: env.EMBEDDINGS_PROVIDER ?? (env.OPENAI_API_KEY ? 'openai' : 'local'),
     dashboardOrigins: env.DASHBOARD_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
   }));
 
 export type Env = z.infer<typeof EnvSchema>;
+
+/** TRUST_PROXY as Fastify takes it; a bad address in a list fails at startup. */
+function parseTrustProxy(raw: string | undefined): boolean | string {
+  if (!raw || raw === 'true') return true;
+  if (raw === 'false') return false;
+  return raw;
+}
 
 export function loadEnv(overrides: Record<string, string | undefined> = {}): Env {
   if (existsSync('.env') && !process.env.SKIP_DOTENV) {

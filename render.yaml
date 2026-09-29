@@ -5,7 +5,7 @@
 #
 # JWT_SECRET and ENCRYPTION_KEY are generated once by Render. Never change ENCRYPTION_KEY afterwards: it encrypts
 # stored webhook and workflow secrets. Render asks for OPENAI_API_KEY and DASHBOARD_ORIGINS when the Blueprint is
-# created. After the first deploy, set PUBLIC_API_URL to this service's URL (it goes into the widget embed code).
+# created. The widget embed code uses the address the API is reached at; set PUBLIC_API_URL only for a custom domain.
 #
 # Free plans are for trying it out: the API sleeps after 15 minutes without requests, and the free database
 # expires after 30 days unless upgraded. Each piece can be upgraded in place.
