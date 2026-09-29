@@ -12,12 +12,14 @@ import {
   LogOut,
   MessageSquare,
   MessagesSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   ShieldQuestion,
   Users,
   Workflow,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { get, post } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -42,44 +44,98 @@ const NAV = [
   { to: '/settings', segment: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 
+/** A yes/no kept in this browser (and still working, just not remembered, where storage is blocked). */
+function useStoredFlag(key: string): [boolean, (value: boolean) => void] {
+  const [value, setValue] = useState(() => {
+    try {
+      return localStorage.getItem(key) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const set = (next: boolean) => {
+    setValue(next);
+    try {
+      localStorage.setItem(key, next ? '1' : '0');
+    } catch {
+      // Storage blocked: the choice lasts for this visit.
+    }
+  };
+  return [value, set];
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const route = useRoute();
   const current = route.segments[0];
   const waiting = useApprovals({ status: 'pending' }).data?.length ?? 0;
+  // Icons only when collapsed: one choice for every page, remembered in this browser (the shell stays mounted as pages change).
+  const [compact, setCompact] = useStoredFlag('omni:main-menu-collapsed');
   return (
     <div className="flex h-full min-w-[1024px]">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-surface">
-        <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
+      <aside id="main-menu" className={cx('flex shrink-0 flex-col border-r border-border bg-surface', compact ? 'w-16' : 'w-56')}>
+        <div className={cx('flex h-14 items-center gap-2.5 border-b border-border', compact ? 'justify-center' : 'px-4')}>
           <div className="flex size-7 items-center justify-center rounded-md bg-accent text-accent-fg">
             <MessageSquare className="size-4" aria-hidden />
           </div>
-          <span className="text-sm font-semibold text-fg">Omni AI</span>
+          {compact ? <span className="sr-only">Omni AI</span> : <span className="text-sm font-semibold text-fg">Omni AI</span>}
         </div>
         <nav aria-label="Main" className="flex-1 space-y-0.5 overflow-y-auto p-2">
           {NAV.map((item) => {
             const active = item.segment === current;
             const Icon = item.icon;
+            const waitingHere = item.segment === 'approvals' && waiting > 0;
             return (
               <Link
                 key={item.to}
                 to={item.to}
                 aria-current={active ? 'page' : undefined}
+                title={compact ? item.label : undefined}
                 className={cx(
-                  'flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors',
+                  'flex items-center rounded-md text-[13px] font-medium transition-colors',
+                  compact ? 'relative mx-auto size-10 justify-center' : 'gap-2.5 px-2.5 py-1.5',
                   active ? 'bg-accent-soft text-accent-text' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
                 )}
               >
                 <Icon className="size-4 shrink-0" aria-hidden />
-                {item.label}
-                {item.segment === 'approvals' && waiting > 0 && (
-                  <Badge tone="amber" className="ml-auto">
-                    {waiting > 99 ? '99+' : waiting}
-                  </Badge>
-                )}
+                {compact ? <span className="sr-only">{item.label}</span> : item.label}
+                {waitingHere &&
+                  (compact ? (
+                    <>
+                      <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-warning" aria-hidden />
+                      <span className="sr-only">, {waiting} waiting</span>
+                    </>
+                  ) : (
+                    <Badge tone="amber" className="ml-auto">
+                      {waiting > 99 ? '99+' : waiting}
+                    </Badge>
+                  ))}
               </Link>
             );
           })}
         </nav>
+        <div className="border-t border-border p-2">
+          <button
+            type="button"
+            onClick={() => setCompact(!compact)}
+            aria-expanded={!compact}
+            aria-controls="main-menu"
+            aria-label={compact ? 'Expand menu' : 'Collapse menu'}
+            title={compact ? 'Expand menu' : 'Collapse menu'}
+            className={cx(
+              'flex h-9 items-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-fg',
+              compact ? 'mx-auto w-10 justify-center' : 'w-full gap-2.5 px-2.5 text-[13px] font-medium',
+            )}
+          >
+            {compact ? (
+              <PanelLeftOpen className="size-4" aria-hidden />
+            ) : (
+              <>
+                <PanelLeftClose className="size-4 shrink-0" aria-hidden />
+                Collapse menu
+              </>
+            )}
+          </button>
+        </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />

@@ -1,25 +1,10 @@
 import { useAiConfig } from '../../lib/queries';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
-import type { ReactNode } from 'react';
-import {
-  Badge,
-  Button,
-  Card,
-  Checkbox,
-  ChipsInput,
-  cx,
-  EmptyState,
-  Field,
-  IconButton,
-  Input,
-  NumberInput,
-  Section,
-  Select,
-  Textarea,
-  Toggle,
-} from '../../components/ui';
-import { slugify, TOOL_LABELS } from '../../lib/format';
+import { ArrowDown, ArrowUp, LayoutTemplate, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Badge, Button, Card, Checkbox, ChipsInput, cx, EmptyState, Field, IconButton, Input, NumberInput, Select, Textarea, Toggle } from '../../components/ui';
+import { initialsOf, slugify, TOOL_LABELS } from '../../lib/format';
 import { Link } from '../../lib/router';
+import { askedFor } from './editorNav';
 import {
   ASK_FIRST_TOOLS,
   CRM_TOOL_KEYS,
@@ -67,6 +52,8 @@ export interface EditorContext {
   otherBots: Array<{ name: string; questions: QualificationQuestion[] }>;
   /** Used when a bot has no company name of its own. */
   organizationName: string;
+  /** The assistant's name as help text uses it: "Maya", or "your assistant" before it has one. */
+  assistantName: string;
   /** Who the assistant may make a contact's owner. */
   members: Member[];
   /** Where the assistant may open deals. */
@@ -79,8 +66,9 @@ interface SectionProps<T> {
   ctx: EditorContext;
 }
 
+/** Side by side when the card is wide enough, one under another when it's narrow. */
 function Grid({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 | 3 }) {
-  return <div className={cx('grid gap-4', cols === 2 ? 'grid-cols-2' : cols === 3 ? 'grid-cols-3' : 'grid-cols-1')}>{children}</div>;
+  return <div className={cx('grid gap-4', cols === 2 ? '@sm:grid-cols-2' : cols === 3 ? '@sm:grid-cols-3' : 'grid-cols-1')}>{children}</div>;
 }
 
 function Counter({ value, max }: { value: string; max: number }) {
@@ -89,6 +77,140 @@ function Counter({ value, max }: { value: string; max: number }) {
       {value.length.toLocaleString()} / {max.toLocaleString()}
     </span>
   );
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Where the settings search can jump to: `id` is one of the editor's SETTINGS. */
+function Setting({ id, className, children }: { id: string; className?: string; children: ReactNode }) {
+  return (
+    <div data-setting={id} className={cx('rounded-lg', className)}>
+      {children}
+    </div>
+  );
+}
+
+/** A card of related settings under a plain heading; `aside` sits beside the heading (a button, a counter). */
+function SettingsCard({
+  title,
+  description,
+  aside,
+  setting,
+  children,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  aside?: ReactNode;
+  /** Makes the whole card a search target. */
+  setting?: string;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  return (
+    <section aria-labelledby={titleId} data-setting={setting} className="space-y-4 rounded-[14px] border border-border bg-surface p-5 @container">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <h3 id={titleId} className="text-[15px] leading-5 font-semibold text-fg">
+            {title}
+          </h3>
+          {description && <p className="mt-1 text-[13px] leading-5 text-muted">{description}</p>}
+        </div>
+        {aside && <div className="flex shrink-0 items-center gap-2">{aside}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** A feature that can be switched off: its switch, and a line on what it does right now, head the card. */
+function FeatureCard({
+  title,
+  summary,
+  checked,
+  onChange,
+  setting,
+  children,
+}: {
+  title: string;
+  summary: ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  setting: string;
+  children?: ReactNode;
+}) {
+  const titleId = useId();
+  return (
+    <section aria-labelledby={titleId} className="space-y-4 rounded-[14px] border border-border bg-surface p-5 @container">
+      <div data-setting={setting} className="flex items-start justify-between gap-4 rounded-lg">
+        <div className="min-w-0">
+          <h3 id={titleId} className="text-[15px] leading-5 font-semibold text-fg">
+            {title}
+          </h3>
+          <p className="mt-1 text-[13px] leading-5 text-muted">
+            <span className={cx('font-semibold', checked ? 'text-success-text' : 'text-fg-2')}>{checked ? 'On' : 'Off'}</span>
+            {' · '}
+            {summary}
+          </p>
+        </div>
+        <Toggle className="pt-0.5" checked={checked} onChange={onChange} ariaLabel={title} />
+      </div>
+      {children && <div className="space-y-4 border-t border-border pt-4">{children}</div>}
+    </section>
+  );
+}
+
+/** One of a few choices, as pills or as small cards with a line each (radio buttons underneath). */
+function Choices<T extends string>({
+  legend,
+  value,
+  options,
+  onChange,
+  variant = 'pills',
+}: {
+  legend: string;
+  value: T;
+  options: Array<{ value: T; label: string; description?: string }>;
+  onChange: (value: T) => void;
+  variant?: 'pills' | 'cards';
+}) {
+  const name = useId();
+  return (
+    <fieldset>
+      <legend className="mb-2 text-[13px] font-medium text-fg-2">{legend}</legend>
+      <div className={variant === 'pills' ? 'flex flex-wrap gap-2' : 'grid gap-2.5 @sm:grid-cols-3'}>
+        {options.map((o) => {
+          const checked = o.value === value;
+          return (
+            <label
+              key={o.value}
+              className={cx(
+                'cursor-pointer border transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent',
+                variant === 'pills' ? 'rounded-full px-3.5 py-1.5 text-[13px] font-medium' : 'rounded-xl px-3.5 py-2.5',
+                checked ? 'border-accent bg-accent-soft text-accent-text' : 'border-border-strong bg-surface text-fg-2 hover:border-accent/50 hover:text-fg',
+              )}
+            >
+              <input type="radio" name={name} value={o.value} checked={checked} onChange={() => onChange(o.value)} className="sr-only" />
+              {variant === 'cards' ? (
+                <>
+                  <span className="block text-[13px] font-semibold">{o.label}</span>
+                  {o.description && <span className={cx('block text-xs', checked ? 'text-accent-text' : 'text-muted')}>{o.description}</span>}
+                </>
+              ) : (
+                o.label
+              )}
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+/** A box with a dashed edge for "nothing here yet". */
+function EmptyBox({ children }: { children: ReactNode }) {
+  return <div className="rounded-xl border border-dashed border-border-strong">{children}</div>;
 }
 
 // ---------- Persona ----------
@@ -164,83 +286,238 @@ export const PERSONALITY_TEMPLATES: PersonalityTemplate[] = [
   },
 ];
 
+const LENGTHS: Array<{ value: Persona['responseLength']; label: string; description: string }> = [
+  { value: 'short', label: 'Short', description: 'One or two sentences' },
+  { value: 'medium', label: 'Medium', description: 'A short paragraph' },
+  { value: 'detailed', label: 'Detailed', description: 'Several paragraphs' },
+];
+
+/** "Use a template": the templates in a menu; picking one fills the draft (the editor asks first when that replaces text). */
+function TemplateMenu({ onApply }: { onApply: (template: PersonalityTemplate) => void }) {
+  const [open, setOpen] = useState(false);
+  const menuId = useId();
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Opened, the first template takes the focus; a press anywhere else closes the menu.
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current?.querySelector<HTMLElement>('[role=menuitem]')?.focus();
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
+  // Back on the button, so a confirmation that follows returns the focus there too.
+  const close = () => {
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...(menuRef.current?.querySelectorAll<HTMLElement>('[role=menuitem]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const focus = (i: number) => items[(i + items.length) % items.length]?.focus();
+    if (e.key === 'ArrowDown') focus(at + 1);
+    else if (e.key === 'ArrowUp') focus(at - 1);
+    else if (e.key === 'Home') focus(0);
+    else if (e.key === 'End') focus(items.length - 1);
+    else if (e.key === 'Escape') close();
+    else {
+      if (e.key === 'Tab') setOpen(false);
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  return (
+    <div className="relative">
+      <Button
+        ref={buttonRef}
+        icon={<LayoutTemplate className="size-4" aria-hidden />}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((o) => !o)}
+      >
+        Use a template
+      </Button>
+      {open && (
+        <div
+          ref={menuRef}
+          id={menuId}
+          role="menu"
+          aria-label="Templates"
+          onKeyDown={onKeyDown}
+          className="absolute top-full right-0 z-20 mt-2 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-pop"
+        >
+          {PERSONALITY_TEMPLATES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              onClick={() => {
+                close();
+                onApply(t);
+              }}
+              className="flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left outline-none hover:bg-surface-2 focus:bg-accent-soft"
+            >
+              <span className="text-[13px] font-semibold text-fg">{t.label}</span>
+              <span className="text-xs text-muted">{t.description}</span>
+            </button>
+          ))}
+          <p className="mt-1 border-t border-border px-3 pt-2 pb-1 text-xs text-muted">
+            Fills the role, tone, reply length, personality and main goal. Nothing is saved until you press Save.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The greeting as the website chat shows it: the chat's picture, the bubble, and the assistant's name. */
+function GreetingPreview({ greeting, chatName, assistantName }: { greeting: string; chatName: string; assistantName: string }) {
+  return (
+    <div aria-hidden className="rounded-xl bg-surface-2 p-4">
+      <p className="mb-3 text-[11px] font-semibold tracking-wider text-muted uppercase">Preview</p>
+      <div className="flex items-end gap-2">
+        <span className="mb-5 flex size-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent-text">
+          {initialsOf(chatName)}
+        </span>
+        <div className="min-w-0 space-y-1">
+          <p className="rounded-[18px] rounded-bl-md bg-surface px-3.5 py-2 text-sm leading-[21px] whitespace-pre-wrap text-fg [overflow-wrap:anywhere]">
+            {greeting.trim() ? greeting : <span className="text-faint">Your greeting shows here.</span>}
+          </p>
+          <p className="px-1 text-[11px] leading-4 text-muted">{assistantName} · Just now</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PersonaSection({ value, onChange, ctx, onApplyTemplate }: SectionProps<Persona> & { onApplyTemplate: (template: PersonalityTemplate) => void }) {
   const set = <K extends keyof Persona>(key: K, v: Persona[K]) => onChange({ ...value, [key]: v });
+  const name = value.assistantName.trim();
+  const company = value.companyName.trim() || ctx.organizationName;
+  const language = value.language.trim();
+  const chips = [
+    TONES.find((t) => t.value === value.tone)?.label ?? value.tone,
+    `${LENGTHS.find((l) => l.value === value.responseLength)?.label ?? value.responseLength} replies`,
+    !language || language.toLowerCase() === 'auto' ? "Replies in the visitor's language" : `Replies in ${language}`,
+    value.useEmojis ? 'Uses emoji' : 'No emoji',
+  ];
   return (
-    <Section title="Persona" description="Who the assistant is and how it sounds.">
-      <div>
-        <p className="mb-2 text-[13px] font-medium text-fg-2">Start from a template</p>
-        <div className="flex flex-wrap gap-2">
-          {PERSONALITY_TEMPLATES.map((t) => (
-            <Button key={t.id} size="sm" title={t.description} onClick={() => onApplyTemplate(t)}>
-              {t.label}
-            </Button>
-          ))}
-        </div>
-        <p className="mt-1.5 text-xs text-muted">Fills the role, tone, reply length, personality and main goal. Review them, then save.</p>
-      </div>
-      <Grid>
-        <Field label="Assistant name" hint="Shown in the chat header and used when it introduces itself.">
-          <Input value={value.assistantName} maxLength={60} onChange={(e) => set('assistantName', e.target.value)} />
-        </Field>
-        <Field label="Company name" hint={ctx.organizationName ? `Leave empty to use “${ctx.organizationName}”.` : undefined}>
-          <Input value={value.companyName} maxLength={120} placeholder={ctx.organizationName} onChange={(e) => set('companyName', e.target.value)} />
-        </Field>
-        <Field label="Role" hint="e.g. patient coordinator, sales assistant.">
-          <Input value={value.role} maxLength={120} onChange={(e) => set('role', e.target.value)} />
-        </Field>
-        <Field label="Tone">
-          <Select value={value.tone} onChange={(e) => set('tone', e.target.value as Persona['tone'])}>
-            {TONES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
+    <>
+      <section aria-label={`How ${ctx.assistantName} comes across`} className="flex flex-wrap items-center gap-4 rounded-[14px] border border-border bg-surface p-5">
+        <span aria-hidden className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-accent-soft text-2xl font-bold text-accent-text">
+          {(name || '?').charAt(0).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1 basis-56 space-y-2">
+          <div>
+            <p className="truncate text-base font-semibold text-fg">{name || 'No name yet'}</p>
+            <p className="truncate text-[13px] text-muted">
+              {capitalize(value.role.trim() || 'assistant')}
+              {company && ` at ${company}`}
+            </p>
+          </div>
+          <ul aria-label="Voice" className="flex flex-wrap gap-1.5">
+            {chips.map((c) => (
+              <li key={c} className="rounded-full bg-surface-2 px-2.5 text-xs leading-[22px] font-medium text-fg-2">
+                {c}
+              </li>
             ))}
-          </Select>
-        </Field>
-        <Field label="Reply length">
-          <Select value={value.responseLength} onChange={(e) => set('responseLength', e.target.value as Persona['responseLength'])}>
-            <option value="short">Short — one or two sentences</option>
-            <option value="medium">Medium</option>
-            <option value="detailed">Detailed</option>
-          </Select>
-        </Field>
-        <Field label="Language" hint="“auto” replies in the visitor's language. Or type a language name or code.">
-          <Input list="bot-languages" value={value.language} maxLength={40} onChange={(e) => set('language', e.target.value)} />
-        </Field>
-      </Grid>
-      <datalist id="bot-languages">
-        {LANGUAGES.map((l) => (
-          <option key={l} value={l} />
-        ))}
-      </datalist>
-      <Field label="Personality" hint="How it should come across, in your own words. Adds to the tone above (up to 600 characters).">
-        <Textarea
-          rows={3}
-          maxLength={600}
-          value={value.personality}
-          placeholder="e.g. Warm and reassuring, a little playful, like our front desk."
-          onChange={(e) => set('personality', e.target.value)}
-        />
-      </Field>
-      <Toggle label="Use emojis" description="Allow the occasional emoji in replies." checked={value.useEmojis} onChange={(v) => set('useEmojis', v)} />
-      <Field label="Greeting" hint="The first message visitors see when they open the chat.">
-        <Textarea rows={3} value={value.greeting} maxLength={500} onChange={(e) => set('greeting', e.target.value)} />
-      </Field>
-    </Section>
+          </ul>
+        </div>
+        <Setting id="persona.template" className="self-start">
+          <TemplateMenu onApply={onApplyTemplate} />
+        </Setting>
+      </section>
+
+      <SettingsCard title="Identity" description="The name, company and role visitors see.">
+        <Grid>
+          <Setting id="persona.assistantName">
+            <Field label="Assistant name" hint="Shown in the chat header and used when it introduces itself.">
+              <Input value={value.assistantName} maxLength={60} onChange={(e) => set('assistantName', e.target.value)} />
+            </Field>
+          </Setting>
+          <Setting id="persona.companyName">
+            <Field label="Company name" hint={ctx.organizationName ? `Leave empty to use “${ctx.organizationName}”.` : undefined}>
+              <Input value={value.companyName} maxLength={120} placeholder={ctx.organizationName} onChange={(e) => set('companyName', e.target.value)} />
+            </Field>
+          </Setting>
+        </Grid>
+        <Setting id="persona.role">
+          <Field label="Role" hint="e.g. patient coordinator, sales assistant.">
+            <Input value={value.role} maxLength={120} onChange={(e) => set('role', e.target.value)} />
+          </Field>
+        </Setting>
+      </SettingsCard>
+
+      <SettingsCard title="Voice" description={`How ${ctx.assistantName} talks. Save, then try it in the test chat.`}>
+        <Setting id="persona.tone">
+          <Choices legend="Tone" value={value.tone} options={TONES} onChange={(v) => set('tone', v)} />
+        </Setting>
+        <Setting id="persona.responseLength">
+          <Choices legend="Reply length" variant="cards" value={value.responseLength} options={LENGTHS} onChange={(v) => set('responseLength', v)} />
+        </Setting>
+        <Grid>
+          <Setting id="persona.language">
+            <Field label="Language" hint="“auto” replies in the visitor's language. Or type a language name or code.">
+              <Input list="bot-languages" value={value.language} maxLength={40} onChange={(e) => set('language', e.target.value)} />
+            </Field>
+          </Setting>
+          <Setting id="persona.useEmojis">
+            <Toggle label="Use emojis" description="Allow the occasional emoji in replies." checked={value.useEmojis} onChange={(v) => set('useEmojis', v)} />
+          </Setting>
+        </Grid>
+        <datalist id="bot-languages">
+          {LANGUAGES.map((l) => (
+            <option key={l} value={l} />
+          ))}
+        </datalist>
+        <Setting id="persona.personality">
+          <Field label="Personality" hint="How it should come across, in your own words. Adds to the tone above (up to 600 characters).">
+            <Textarea
+              rows={3}
+              maxLength={600}
+              value={value.personality}
+              placeholder="e.g. Warm and reassuring, a little playful, like our front desk."
+              onChange={(e) => set('personality', e.target.value)}
+            />
+          </Field>
+        </Setting>
+      </SettingsCard>
+
+      <SettingsCard title="Greeting" description="The first message visitors see when they open the chat.">
+        <div className="grid items-start gap-4 @lg:grid-cols-2">
+          <Setting id="persona.greeting">
+            <Field label="Greeting message">
+              <Textarea rows={4} value={value.greeting} maxLength={500} onChange={(e) => set('greeting', e.target.value)} />
+            </Field>
+          </Setting>
+          <GreetingPreview greeting={value.greeting} chatName={company || name} assistantName={name || 'Assistant'} />
+        </div>
+      </SettingsCard>
+    </>
   );
 }
 
 // ---------- Goals ----------
 
-export function GoalsSection({ value, onChange }: SectionProps<Goals>) {
+export function GoalsSection({ value, onChange, ctx }: SectionProps<Goals>) {
   const setOther = (i: number, text: string) => onChange({ ...value, secondary: value.secondary.map((g, j) => (j === i ? text : g)) });
   return (
-    <Section title="Goals" description="What the assistant works towards. It still answers the customer's question first and never pushes.">
-      <Field label="Main goal" hint="One sentence, e.g. “Get visitors to book a free consultation.”">
-        <Input value={value.primary} maxLength={300} placeholder="e.g. Get visitors to book a free consultation." onChange={(e) => onChange({ ...value, primary: e.target.value })} />
-      </Field>
-      <div className="space-y-2">
+    <SettingsCard title={`What ${ctx.assistantName} works towards`} description="It never pushes: the visitor's question always comes first.">
+      <Setting id="goals.primary">
+        <Field label="Main goal" hint="One sentence, e.g. “Get visitors to book a free consultation.”">
+          <Input value={value.primary} maxLength={300} placeholder="e.g. Get visitors to book a free consultation." onChange={(e) => onChange({ ...value, primary: e.target.value })} />
+        </Field>
+      </Setting>
+      <Setting id="goals.secondary" className="space-y-2">
         <p className="text-[13px] font-medium text-fg-2">More goals</p>
         {value.secondary.map((goal, i) => (
           <div key={i} className="flex items-center gap-2">
@@ -254,11 +531,11 @@ export function GoalsSection({ value, onChange }: SectionProps<Goals>) {
           Add goal
         </Button>
         <p className="text-xs text-muted">Up to 5, e.g. “Mention the new-patient offer when it fits.”</p>
-      </div>
+      </Setting>
       <p className="text-[13px] text-muted">
         Built-in goals are added for what you switch on: answering from your information, capturing details, qualifying, booking and handing off.
       </p>
-    </Section>
+    </SettingsCard>
   );
 }
 
@@ -266,21 +543,21 @@ export function GoalsSection({ value, onChange }: SectionProps<Goals>) {
 
 export function InstructionsSection({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <Section
-      title="Custom instructions"
-      description="Anything specific to your business: what to emphasise, what to avoid, how to handle special cases."
-      actions={<Counter value={value} max={12000} />}
+    <SettingsCard
+      setting="instructions"
+      title="Your instructions"
+      description="Write them as you would brief a new team member. The assistant already knows how to capture leads, qualify and book — no need to explain that."
+      aside={<Counter value={value} max={12000} />}
     >
-      <Field label="Instructions" hint="Write it as you would brief a new team member. The assistant already knows how to capture leads, qualify and book — no need to explain that.">
-        <Textarea
-          rows={18}
-          className="font-mono text-[13px]"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={'e.g. When someone asks about pricing, give the range and offer a free consultation.\nNever quote prices for custom work.'}
-        />
-      </Field>
-    </Section>
+      <Textarea
+        aria-label="Custom instructions"
+        rows={18}
+        className="font-mono text-[13px]"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={'e.g. When someone asks about pricing, give the range and offer a free consultation.\nNever quote prices for custom work.'}
+      />
+    </SettingsCard>
   );
 }
 
@@ -289,34 +566,54 @@ export function InstructionsSection({ value, onChange }: { value: string; onChan
 export function BusinessSection({ value, onChange }: SectionProps<BusinessProfile>) {
   const set = <K extends keyof BusinessProfile>(key: K, v: string) => onChange({ ...value, [key]: v });
   return (
-    <Section title="Business info" description="Facts the assistant can always rely on, even without a knowledge base.">
-      <Field label="What you do">
-        <Textarea rows={3} maxLength={4000} value={value.description} onChange={(e) => set('description', e.target.value)} />
-      </Field>
-      <Field label="Services / products">
-        <Textarea rows={3} maxLength={4000} value={value.services} onChange={(e) => set('services', e.target.value)} />
-      </Field>
-      <Grid>
-        <Field label="Opening hours">
-          <Input maxLength={1000} value={value.hours} onChange={(e) => set('hours', e.target.value)} />
-        </Field>
-        <Field label="Location">
-          <Input maxLength={500} value={value.location} onChange={(e) => set('location', e.target.value)} />
-        </Field>
-        <Field label="Website">
-          <Input type="url" maxLength={300} value={value.website} onChange={(e) => set('website', e.target.value)} placeholder="https://" />
-        </Field>
-        <Field label="Phone">
-          <Input maxLength={60} value={value.phone} onChange={(e) => set('phone', e.target.value)} />
-        </Field>
-        <Field label="Email">
-          <Input type="email" maxLength={200} value={value.email} onChange={(e) => set('email', e.target.value)} />
-        </Field>
-      </Grid>
-      <Field label="Other facts" hint="Parking, payment options, policies — short facts the assistant should know.">
-        <Textarea rows={4} maxLength={8000} value={value.extraFacts} onChange={(e) => set('extraFacts', e.target.value)} />
-      </Field>
-    </Section>
+    <>
+      <SettingsCard title="About your business" description="In your own words. Short and specific works best.">
+        <Setting id="business.description">
+          <Field label="What you do">
+            <Textarea rows={3} maxLength={4000} value={value.description} onChange={(e) => set('description', e.target.value)} />
+          </Field>
+        </Setting>
+        <Setting id="business.services">
+          <Field label="Services / products">
+            <Textarea rows={3} maxLength={4000} value={value.services} onChange={(e) => set('services', e.target.value)} />
+          </Field>
+        </Setting>
+        <Setting id="business.extraFacts">
+          <Field label="Other facts" hint="Parking, payment options, policies — short facts the assistant should know.">
+            <Textarea rows={4} maxLength={8000} value={value.extraFacts} onChange={(e) => set('extraFacts', e.target.value)} />
+          </Field>
+        </Setting>
+      </SettingsCard>
+      <SettingsCard title="Hours and contact details" description="What visitors ask for most. Leave out anything you'd rather not share.">
+        <Grid>
+          <Setting id="business.hours">
+            <Field label="Opening hours">
+              <Input maxLength={1000} value={value.hours} onChange={(e) => set('hours', e.target.value)} />
+            </Field>
+          </Setting>
+          <Setting id="business.location">
+            <Field label="Location">
+              <Input maxLength={500} value={value.location} onChange={(e) => set('location', e.target.value)} />
+            </Field>
+          </Setting>
+          <Setting id="business.website">
+            <Field label="Website">
+              <Input type="url" maxLength={300} value={value.website} onChange={(e) => set('website', e.target.value)} placeholder="https://" />
+            </Field>
+          </Setting>
+          <Setting id="business.phone">
+            <Field label="Phone">
+              <Input maxLength={60} value={value.phone} onChange={(e) => set('phone', e.target.value)} />
+            </Field>
+          </Setting>
+          <Setting id="business.email">
+            <Field label="Email">
+              <Input type="email" maxLength={200} value={value.email} onChange={(e) => set('email', e.target.value)} />
+            </Field>
+          </Setting>
+        </Grid>
+      </SettingsCard>
+    </>
   );
 }
 
@@ -337,69 +634,89 @@ export function LeadCaptureSection({ value, onChange, ctx }: SectionProps<LeadCa
   const setField = (i: number, patch: Partial<LeadCaptureField>) => onChange({ ...value, fields: value.fields.map((f, j) => (j === i ? { ...f, ...patch } : f)) });
   const nextFree = options.find((o) => !used.has(o.key));
   return (
-    <Section title="Lead capture" description="Which contact details the assistant collects, and when it asks.">
-      <Toggle label="Capture leads" description="Ask visitors for their details during the conversation." checked={value.enabled} onChange={(v) => onChange({ ...value, enabled: v })} />
-      <Card className={cx(!value.enabled && 'opacity-60')}>
-        <div className="grid grid-cols-[1fr_110px_190px_36px] items-center gap-3 border-b border-border px-4 py-2 text-xs font-medium text-muted">
-          <span>Field</span>
-          <span>Required</span>
-          <span>When to ask</span>
-          <span className="sr-only">Remove</span>
-        </div>
-        {value.fields.length === 0 && <p className="px-4 py-6 text-center text-[13px] text-muted">No fields — add at least a name or email so leads can be followed up.</p>}
-        {value.fields.map((f, i) => (
-          <div key={i} className="grid grid-cols-[1fr_110px_190px_36px] items-center gap-3 border-b border-border px-4 py-2 last:border-b-0">
-            <Select aria-label="Field" value={f.field} onChange={(e) => setField(i, { field: e.target.value })}>
-              {!options.some((o) => o.key === f.field) && <option value={f.field}>{f.field} (unknown)</option>}
-              {options.map((o) => (
-                <option key={o.key} value={o.key} disabled={o.key !== f.field && used.has(o.key)}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-            <Toggle checked={f.required} onChange={(v) => setField(i, { required: v })} id={`lc-req-${i}`} ariaLabel={`${f.field} required`} />
-            <Select aria-label="When to ask" value={f.timing} onChange={(e) => setField(i, { timing: e.target.value as LeadTiming })}>
-              {TIMINGS.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </Select>
-            <IconButton label="Remove field" size="sm" onClick={() => onChange({ ...value, fields: value.fields.filter((_, j) => j !== i) })}>
-              <Trash2 className="size-4" />
-            </IconButton>
-          </div>
-        ))}
-        <div className="flex items-center justify-between px-4 py-2.5">
-          <Button
-            size="sm"
-            icon={<Plus className="size-3.5" />}
-            disabled={!nextFree || value.fields.length >= 20}
-            onClick={() => nextFree && onChange({ ...value, fields: [...value.fields, { field: nextFree.key, required: false, timing: 'natural' }] })}
-          >
-            Add field
-          </Button>
-          <Link to="/automations?tab=fields" className="text-xs text-accent-text hover:underline">
-            Manage custom fields
-          </Link>
-        </div>
-      </Card>
-      <Field label="Privacy notice" hint="Mentioned when collecting details, e.g. how you use them. Informational only; leave empty to skip.">
-        <Textarea rows={2} maxLength={500} value={value.consentNotice} onChange={(e) => onChange({ ...value, consentNotice: e.target.value })} />
-      </Field>
-      <Field
-        label="Marketing opt-in question"
-        hint="Posted word for word once the visitor has shared an email or phone; their yes or no is recorded as consent, with their reply as proof. Name your business and say they can opt out anytime. Leave empty to not ask."
+    <>
+      <FeatureCard
+        title="Capture leads"
+        setting="leadCapture.enabled"
+        checked={value.enabled}
+        onChange={(v) => onChange({ ...value, enabled: v })}
+        summary={value.enabled ? (askedFor(value, ctx.customFields) ?? 'No details to ask for yet: add one below.') : "Visitors' contact details aren't collected."}
       >
-        <Textarea
-          rows={2}
-          maxLength={500}
-          placeholder="Would you like occasional offers from us by email or text? You can opt out anytime."
-          value={value.marketingOptIn}
-          onChange={(e) => onChange({ ...value, marketingOptIn: e.target.value })}
-        />
-      </Field>
-    </Section>
+        <Setting id="leadCapture.fields">
+          <Card className={cx(!value.enabled && 'opacity-60')}>
+            {/* On a very narrow card the table scrolls sideways by itself rather than squeezing its menus. */}
+            <div className="overflow-x-auto">
+              <div className="min-w-[27rem]">
+                <div className="grid grid-cols-[minmax(7rem,1fr)_4.5rem_minmax(9rem,12rem)_2.25rem] items-center gap-3 border-b border-border px-4 py-2 text-xs font-medium text-muted">
+                  <span>Field</span>
+                  <span>Required</span>
+                  <span>When to ask</span>
+                  <span className="sr-only">Remove</span>
+                </div>
+                {value.fields.length === 0 && <p className="px-4 py-6 text-center text-[13px] text-muted">No fields — add at least a name or email so leads can be followed up.</p>}
+                {value.fields.map((f, i) => (
+                  <div key={i} className="grid grid-cols-[minmax(7rem,1fr)_4.5rem_minmax(9rem,12rem)_2.25rem] items-center gap-3 border-b border-border px-4 py-2 last:border-b-0">
+                    <Select aria-label="Field" value={f.field} onChange={(e) => setField(i, { field: e.target.value })}>
+                      {!options.some((o) => o.key === f.field) && <option value={f.field}>{f.field} (unknown)</option>}
+                      {options.map((o) => (
+                        <option key={o.key} value={o.key} disabled={o.key !== f.field && used.has(o.key)}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <Toggle checked={f.required} onChange={(v) => setField(i, { required: v })} id={`lc-req-${i}`} ariaLabel={`${f.field} required`} />
+                    <Select aria-label="When to ask" value={f.timing} onChange={(e) => setField(i, { timing: e.target.value as LeadTiming })}>
+                      {TIMINGS.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <IconButton label="Remove field" size="sm" onClick={() => onChange({ ...value, fields: value.fields.filter((_, j) => j !== i) })}>
+                      <Trash2 className="size-4" />
+                    </IconButton>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+              <Button
+                size="sm"
+                icon={<Plus className="size-3.5" />}
+                disabled={!nextFree || value.fields.length >= 20}
+                onClick={() => nextFree && onChange({ ...value, fields: [...value.fields, { field: nextFree.key, required: false, timing: 'natural' }] })}
+              >
+                Add field
+              </Button>
+              <Link to="/automations?tab=fields" className="text-xs text-accent-text hover:underline">
+                Manage custom fields
+              </Link>
+            </div>
+          </Card>
+        </Setting>
+      </FeatureCard>
+      <SettingsCard title="Privacy and consent" description="Both are optional: leave a box empty to skip it.">
+        <Setting id="leadCapture.consentNotice">
+          <Field label="Privacy notice" hint="Mentioned when collecting details, e.g. how you use them. Informational only; leave empty to skip.">
+            <Textarea rows={2} maxLength={500} value={value.consentNotice} onChange={(e) => onChange({ ...value, consentNotice: e.target.value })} />
+          </Field>
+        </Setting>
+        <Setting id="leadCapture.marketingOptIn">
+          <Field
+            label="Marketing opt-in question"
+            hint="Posted word for word once the visitor has shared an email or phone; their yes or no is recorded as consent, with their reply as proof. Name your business and say they can opt out anytime. Leave empty to not ask."
+          >
+            <Textarea
+              rows={2}
+              maxLength={500}
+              placeholder="Would you like occasional offers from us by email or text? You can opt out anytime."
+              value={value.marketingOptIn}
+              onChange={(e) => onChange({ ...value, marketingOptIn: e.target.value })}
+            />
+          </Field>
+        </Setting>
+      </SettingsCard>
+    </>
   );
 }
 
@@ -543,16 +860,28 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
     return `question_${n}`;
   };
 
+  const count = value.questions.length;
   return (
-    <div className="space-y-8">
-      <Section title="Lead qualification" description="Questions the assistant weaves into the conversation, scored to rank leads as hot, warm or cold.">
-        <Toggle label="Qualify leads" description="Ask the questions below and score the answers." checked={value.enabled} onChange={(v) => set('enabled', v)} />
-      </Section>
+    <>
+      <FeatureCard
+        title="Qualify leads"
+        setting="qualification.enabled"
+        checked={value.enabled}
+        onChange={(v) => set('enabled', v)}
+        summary={
+          !value.enabled
+            ? "Leads aren't scored."
+            : count
+              ? `Asks ${count} question${count === 1 ? '' : 's'} and scores the answers; hot from ${value.thresholds.hot} points.`
+              : 'No questions to ask yet: add one below.'
+        }
+      />
 
-      <Section
+      <SettingsCard
+        setting="qualification.questions"
         title="Questions"
         description="Asked one at a time, in this order, when it fits the conversation."
-        actions={
+        aside={
           <Button
             size="sm"
             icon={<Plus className="size-3.5" />}
@@ -564,16 +893,16 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
         }
       >
         {value.questions.length === 0 ? (
-          <Card>
+          <EmptyBox>
             <EmptyState title="No questions yet" description="Add questions like budget, timeline or the service they need. Each answer can add points to the lead score." />
-          </Card>
+          </EmptyBox>
         ) : (
           <div className="space-y-3">
             {value.questions.map((q, i) => (
               <Card key={i} className="space-y-3 p-4">
                 <div className="flex items-start gap-3">
                   <span className="mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-muted">{i + 1}</span>
-                  <div className="grid flex-1 grid-cols-[1fr_180px] gap-3">
+                  <div className="grid min-w-0 flex-1 gap-3 @md:grid-cols-[1fr_180px]">
                     <Field label="Question">
                       <Input value={q.question} maxLength={300} placeholder="What's your budget?" onChange={(e) => setQuestion(i, { question: e.target.value })} />
                     </Field>
@@ -606,7 +935,7 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
                       </Select>
                     </Field>
                     {(q.type === 'select' || q.type === 'multi_select') && (
-                      <Field label="Options" className="col-span-2" error={q.options.length === 0 ? 'Add at least one option.' : null}>
+                      <Field label="Options" className="@md:col-span-2" error={q.options.length === 0 ? 'Add at least one option.' : null}>
                         <ChipsInput value={q.options} onChange={(options) => setQuestion(i, { options })} placeholder="Type an option and press Enter" />
                       </Field>
                     )}
@@ -640,12 +969,13 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
             ))}
           </div>
         )}
-      </Section>
+      </SettingsCard>
 
-      <Section
+      <SettingsCard
+        setting="qualification.rules"
         title="Scoring rules"
         description="Each matching rule adds (or subtracts) points. A matching disqualifier ends qualification regardless of score."
-        actions={
+        aside={
           <Button
             size="sm"
             icon={<Plus className="size-3.5" />}
@@ -660,20 +990,20 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
         }
       >
         {value.rules.length === 0 ? (
-          <Card>
+          <EmptyBox>
             <EmptyState title="No scoring rules" description={value.questions.length ? 'Add a rule, e.g. “budget ≥ 10000 → +40 points”.' : 'Add a question first, then score its answers here.'} />
-          </Card>
+          </EmptyBox>
         ) : (
           <Card className="divide-y divide-border">
             {value.rules.map((r, i) => {
               const question = questionByKey(r.questionKey);
               return (
                 <div key={i} className="space-y-2 px-4 py-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="w-8 shrink-0 text-xs font-medium text-muted">If</span>
                     <Select
                       aria-label={`Rule ${i + 1} question`}
-                      className="min-w-0 flex-1"
+                      className="min-w-40 flex-1"
                       value={r.questionKey}
                       onChange={(e) => {
                         const q = questionByKey(e.target.value);
@@ -722,9 +1052,9 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
             })}
           </Card>
         )}
-      </Section>
+      </SettingsCard>
 
-      <Section title="Score thresholds" description="Hot when the score reaches the hot threshold, warm from the warm threshold, otherwise cold.">
+      <SettingsCard setting="qualification.thresholds" title="Score thresholds" description="Hot when the score reaches the hot threshold, warm from the warm threshold, otherwise cold.">
         <Grid cols={3}>
           <Field label="Hot from" hint="Score ≥ this is hot.">
             <NumberInput value={value.thresholds.hot} step={1} onChange={(v) => set('thresholds', { ...value.thresholds, hot: Math.round(v ?? 0) })} />
@@ -736,28 +1066,32 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
             <NumberInput value={value.qualifyAt} step={1} onChange={(v) => set('qualifyAt', Math.round(v ?? 0))} />
           </Field>
         </Grid>
-      </Section>
+      </SettingsCard>
 
-      <Section title="Outcomes" description="What happens automatically when a lead is qualified or disqualified.">
+      <SettingsCard setting="qualification.outcomes" title="Outcomes" description="What happens automatically when a lead is qualified or disqualified.">
         <Grid>
           <OutcomeEditor title="When qualified" value={value.onQualified} onChange={(v) => set('onQualified', v)} ctx={ctx} />
           <OutcomeEditor title="When disqualified" value={value.onDisqualified} onChange={(v) => set('onDisqualified', v)} ctx={ctx} />
         </Grid>
         <Grid>
-          <Field label="Next step for qualified leads">
-            <Select value={value.qualifiedNextStep} onChange={(e) => set('qualifiedNextStep', e.target.value as Qualification['qualifiedNextStep'])}>
-              <option value="offer_booking">Offer to book an appointment</option>
-              <option value="collect_contact">Make sure contact details are collected</option>
-              <option value="handoff">Hand over to the team</option>
-              <option value="none">Nothing special</option>
-            </Select>
-          </Field>
-          <Field label="Message for disqualified leads" hint="Optional. A polite closing line, e.g. pointing to other resources.">
-            <Textarea rows={2} maxLength={500} value={value.disqualifiedMessage} onChange={(e) => set('disqualifiedMessage', e.target.value)} />
-          </Field>
+          <Setting id="qualification.qualifiedNextStep">
+            <Field label="Next step for qualified leads">
+              <Select value={value.qualifiedNextStep} onChange={(e) => set('qualifiedNextStep', e.target.value as Qualification['qualifiedNextStep'])}>
+                <option value="offer_booking">Offer to book an appointment</option>
+                <option value="collect_contact">Make sure contact details are collected</option>
+                <option value="handoff">Hand over to the team</option>
+                <option value="none">Nothing special</option>
+              </Select>
+            </Field>
+          </Setting>
+          <Setting id="qualification.disqualifiedMessage">
+            <Field label="Message for disqualified leads" hint="Optional. A polite closing line, e.g. pointing to other resources.">
+              <Textarea rows={2} maxLength={500} value={value.disqualifiedMessage} onChange={(e) => set('disqualifiedMessage', e.target.value)} />
+            </Field>
+          </Setting>
         </Grid>
-      </Section>
-    </div>
+      </SettingsCard>
+    </>
   );
 }
 
@@ -767,72 +1101,117 @@ const BOOKING_FIELDS: BookingRequiredField[] = ['name', 'email', 'phone'];
 
 export function BookingSection({ value, onChange, ctx }: SectionProps<Booking>) {
   const set = <K extends keyof Booking>(key: K, v: Booking[K]) => onChange({ ...value, [key]: v });
+  const calendar = ctx.calendars.find((c) => c.id === value.calendarId);
   return (
-    <Section title="Booking" description="Let the assistant find open slots and book appointments on your calendar.">
-      <Toggle label="Book appointments" description="The assistant can check availability and book, reschedule or cancel." checked={value.enabled} onChange={(v) => set('enabled', v)} />
-      <Grid>
-        <Field
-          label="Calendar"
-          error={value.enabled && !value.calendarId ? 'Choose a calendar to enable booking.' : null}
-          hint={
-            <>
-              Opening hours and slot length come from the calendar.{' '}
-              <Link to="/appointments/calendars" className="text-accent-text hover:underline">
-                Manage calendars
-              </Link>
-            </>
-          }
-        >
-          <Select value={value.calendarId ?? ''} onChange={(e) => set('calendarId', e.target.value || null)}>
-            <option value="">No calendar</option>
-            {ctx.calendars.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.timezone}){c.isActive ? '' : ' — inactive'}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Appointment title">
-          <Input value={value.appointmentTitle} maxLength={120} onChange={(e) => set('appointmentTitle', e.target.value)} />
-        </Field>
-      </Grid>
-      <fieldset className="space-y-2">
-        <legend className="mb-1.5 text-[13px] font-medium text-fg-2">Details required before booking</legend>
-        <div className="flex gap-6">
-          {BOOKING_FIELDS.map((f) => (
-            <Checkbox
-              key={f}
-              label={f.charAt(0).toUpperCase() + f.slice(1)}
-              checked={value.requiredFields.includes(f)}
-              onChange={(e) => set('requiredFields', e.target.checked ? [...value.requiredFields, f] : value.requiredFields.filter((x) => x !== f))}
-            />
-          ))}
-        </div>
-      </fieldset>
-      <div className="space-y-3">
-        <Toggle label="Only book qualified leads" description="Requires qualification to be enabled." checked={value.requireQualification} onChange={(v) => set('requireQualification', v)} />
-        <Toggle label="Allow rescheduling" checked={value.allowReschedule} onChange={(v) => set('allowReschedule', v)} />
-        <Toggle label="Allow cancelling" checked={value.allowCancel} onChange={(v) => set('allowCancel', v)} />
-      </div>
-    </Section>
+    <>
+      <FeatureCard
+        title="Book appointments"
+        setting="booking.enabled"
+        checked={value.enabled}
+        onChange={(v) => set('enabled', v)}
+        summary={
+          !value.enabled
+            ? `${capitalize(ctx.assistantName)} can check availability and book, move or cancel visits once this is on.`
+            : calendar
+              ? `Books visits on ${calendar.name}.`
+              : 'Choose a calendar below to start booking.'
+        }
+      >
+        <Grid>
+          <Setting id="booking.calendarId">
+            <Field
+              label="Calendar"
+              error={value.enabled && !value.calendarId ? 'Choose a calendar to enable booking.' : null}
+              hint={
+                <>
+                  Opening hours and slot length come from the calendar.{' '}
+                  <Link to="/appointments/calendars" className="text-accent-text hover:underline">
+                    Manage calendars
+                  </Link>
+                </>
+              }
+            >
+              <Select value={value.calendarId ?? ''} onChange={(e) => set('calendarId', e.target.value || null)}>
+                <option value="">No calendar</option>
+                {ctx.calendars.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.timezone}){c.isActive ? '' : ' — inactive'}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </Setting>
+          <Setting id="booking.appointmentTitle">
+            <Field label="Appointment title">
+              <Input value={value.appointmentTitle} maxLength={120} onChange={(e) => set('appointmentTitle', e.target.value)} />
+            </Field>
+          </Setting>
+        </Grid>
+      </FeatureCard>
+
+      <SettingsCard title="Before booking" description="What the assistant makes sure of first.">
+        <Setting id="booking.requiredFields">
+          <fieldset className="space-y-2">
+            <legend className="mb-1.5 text-[13px] font-medium text-fg-2">Details required before booking</legend>
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {BOOKING_FIELDS.map((f) => (
+                <Checkbox
+                  key={f}
+                  label={f.charAt(0).toUpperCase() + f.slice(1)}
+                  checked={value.requiredFields.includes(f)}
+                  onChange={(e) => set('requiredFields', e.target.checked ? [...value.requiredFields, f] : value.requiredFields.filter((x) => x !== f))}
+                />
+              ))}
+            </div>
+          </fieldset>
+        </Setting>
+        <Setting id="booking.requireQualification">
+          <Toggle label="Only book qualified leads" description="Requires qualification to be enabled." checked={value.requireQualification} onChange={(v) => set('requireQualification', v)} />
+        </Setting>
+      </SettingsCard>
+
+      <SettingsCard title="After booking" description="What visitors can change by asking in the chat.">
+        <Setting id="booking.allowReschedule">
+          <Toggle label="Allow rescheduling" checked={value.allowReschedule} onChange={(v) => set('allowReschedule', v)} />
+        </Setting>
+        <Setting id="booking.allowCancel">
+          <Toggle label="Allow cancelling" checked={value.allowCancel} onChange={(v) => set('allowCancel', v)} />
+        </Setting>
+      </SettingsCard>
+    </>
   );
 }
 
 // ---------- Handoff ----------
 
-export function HandoffSection({ value, onChange }: SectionProps<Handoff>) {
+export function HandoffSection({ value, onChange, ctx }: SectionProps<Handoff>) {
   const set = <K extends keyof Handoff>(key: K, v: Handoff[K]) => onChange({ ...value, [key]: v });
   return (
-    <Section title="Human handoff" description="When the assistant hands the conversation to your team, the AI stops replying until someone resumes it.">
-      <Toggle label="Allow handoff" description="Visitors can ask for a person; the assistant can also decide to transfer." checked={value.enabled} onChange={(v) => set('enabled', v)} />
-      <Field label="Trigger phrases" hint="If a visitor's message contains one of these, the chat goes straight to a human.">
-        <ChipsInput value={value.keywords} onChange={(keywords) => set('keywords', keywords.filter((k) => k.length >= 2))} placeholder="talk to a human" />
-      </Field>
-      <Field label="Handoff message" hint="Sent to the visitor when the conversation is handed over.">
-        <Textarea rows={3} maxLength={500} value={value.message} onChange={(e) => set('message', e.target.value)} />
-      </Field>
-      <Toggle label="Notify the team" description="In-app notification plus email to your notification addresses." checked={value.notifyTeam} onChange={(v) => set('notifyTeam', v)} />
-    </Section>
+    <FeatureCard
+      title="Allow handoff"
+      setting="handoff.enabled"
+      checked={value.enabled}
+      onChange={(v) => set('enabled', v)}
+      summary={
+        value.enabled
+          ? `Hands the chat to your team when asked${value.notifyTeam ? ', and tells them' : ''}. ${capitalize(ctx.assistantName)} can also decide to hand over.`
+          : "Visitors can't reach a person through the chat."
+      }
+    >
+      <Setting id="handoff.keywords">
+        <Field label="Trigger phrases" hint="If a visitor's message contains one of these, the chat goes straight to a human.">
+          <ChipsInput value={value.keywords} onChange={(keywords) => set('keywords', keywords.filter((k) => k.length >= 2))} placeholder="talk to a human" />
+        </Field>
+      </Setting>
+      <Setting id="handoff.message">
+        <Field label="Handoff message" hint="Sent to the visitor when the conversation is handed over.">
+          <Textarea rows={3} maxLength={500} value={value.message} onChange={(e) => set('message', e.target.value)} />
+        </Field>
+      </Setting>
+      <Setting id="handoff.notifyTeam">
+        <Toggle label="Notify the team" description="In-app notification plus email to your notification addresses." checked={value.notifyTeam} onChange={(v) => set('notifyTeam', v)} />
+      </Setting>
+    </FeatureCard>
   );
 }
 
@@ -884,17 +1263,17 @@ export function StartersSection({
   const shown = value.filter((s) => s.enabled && (s.action !== 'handoff' || handoffEnabled)).length;
 
   return (
-    <Section
-      title="Conversation starters"
-      description="Quick options the website chat shows under its greeting until the visitor writes. A click sends the message as the visitor's own, and the assistant answers it as usual."
-      actions={
+    <SettingsCard
+      title="Starters"
+      description="Shown in this order. A click sends the message as the visitor's own, and the assistant answers it as usual."
+      aside={
         <Button size="sm" icon={<Plus className="size-3.5" />} disabled={value.length >= MAX_STARTERS} onClick={() => add([{ label: '', message: '', action: 'message' }])}>
           Add starter
         </Button>
       }
     >
       {value.length === 0 ? (
-        <Card>
+        <EmptyBox>
           <EmptyState
             title="No conversation starters"
             description="Visitors see just the greeting. Offer a few one-click options, such as booking an appointment or talking to your team."
@@ -904,14 +1283,14 @@ export function StartersSection({
               </Button>
             }
           />
-        </Card>
+        </EmptyBox>
       ) : (
         <div className="space-y-3">
           {value.map((s, i) => (
             <Card key={s.id} role="group" aria-label={`Starter ${i + 1}`} className="space-y-3 p-4">
               <div className="flex items-start gap-3">
                 <span className="mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-muted">{i + 1}</span>
-                <div className="grid flex-1 grid-cols-[1fr_230px] gap-3">
+                <div className="grid min-w-0 flex-1 gap-3 @lg:grid-cols-[1fr_230px]">
                   <Field label="Button text" error={labelError(s)}>
                     <Input value={s.label} maxLength={60} placeholder="Book an appointment" onChange={(e) => set(i, { label: e.target.value })} />
                   </Field>
@@ -924,7 +1303,7 @@ export function StartersSection({
                       ))}
                     </Select>
                   </Field>
-                  <Field label="Message" hint="Sent as the visitor's message. Leave empty to send the button text." className="col-span-2">
+                  <Field label="Message" hint="Sent as the visitor's message. Leave empty to send the button text." className="@lg:col-span-2">
                     <Input
                       value={s.message}
                       maxLength={500}
@@ -960,7 +1339,7 @@ export function StartersSection({
           </p>
         </div>
       )}
-    </Section>
+    </SettingsCard>
   );
 }
 
@@ -969,24 +1348,36 @@ export function StartersSection({
 export function GuardrailsSection({ value, onChange }: SectionProps<Guardrails>) {
   const set = <K extends keyof Guardrails>(key: K, v: Guardrails[K]) => onChange({ ...value, [key]: v });
   return (
-    <Section title="Guardrails" description="Keep the assistant focused and safe.">
-      <Toggle label="Stay on topic" description="Politely decline questions unrelated to your business." checked={value.stayOnTopic} onChange={(v) => set('stayOnTopic', v)} />
-      <Field label="Forbidden topics" hint="The assistant won't discuss these, e.g. competitors, medical diagnoses, legal advice.">
-        <ChipsInput value={value.forbiddenTopics} onChange={(v) => set('forbiddenTopics', v)} placeholder="Type a topic and press Enter" />
-      </Field>
-      <Grid>
-        <Field label="When it doesn't know the answer">
-          <Select value={value.unknownAnswer} onChange={(e) => set('unknownAnswer', e.target.value as Guardrails['unknownAnswer'])}>
-            <option value="collect_contact">Take their details so the team can follow up</option>
-            <option value="offer_handoff">Offer to connect them with the team</option>
-            <option value="say_dont_know">Say it doesn't know</option>
-          </Select>
-        </Field>
-        <Field label="Max AI replies per conversation" hint="After this, the conversation waits for a human.">
-          <NumberInput min={1} max={500} value={value.maxAiRepliesPerConversation} onChange={(v) => set('maxAiRepliesPerConversation', Math.round(v ?? 1))} />
-        </Field>
-      </Grid>
-    </Section>
+    <>
+      <SettingsCard title="Topics" description="What the assistant talks about, and what it stays away from.">
+        <Setting id="guardrails.stayOnTopic">
+          <Toggle label="Stay on topic" description="Politely decline questions unrelated to your business." checked={value.stayOnTopic} onChange={(v) => set('stayOnTopic', v)} />
+        </Setting>
+        <Setting id="guardrails.forbiddenTopics">
+          <Field label="Forbidden topics" hint="The assistant won't discuss these, e.g. competitors, medical diagnoses, legal advice.">
+            <ChipsInput value={value.forbiddenTopics} onChange={(v) => set('forbiddenTopics', v)} placeholder="Type a topic and press Enter" />
+          </Field>
+        </Setting>
+      </SettingsCard>
+      <SettingsCard title="When it can't help" description="What it does without an answer, and when it leaves the chat to your team.">
+        <Grid>
+          <Setting id="guardrails.unknownAnswer">
+            <Field label="When it doesn't know the answer">
+              <Select value={value.unknownAnswer} onChange={(e) => set('unknownAnswer', e.target.value as Guardrails['unknownAnswer'])}>
+                <option value="collect_contact">Take their details so the team can follow up</option>
+                <option value="offer_handoff">Offer to connect them with the team</option>
+                <option value="say_dont_know">Say it doesn't know</option>
+              </Select>
+            </Field>
+          </Setting>
+          <Setting id="guardrails.maxAiReplies">
+            <Field label="Max AI replies per conversation" hint="After this, the conversation waits for a human.">
+              <NumberInput min={1} max={500} value={value.maxAiRepliesPerConversation} onChange={(v) => set('maxAiRepliesPerConversation', Math.round(v ?? 1))} />
+            </Field>
+          </Setting>
+        </Grid>
+      </SettingsCard>
+    </>
   );
 }
 
@@ -996,8 +1387,8 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
   const set = <K extends keyof Actions>(key: K, v: Actions[K]) => onChange({ ...value, [key]: v });
   const disabled = new Set(value.disabledTools);
   return (
-    <div className="space-y-8">
-      <Section title="Tools" description="What the assistant is allowed to do. Tools for disabled features (e.g. booking) are hidden automatically.">
+    <>
+      <SettingsCard setting="actions.tools" title="Tools" description="What the assistant is allowed to do. Tools for disabled features (e.g. booking) are hidden automatically.">
         <Card className="divide-y divide-border">
           {TOOL_KEYS.filter((key) => !CRM_TOOL_KEYS.includes(key)).map((key) => (
             <div key={key} className="px-4 py-3">
@@ -1015,8 +1406,9 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
             </div>
           ))}
         </Card>
-      </Section>
-      <Section
+      </SettingsCard>
+      <SettingsCard
+        setting="actions.crm"
         title="CRM actions"
         description="Let the assistant keep the CRM up to date as it chats. Each action is off until you choose what it may do, and every change shows on the conversation's timeline."
       >
@@ -1070,7 +1462,7 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
               onChange={(v) => set('deals', { ...value.deals, enabled: v })}
             />
             {value.deals.enabled && (
-              <div className="grid grid-cols-2 gap-4 pl-12">
+              <div className="grid gap-4 pl-12 @md:grid-cols-2">
                 <Field label="Pipeline">
                   <Select value={value.deals.pipelineId ?? ''} onChange={(e) => set('deals', { ...value.deals, pipelineId: e.target.value || null })}>
                     <option value="">{ctx.pipelines[0] ? `The first pipeline (${ctx.pipelines[0].name})` : 'The first pipeline'}</option>
@@ -1095,8 +1487,9 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
             )}
           </div>
         </Card>
-      </Section>
-      <Section
+      </SettingsCard>
+      <SettingsCard
+        setting="actions.askFirst"
         title="Ask the team first"
         description="The assistant asks your team before doing these, and tells the customer a team member will confirm. Requests wait under Approvals and on the conversation, and expire after 7 days."
       >
@@ -1113,18 +1506,18 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
           </div>
           <p className="text-xs text-muted">Only matters for actions that are on. Workflows ask first per workflow, in Automations → Workflows.</p>
         </Card>
-      </Section>
-      <Section title="Tags" description="Which tags the assistant may apply to contacts.">
+      </SettingsCard>
+      <SettingsCard setting="actions.tags" title="Tags" description="Which tags the assistant may apply to contacts.">
         <Field label="Allowed tags" hint="Leave empty to allow any existing tag.">
           <ChipsInput value={value.allowedTags} onChange={(v) => set('allowedTags', v)} suggestions={ctx.tags.map((t) => t.name)} placeholder="Tag names" />
         </Field>
         <Toggle label="Allow creating new tags" description="Otherwise the assistant can only use tags that already exist." checked={value.allowCreateTags} onChange={(v) => set('allowCreateTags', v)} />
-      </Section>
-      <Section title="Workflows" description="n8n workflows the assistant may trigger (needs the “Trigger workflow” tool).">
+      </SettingsCard>
+      <SettingsCard setting="actions.workflows" title="Workflows" description="n8n workflows the assistant may trigger (needs the “Trigger workflow” tool).">
         {ctx.workflows === null ? (
           <p className="text-[13px] text-muted">Only admins can manage workflows.</p>
         ) : ctx.workflows.length === 0 ? (
-          <Card>
+          <EmptyBox>
             <EmptyState
               title="No workflows yet"
               description="Connect an n8n workflow to let the assistant update your CRM, send quotes and more."
@@ -1134,7 +1527,7 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
                 </Link>
               }
             />
-          </Card>
+          </EmptyBox>
         ) : (
           <Card className="divide-y divide-border">
             {ctx.workflows.map((w) => (
@@ -1164,8 +1557,8 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
               ))}
           </Card>
         )}
-      </Section>
-    </div>
+      </SettingsCard>
+    </>
   );
 }
 
@@ -1190,11 +1583,11 @@ export function ModelSection({ value, onChange }: { value: ModelSettings; onChan
   const modelValid = /^[A-Za-z0-9._:/@-]*$/.test(value.model.trim());
   const serverEffort = server?.reasoningEffort ? `${server.reasoningEffort} effort` : 'no effort setting';
   return (
-    <Section
-      title="Model"
+    <SettingsCard
+      title="AI model"
       description="The server configuration chooses the AI provider and model for every bot. Override them here only when this bot needs something different."
     >
-      <p className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px] text-muted">
+      <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px] text-muted">
         Server default:{' '}
         <span className="font-mono text-[12.5px] text-fg">
           {server ? `${server.provider} · ${server.model} · ${serverEffort}` : ai.isLoading ? 'loading…' : 'unavailable'}
@@ -1202,33 +1595,39 @@ export function ModelSection({ value, onChange }: { value: ModelSettings; onChan
         {server && !server.pricing.model && <span className="block text-xs">No price is configured for this model, so its cost shows as $0.</span>}
       </p>
       <Grid>
-        <Field
-          label="Model override"
-          hint="Leave empty to follow the server's model. Must be a model your configured provider offers."
-          error={modelValid ? null : 'Letters, digits and . _ : / @ - only.'}
-        >
-          <Input
-            className="font-mono text-[13px]"
-            placeholder={server ? `Server default (${server.model})` : 'Server default'}
-            value={value.model}
-            onChange={(e) => onChange({ ...value, model: e.target.value })}
-          />
-        </Field>
-        <Field label="Reasoning effort" hint={value.effort ? EFFORT_HELP[value.effort] : 'Only reasoning models use this. Leave on the server default otherwise.'}>
-          <Select value={value.effort} onChange={(e) => onChange({ ...value, effort: e.target.value as Effort | '' })}>
-            <option value="">Server default ({server?.reasoningEffort ?? 'not set'})</option>
-            {EFFORTS.map((e) => (
-              <option key={e} value={e}>
-                {e}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Max output tokens" hint="Upper bound per reply, 1,024–64,000." error={value.maxOutputTokens < 1024 || value.maxOutputTokens > 64000 ? 'Between 1,024 and 64,000.' : null}>
-          <NumberInput min={1024} max={64000} step={256} value={value.maxOutputTokens} onChange={(v) => onChange({ ...value, maxOutputTokens: Math.round(v ?? 0) })} />
-        </Field>
+        <Setting id="model.model">
+          <Field
+            label="Model override"
+            hint="Leave empty to follow the server's model. Must be a model your configured provider offers."
+            error={modelValid ? null : 'Letters, digits and . _ : / @ - only.'}
+          >
+            <Input
+              className="font-mono text-[13px]"
+              placeholder={server ? `Server default (${server.model})` : 'Server default'}
+              value={value.model}
+              onChange={(e) => onChange({ ...value, model: e.target.value })}
+            />
+          </Field>
+        </Setting>
+        <Setting id="model.effort">
+          <Field label="Reasoning effort" hint={value.effort ? EFFORT_HELP[value.effort] : 'Only reasoning models use this. Leave on the server default otherwise.'}>
+            <Select value={value.effort} onChange={(e) => onChange({ ...value, effort: e.target.value as Effort | '' })}>
+              <option value="">Server default ({server?.reasoningEffort ?? 'not set'})</option>
+              {EFFORTS.map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </Setting>
+        <Setting id="model.maxOutputTokens">
+          <Field label="Max output tokens" hint="Upper bound per reply, 1,024–64,000." error={value.maxOutputTokens < 1024 || value.maxOutputTokens > 64000 ? 'Between 1,024 and 64,000.' : null}>
+            <NumberInput min={1024} max={64000} step={256} value={value.maxOutputTokens} onChange={(v) => onChange({ ...value, maxOutputTokens: Math.round(v ?? 0) })} />
+          </Field>
+        </Setting>
       </Grid>
-    </Section>
+    </SettingsCard>
   );
 }
 
@@ -1236,9 +1635,9 @@ export function ModelSection({ value, onChange }: { value: ModelSettings; onChan
 
 export function KnowledgeSection({ value, onChange, ctx }: { value: string[]; onChange: (v: string[]) => void; ctx: EditorContext }) {
   return (
-    <Section title="Knowledge bases" description="The assistant searches these to answer questions and cites its sources.">
+    <SettingsCard title="Knowledge bases to search" description={`Tick the ones ${ctx.assistantName} should use. Their documents and pages are managed in Knowledge.`}>
       {ctx.knowledgeBases.length === 0 ? (
-        <Card>
+        <EmptyBox>
           <EmptyState
             title="No knowledge bases"
             description="Create one and add FAQs, web pages or documents."
@@ -1248,7 +1647,7 @@ export function KnowledgeSection({ value, onChange, ctx }: { value: string[]; on
               </Link>
             }
           />
-        </Card>
+        </EmptyBox>
       ) : (
         <Card className="divide-y divide-border">
           {ctx.knowledgeBases.map((kb) => (
@@ -1269,6 +1668,6 @@ export function KnowledgeSection({ value, onChange, ctx }: { value: string[]; on
       {value.length === 0 && ctx.knowledgeBases.length > 0 && (
         <p className="text-[13px] text-warning-text">No knowledge base selected — the assistant will only use the business info and instructions.</p>
       )}
-    </Section>
+    </SettingsCard>
   );
 }

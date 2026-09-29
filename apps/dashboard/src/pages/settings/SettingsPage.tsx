@@ -30,7 +30,7 @@ import {
   Toggle,
 } from '../../components/ui';
 import { API_URL, del, get, patch, post } from '../../lib/api';
-import { formatDate, timeAgo } from '../../lib/format';
+import { formatDate, initialsOf, timeAgo } from '../../lib/format';
 import { timezones } from '../../lib/hooks';
 import { useAction } from '../../lib/mutations';
 import { roleAtLeast, useBots, useChannels, useOrg } from '../../lib/queries';
@@ -485,17 +485,6 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
       </div>
     </Modal>
   );
-}
-
-/** Up to two initials for a picture-less avatar, as the widget shows them: "Bright Smile Dental" → "BS". */
-function initialsOf(name: string): string {
-  return name
-    .split(/\s+/)
-    .map((word) => /[\p{L}\p{N}]/u.exec(word)?.[0] ?? '')
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 }
 
 /** The assistant's picture in the preview: the avatar image, or the initials when there's none (or it won't load). */

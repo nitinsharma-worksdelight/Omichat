@@ -27,6 +27,17 @@ export function formatTime(value: string | Date | null | undefined): string {
   return d ? timeFmt.format(d) : '';
 }
 
+/** Up to two initials for a picture-less avatar, as the website chat shows them: "Bright Smile Dental" → "BS". */
+export function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((word) => /[\p{L}\p{N}]/u.exec(word)?.[0] ?? '')
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
 export function timeAgo(value: string | Date | null | undefined): string {
   const d = toDate(value);
   if (!d) return '—';

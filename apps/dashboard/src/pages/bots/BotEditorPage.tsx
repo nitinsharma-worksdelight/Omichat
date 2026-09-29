@@ -1,30 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Eye, PanelRightClose, PanelRightOpen, Save, Undo2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Check, Eye, PanelRightClose, PanelRightOpen, Save } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useConfirm, useToast } from '../../components/feedback-context';
 import { Drawer } from '../../components/overlay';
-import {
-  Badge,
-  Button,
-  Card,
-  CodeBlock,
-  CopyButton,
-  ErrorBanner,
-  Input,
-  JsonDisclosure,
-  PageHeader,
-  Spinner,
-  SkeletonRows,
-  Tabs,
-  Toggle,
-  type TabItem,
-} from '../../components/ui';
-import { ApiError, get, patch, type ErrorDetail } from '../../lib/api';
+import { Badge, Button, Card, CodeBlock, CopyButton, cx, ErrorBanner, Input, JsonDisclosure, PageHeader, Spinner, SkeletonRows } from '../../components/ui';
+import { ApiError, get, patch } from '../../lib/api';
 import { formatNumber, TOOL_LABELS } from '../../lib/format';
 import { roleAtLeast, useBots, useCalendars, useCustomFields, useKnowledgeBases, useMembers, useOrg, usePipelines, useTags, useWorkflows } from '../../lib/queries';
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
-import type { Bot, BotConfig, BotConfigSection, BotPreview, Effort } from '../../lib/types';
+import type { Bot, BotConfig, BotConfigSection, BotPreview } from '../../lib/types';
+import { EditorOverview, SaveBar, SaveErrors, SectionHeader, SettingsMenu, SettingsSearch, type SettingsTarget } from './editor';
+import { CONFIG_SECTIONS, essentials, isEditorView, sectionOfError, SECTIONS, type BotDraft, type EditorView, type SectionId } from './editorNav';
 import { Playground } from './Playground';
 import {
   ActionsSection,
@@ -43,49 +30,6 @@ import {
   type EditorContext,
   type PersonalityTemplate,
 } from './sections';
-
-interface BotDraft {
-  name: string;
-  isActive: boolean;
-  /** '' = follow the server configuration. */
-  model: string;
-  effort: Effort | '';
-  maxOutputTokens: number;
-  knowledgeBaseIds: string[];
-  config: BotConfig;
-}
-
-type TabId = BotConfigSection | 'model' | 'knowledge';
-
-const TABS: Array<{ id: TabId; label: string }> = [
-  { id: 'persona', label: 'Persona' },
-  { id: 'conversationStarters', label: 'Conversation starters' },
-  { id: 'goals', label: 'Goals' },
-  { id: 'instructions', label: 'Instructions' },
-  { id: 'business', label: 'Business info' },
-  { id: 'leadCapture', label: 'Lead capture' },
-  { id: 'qualification', label: 'Qualification' },
-  { id: 'booking', label: 'Booking' },
-  { id: 'handoff', label: 'Handoff' },
-  { id: 'guardrails', label: 'Guardrails' },
-  { id: 'actions', label: 'Actions' },
-  { id: 'model', label: 'Model' },
-  { id: 'knowledge', label: 'Knowledge' },
-];
-
-const CONFIG_SECTIONS: BotConfigSection[] = [
-  'persona',
-  'conversationStarters',
-  'goals',
-  'instructions',
-  'business',
-  'leadCapture',
-  'qualification',
-  'booking',
-  'handoff',
-  'guardrails',
-  'actions',
-];
 
 function toDraft(bot: Bot): BotDraft {
   return {
@@ -117,28 +61,6 @@ function buildPatch(base: BotDraft, draft: BotDraft): Record<string, unknown> {
   return body;
 }
 
-function tabOf(section: string): TabId | null {
-  if ((CONFIG_SECTIONS as string[]).includes(section)) return section as TabId;
-  if (section === 'model' || section === 'effort' || section === 'maxOutputTokens') return 'model';
-  if (section === 'knowledgeBaseIds') return 'knowledge';
-  if (section === 'customFields' || section === 'unknown custom fields') return 'leadCapture';
-  if (section === 'unknown workflow keys') return 'actions';
-  return null;
-}
-
-/** Which tabs a server validation error points at (paths like `qualification.rules.0.value` or messages like "booking: …"). */
-function errorTabs(details: ErrorDetail[]): Set<TabId> {
-  const tabs = new Set<TabId>();
-  for (const d of details) {
-    const path = d.path.startsWith('config.') ? d.path.slice(7) : d.path;
-    const fromPath = path && path !== 'config' ? tabOf(path.split('.')[0]!) : null;
-    const fromMessage = tabOf(d.message.split(/[:.]/)[0]!.trim());
-    const tab = fromPath ?? fromMessage;
-    if (tab) tabs.add(tab);
-  }
-  return tabs;
-}
-
 export function BotEditorPage({ botId }: { botId: string }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -162,7 +84,9 @@ export function BotEditorPage({ botId }: { botId: string }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<unknown>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [playgroundOpen, setPlaygroundOpen] = useState(() => window.innerWidth >= 1280);
+  const [testChatOpen, setTestChatOpen] = useState(() => window.innerWidth >= 1280);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (bot.data && !base) {
@@ -171,9 +95,49 @@ export function BotEditorPage({ botId }: { botId: string }) {
     }
   }, [bot.data, base]);
 
-  const tabParam = route.query.get('tab') as TabId | null;
-  const tab: TabId = tabParam && TABS.some((t) => t.id === tabParam) ? tabParam : 'persona';
-  const setTab = (id: TabId) => navigate(withQuery(route, { tab: id }), { replace: true });
+  // `?tab=` names the open section, as it always has, so older links still land in the right place; none = the overview.
+  const tabParam = route.query.get('tab');
+  const view: EditorView = isEditorView(tabParam) ? tabParam : 'overview';
+  const setView = (next: EditorView) => navigate(withQuery(route, { tab: next === 'overview' ? null : next }), { replace: true });
+
+  // A different section starts at its top.
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [view]);
+
+  // A search result for one setting: once its section shows, bring the setting into view, put the cursor in it and
+  // highlight it for a moment.
+  const [jumpTo, setJumpTo] = useState<SettingsTarget | null>(null);
+  useEffect(() => {
+    if (!jumpTo?.setting || jumpTo.view !== view) return;
+    setJumpTo(null);
+    const el = contentRef.current?.querySelector<HTMLElement>(`[data-setting="${CSS.escape(jumpTo.setting)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    const control =
+      el.querySelector<HTMLElement>('input[type=radio]:checked') ??
+      el.querySelector<HTMLElement>('input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])');
+    control?.focus({ preventScroll: true });
+    el.setAttribute('data-flash', '');
+    const done = (e: AnimationEvent) => {
+      if (e.target !== el) return;
+      el.removeAttribute('data-flash');
+      el.removeEventListener('animationend', done);
+    };
+    el.addEventListener('animationend', done);
+  }, [jumpTo, view]);
+
+  // Cmd/Ctrl+K finds a setting (not while another dialog is open).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'k') return;
+      if (document.querySelector('[data-dialog-panel]')) return;
+      e.preventDefault();
+      setSearchOpen(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const changes = useMemo(() => (base && draft ? buildPatch(base, draft) : {}), [base, draft]);
   const dirty = Object.keys(changes).length > 0;
@@ -191,15 +155,23 @@ export function BotEditorPage({ botId }: { botId: string }) {
   }, [dirty]);
 
   const details = saveError instanceof ApiError ? saveError.details : [];
-  const badTabs = errorTabs(details);
-  const dirtyTabs = useMemo(() => {
-    const set = new Set<TabId>();
+  const badSections = new Set(details.map(sectionOfError).filter((s): s is SectionId => s !== null));
+  const dirtySections = useMemo(() => {
+    const set = new Set<SectionId>();
     if (!base || !draft) return set;
     for (const s of CONFIG_SECTIONS) if (!same(draft.config[s], base.config[s])) set.add(s);
     if (draft.model !== base.model || draft.effort !== base.effort || draft.maxOutputTokens !== base.maxOutputTokens) set.add('model');
     if (!same([...draft.knowledgeBaseIds].sort(), [...base.knowledgeBaseIds].sort())) set.add('knowledge');
     return set;
   }, [base, draft]);
+  /** What the save bar lists as changed. */
+  const changedNames = useMemo(() => {
+    if (!base || !draft) return [];
+    const names = SECTIONS.filter((s) => dirtySections.has(s.id)).map((s) => s.label);
+    if (draft.name.trim() !== base.name) names.unshift('Name');
+    if (draft.isActive !== base.isActive) names.unshift('Status');
+    return names.length ? names : ['Settings'];
+  }, [base, draft, dirtySections]);
 
   const save = async () => {
     if (!dirty || !draft) return;
@@ -247,6 +219,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
     knowledgeBases: kbs.data ?? [],
     otherBots: (allBots.data ?? []).filter((b) => b.id !== botId).map((b) => ({ name: b.name, questions: b.config.qualification.questions })),
     organizationName: org.data?.name ?? '',
+    assistantName: draft.config.persona.assistantName.trim() || 'your assistant',
     members: members.data ?? [],
     pipelines: pipelines.data ?? [],
   };
@@ -270,16 +243,29 @@ export function BotEditorPage({ botId }: { botId: string }) {
     );
     toast.success(`${template.label} template applied: review it, then save`);
   };
-  const tabs: TabItem<TabId>[] = TABS.map((t) => ({ ...t, dot: badTabs.has(t.id) ? 'error' : dirtyTabs.has(t.id) ? 'dirty' : null }));
+
+  const persona = draft.config.persona;
+  const assistantName = persona.assistantName.trim() || 'your assistant';
+  // Booking counts as an essential only with a calendar, so the count waits for the calendars.
+  const calendarsKnown = !calendars.isLoading;
+  const essentialList = calendarsKnown ? essentials(draft, ctx) : null;
+  const progress = essentialList ? `${essentialList.filter((e) => e.done).length}/${essentialList.length}` : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            <Link to="/bots" className="text-muted hover:text-fg" aria-label="Back to bots">
-              <ArrowLeft className="size-4" />
-            </Link>
+      <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-5">
+        <Link
+          to="/bots"
+          aria-label="Back to bots"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+        </Link>
+        <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-[15px] font-bold text-accent-text">
+          {(persona.assistantName.trim() || draft.name.trim() || '?').charAt(0).toUpperCase()}
+        </span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
             <label htmlFor="bot-name" className="sr-only">
               Bot name
             </label>
@@ -288,89 +274,160 @@ export function BotEditorPage({ botId }: { botId: string }) {
               value={draft.name}
               maxLength={120}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              className="-ml-1 min-w-0 rounded-md bg-transparent px-1 text-lg font-semibold text-fg hover:bg-surface-2 focus:bg-surface focus:shadow-[0_0_0_3px_var(--ring)] focus:outline-none"
+              className="-ml-1 w-[20ch] max-w-[300px] min-w-[6ch] rounded-md bg-transparent px-1 text-base font-semibold text-fg field-sizing-content hover:bg-surface-2 focus:bg-surface focus:shadow-[0_0_0_3px_var(--ring)] focus:outline-none supports-[field-sizing:content]:w-auto"
             />
             <Badge tone="slate">v{bot.data?.version}</Badge>
-          </span>
-        }
-        description={`${draft.config.persona.assistantName}${draft.config.persona.companyName ? ` · ${draft.config.persona.companyName}` : ''} · ${bot.data?.model ?? draft.model}`}
-        actions={
-          <>
-            <Toggle size="sm" label={<span className="text-[13px]">{draft.isActive ? 'Active' : 'Inactive'}</span>} checked={draft.isActive} onChange={(v) => setDraft({ ...draft, isActive: v })} className="mr-2 items-center" />
-            {isAdmin && (
-              <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" />} onClick={() => setPreviewOpen(true)}>
-                Prompt preview
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={playgroundOpen ? <PanelRightClose className="size-3.5" /> : <PanelRightOpen className="size-3.5" />}
-              onClick={() => setPlaygroundOpen((o) => !o)}
-              aria-pressed={playgroundOpen}
-            >
-              Playground
-            </Button>
-            {dirty && (
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<Undo2 className="size-3.5" />}
-                onClick={() => {
+          </div>
+          <p className="truncate text-xs text-muted">
+            {persona.assistantName}
+            {(persona.companyName || ctx.organizationName) && ` · ${persona.companyName || ctx.organizationName}`}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={draft.isActive}
+          onClick={() => setDraft({ ...draft, isActive: !draft.isActive })}
+          title={draft.isActive ? 'Replying to visitors. Click to pause, then save.' : "Paused: it doesn't reply. Click to turn it on, then save."}
+          className={cx(
+            'ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold transition-colors',
+            draft.isActive ? 'border-success/30 bg-success-soft text-success-text hover:border-success/50' : 'border-border bg-surface-2 text-muted hover:text-fg-2',
+          )}
+        >
+          <span className={cx('size-2 rounded-full', draft.isActive ? 'bg-success' : 'bg-faint')} aria-hidden />
+          {draft.isActive ? 'Active' : 'Paused'}
+        </button>
+        <div className="flex-1" />
+        <p aria-live="polite" className="hidden items-center gap-1.5 text-[13px] whitespace-nowrap text-muted xl:flex">
+          {saving ? (
+            'Saving…'
+          ) : dirty ? (
+            <>
+              <span className="size-2 rounded-full bg-warning" aria-hidden />
+              Unsaved changes
+            </>
+          ) : (
+            <>
+              <Check className="size-3.5" aria-hidden />
+              All changes saved
+            </>
+          )}
+        </p>
+        {isAdmin && (
+          <Button size="sm" variant="ghost" icon={<Eye className="size-3.5" aria-hidden />} aria-label="Prompt preview" title="Prompt preview" onClick={() => setPreviewOpen(true)}>
+            <span className="hidden xl:inline">Prompt preview</span>
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={testChatOpen ? <PanelRightClose className="size-3.5" aria-hidden /> : <PanelRightOpen className="size-3.5" aria-hidden />}
+          onClick={() => setTestChatOpen((o) => !o)}
+          aria-pressed={testChatOpen}
+          className={testChatOpen ? 'bg-accent-soft text-accent-text hover:bg-accent-soft hover:text-accent-text' : undefined}
+        >
+          Test chat
+        </Button>
+        <Button
+          size="sm"
+          variant="primary"
+          icon={<Save className="size-3.5" aria-hidden />}
+          disabled={!dirty || !isAdmin}
+          loading={saving}
+          onClick={() => void save()}
+          title={isAdmin ? undefined : 'Only admins can change bots'}
+        >
+          Save changes
+        </Button>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <SettingsMenu
+          view={view}
+          onSelect={setView}
+          onSearch={() => setSearchOpen(true)}
+          draft={draft}
+          assistantName={assistantName}
+          progress={progress}
+          dirty={dirtySections}
+          errors={badSections}
+        />
+        <div className="relative min-w-0 flex-1">
+          <div ref={contentRef} className="h-full overflow-y-auto">
+            <div className="mx-auto max-w-3xl space-y-4 px-6 pt-6 pb-28 xl:px-8">
+              {saveError ? (
+                details.length ? (
+                  <SaveErrors details={details} view={view} onOpen={setView} />
+                ) : (
+                  <ErrorBanner error={saveError} />
+                )
+              ) : null}
+              {view === 'overview' &&
+                (essentialList ? (
+                  <EditorOverview draft={draft} ctx={ctx} onOpen={setView} onTestChat={testChatOpen ? null : () => setTestChatOpen(true)} />
+                ) : (
+                  <SkeletonRows rows={6} />
+                ))}
+              {view !== 'overview' && <SectionHeader section={view} assistantName={assistantName} />}
+              {view === 'persona' && <PersonaSection value={draft.config.persona} onChange={(v) => setConfig('persona', v)} ctx={ctx} onApplyTemplate={(t) => void applyTemplate(t)} />}
+              {view === 'conversationStarters' && (
+                <StartersSection
+                  value={draft.config.conversationStarters}
+                  onChange={(v) => setConfig('conversationStarters', v)}
+                  handoffEnabled={draft.config.handoff.enabled}
+                />
+              )}
+              {view === 'goals' && <GoalsSection value={draft.config.goals} onChange={(v) => setConfig('goals', v)} ctx={ctx} />}
+              {view === 'instructions' && <InstructionsSection value={draft.config.instructions} onChange={(v) => setConfig('instructions', v)} />}
+              {view === 'business' && <BusinessSection value={draft.config.business} onChange={(v) => setConfig('business', v)} ctx={ctx} />}
+              {view === 'leadCapture' && <LeadCaptureSection value={draft.config.leadCapture} onChange={(v) => setConfig('leadCapture', v)} ctx={ctx} />}
+              {view === 'qualification' && <QualificationSection value={draft.config.qualification} onChange={(v) => setConfig('qualification', v)} ctx={ctx} />}
+              {view === 'booking' && <BookingSection value={draft.config.booking} onChange={(v) => setConfig('booking', v)} ctx={ctx} />}
+              {view === 'handoff' && <HandoffSection value={draft.config.handoff} onChange={(v) => setConfig('handoff', v)} ctx={ctx} />}
+              {view === 'guardrails' && <GuardrailsSection value={draft.config.guardrails} onChange={(v) => setConfig('guardrails', v)} ctx={ctx} />}
+              {view === 'actions' && <ActionsSection value={draft.config.actions} onChange={(v) => setConfig('actions', v)} ctx={ctx} />}
+              {view === 'model' && (
+                <ModelSection
+                  value={{ model: draft.model, effort: draft.effort, maxOutputTokens: draft.maxOutputTokens }}
+                  onChange={(v) => setDraft({ ...draft, ...v })}
+                />
+              )}
+              {view === 'knowledge' && <KnowledgeSection value={draft.knowledgeBaseIds} onChange={(v) => setDraft({ ...draft, knowledgeBaseIds: v })} ctx={ctx} />}
+              {!isAdmin && <p className="text-[13px] text-muted">You have read-only access. Ask an admin to change this bot.</p>}
+            </div>
+          </div>
+          {dirty && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-6 xl:px-8">
+              <SaveBar
+                changes={changedNames}
+                saving={saving}
+                canSave={isAdmin}
+                onDiscard={() => {
                   setDraft(structuredClone(base));
                   setSaveError(null);
                 }}
-              >
-                Discard
-              </Button>
-            )}
-            <Button size="sm" variant="primary" icon={<Save className="size-3.5" />} disabled={!dirty || !isAdmin} loading={saving} onClick={() => void save()} title={isAdmin ? undefined : 'Only admins can change bots'}>
-              Save changes
-            </Button>
-          </>
-        }
-      >
-        <Tabs className="px-6" tabs={tabs} value={tab} onChange={setTab} ariaLabel="Bot configuration sections" />
-      </PageHeader>
-
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl space-y-4 px-8 py-6">
-            {saveError ? <ErrorBanner error={saveError} title={details.length ? 'The configuration was not saved:' : undefined} details={details} /> : null}
-            {tab === 'persona' && <PersonaSection value={draft.config.persona} onChange={(v) => setConfig('persona', v)} ctx={ctx} onApplyTemplate={(t) => void applyTemplate(t)} />}
-            {tab === 'conversationStarters' && (
-              <StartersSection
-                value={draft.config.conversationStarters}
-                onChange={(v) => setConfig('conversationStarters', v)}
-                handoffEnabled={draft.config.handoff.enabled}
+                onSave={() => void save()}
               />
-            )}
-            {tab === 'goals' && <GoalsSection value={draft.config.goals} onChange={(v) => setConfig('goals', v)} ctx={ctx} />}
-            {tab === 'instructions' && <InstructionsSection value={draft.config.instructions} onChange={(v) => setConfig('instructions', v)} />}
-            {tab === 'business' && <BusinessSection value={draft.config.business} onChange={(v) => setConfig('business', v)} ctx={ctx} />}
-            {tab === 'leadCapture' && <LeadCaptureSection value={draft.config.leadCapture} onChange={(v) => setConfig('leadCapture', v)} ctx={ctx} />}
-            {tab === 'qualification' && <QualificationSection value={draft.config.qualification} onChange={(v) => setConfig('qualification', v)} ctx={ctx} />}
-            {tab === 'booking' && <BookingSection value={draft.config.booking} onChange={(v) => setConfig('booking', v)} ctx={ctx} />}
-            {tab === 'handoff' && <HandoffSection value={draft.config.handoff} onChange={(v) => setConfig('handoff', v)} ctx={ctx} />}
-            {tab === 'guardrails' && <GuardrailsSection value={draft.config.guardrails} onChange={(v) => setConfig('guardrails', v)} ctx={ctx} />}
-            {tab === 'actions' && <ActionsSection value={draft.config.actions} onChange={(v) => setConfig('actions', v)} ctx={ctx} />}
-            {tab === 'model' && (
-              <ModelSection
-                value={{ model: draft.model, effort: draft.effort, maxOutputTokens: draft.maxOutputTokens }}
-                onChange={(v) => setDraft({ ...draft, ...v })}
-              />
-            )}
-            {tab === 'knowledge' && <KnowledgeSection value={draft.knowledgeBaseIds} onChange={(v) => setDraft({ ...draft, knowledgeBaseIds: v })} ctx={ctx} />}
-            {!isAdmin && <p className="text-[13px] text-muted">You have read-only access. Ask an admin to change this bot.</p>}
-          </div>
+            </div>
+          )}
         </div>
-        {playgroundOpen && (
-          <aside className="w-[380px] shrink-0 border-l border-border" aria-label="Playground">
-            <Playground botId={botId} dirty={dirty} />
+        {testChatOpen && (
+          <aside className="w-[380px] shrink-0 border-l border-border" aria-label="Test chat">
+            {/* Named like the website chat, from the saved bot: that's the version the test chat talks to. */}
+            <Playground botId={botId} dirty={dirty} title={bot.data?.config.persona.companyName || ctx.organizationName} />
           </aside>
         )}
       </div>
 
+      <SettingsSearch
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSelect={(target) => {
+          setView(target.view);
+          if (target.setting) setJumpTo(target);
+        }}
+        assistantName={assistantName}
+      />
       <PromptPreviewDrawer botId={botId} open={previewOpen} onClose={() => setPreviewOpen(false)} dirty={dirty} />
     </div>
   );

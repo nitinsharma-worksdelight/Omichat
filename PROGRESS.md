@@ -626,6 +626,62 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   starters (up to 3, "+N more"; a sample visitor message when there are none), the message box, the new footer, and
   the bubble with its chevron (and launcher text). It follows every field as you type (colour, position, title,
   subtitle, avatar, launcher text, bot) and the dashboard's light or dark mode, like the widget follows the visitor's.
+- **2026-09-30 — Bot editor redesign, Phase 1: layout** (design canvas "Bot Editor Redesign", concept A plus B's
+  overview; choices: an Active / Paused pill, and Booking counts as essential only when there's a calendar). Dashboard
+  only; saving, validation, permissions, the sections' fields and the test chat work as before.
+  - **Grouped menu instead of 13 tabs:** Overview; Personality (Identity & voice, Goals, Instructions); What {name}
+    knows (Business info, Knowledge bases); Conversations (Conversation starters, Lead capture, Qualification,
+    Booking, Handoff); Rules & tools (Guardrails, Actions, Model). Each item shows On/Off, a count (starters shown,
+    knowledge bases) or Default/Custom for the model, plus the unsaved and needs-fixing markers. `?tab=` still names
+    the open section with the same values as before, so older links work; no `tab` opens the overview.
+  - **Overview:** "X of 6 set up" (5 without a calendar) with a card per essential (Identity & voice, What it knows,
+    Conversation starters, Lead capture, Booking, Handoff), each Done or To do with a summary written from the
+    settings, the next step as the main button, "Get the website code", and a "More settings" list.
+  - **Header:** the bot's initial, its name (still editable, now sized to the text), version, an Active / Paused pill
+    (same setting, saved with Save), "All changes saved" / "Unsaved changes", Prompt preview, Test chat (renamed from
+    Playground) and Save.
+  - **Saving:** a bar at the bottom while there are changes (what changed, Discard, Save). A refused save lists each
+    problem with its section and a "Go to it" link.
+  - **Search:** a search box at the top of the menu and Cmd/Ctrl+K find sections by name or by what's in them
+    (greeting, calendar, handoff message…); arrows, Enter and Esc work; not while another dialog is open.
+  - **Main menu:** icons only on a bot's editor (names kept for screen readers, tooltips on hover), with a button to
+    expand it that this browser remembers; every other page keeps the full menu. (Replaced the same day by one
+    collapse setting for every page: see "Main menu collapses on every page" below.)
+- **2026-09-30 — Bot editor redesign, Phase 2: test chat** (as approved). The test chat is drawn like the website
+  chat; it uses the same endpoints, session, live updates and "What the AI did" data as before.
+  - **The chat:** a card with the business's initials and online dot, its name (from the saved bot, else the
+    organization), the "AI" label and "{assistant} · usually replies instantly"; the greeting with its picture and
+    time; starters as the widget's suggested questions until the first message; the visitor's messages on the right
+    in the accent colour, the assistant's with its picture and "{name} · time", a team member's with a person icon
+    and "Team member"; sources as chips; typing dots with what the AI is doing; the handoff note as a divider; the
+    widget's message box (grows with the text, Enter sends) and footer.
+  - **Kept above the chat:** "Test chat", the conversation's status, the live dot, the unsaved-changes note and Reset.
+  - **"What the AI did":** a card under the chat, closed by default, showing "N tool calls · N events" (or "Send a
+    message to see it"); open, it lists the same timeline with "Open in Conversations →" and takes at most 40% of
+    the panel, so the message box stays in view.
+  - **Shared:** the initials helper moved from Settings into `lib/format.ts` (Settings' preview is unchanged).
+- **2026-09-30 — Bot editor redesign, Phase 3: friendlier sections** (as approved). Same settings, values, checks and
+  saving; only how they're laid out and worded changed.
+  - **Every section:** a heading with its group, name and a plain one-line purpose (using the assistant's name), then
+    cards of related settings, each with its own heading and help text. On narrow screens a card's fields stack.
+  - **Identity & voice, as drawn:** a summary card (initial, name, "Role at Company", chips for tone, reply length,
+    language and emoji) with "Use a template" as a menu of the four templates (it still asks before replacing text);
+    Identity (name, company, role); Voice (tone as pills, reply length as three choices, language, emoji,
+    personality); Greeting, with a live preview of the greeting bubble as the website chat shows it.
+  - **Switchable features** (lead capture, qualification, booking, handoff): the switch sits in the first card's
+    header with a line on what it does now ("On · Asks for name and phone; email… are optional", "Off · Leads aren't
+    scored"). The settings under it stay editable when it's off, as before.
+  - **Search finds single settings:** 55 of them ("greeting", "calendar", "tone"…). Picking one opens its section,
+    scrolls to it, puts the cursor in it and highlights it briefly. With nothing typed it lists the sections as before.
+  - **Narrow layouts:** starter and question forms stack on a narrow card; the lead-capture table scrolls sideways on
+    its own instead of widening the page.
+  - **Kept from the design only in part:** Language stays a text box with suggestions (the drawing had a drop-down),
+    so any language name or code still works.
+- **2026-09-30 — Main menu collapses on every page** (on request; option chosen: one setting everywhere, starting
+  expanded). The Collapse / Expand button at the bottom of the main menu is on every page, and the choice applies to
+  every page and survives a reload (remembered in this browser). The bot editor no longer shrinks the menu by itself;
+  it follows the same setting. The collapsed look is unchanged (icons with tooltips, names for screen readers, the
+  approvals dot). One place, the shared layout; no page has its own copy.
 
 ## Remaining issues
 
@@ -637,6 +693,7 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | README still says 71 tests (now 238) | Docs | Not planned |
 | The widget shows the browser's raw error ("Failed to fetch") when a message can't be sent over the network (found while testing starters; typed messages did this before) | P3 | Not planned |
 | A second tab opened before the visitor's first message keeps showing the conversation starters until it's reloaded (a click there adds its message to the same chat) | P3 | Not planned |
+| At 1024px wide, a knowledge base's documents table doesn't shrink, so the page scrolls sideways (198px with the menu expanded, 38px collapsed; found while checking the menu change, not caused by it) | P3 | Not planned |
 | ~~`book_appointment` can return a cancelled or moved appointment as booked~~ | P0 | ✅ Fixed in Phase 2 |
 | ~~The AI is told a confirmation was sent when none is~~ | P0 | ✅ Fixed in Phase 2 |
 | ~~Buffers and the daily cap can break when two bookings happen at once~~ | P1 | ✅ Fixed in Phase 2 (verified by review only; see next row) |
@@ -978,6 +1035,28 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   - Docs: `PROGRESS.md`
 - **Settings preview (2026-09-29):**
   - Dashboard: `apps/dashboard/src/pages/settings/SettingsPage.tsx` (`WidgetPreview`)
+  - Docs: `PROGRESS.md`
+- **Bot editor redesign, Phase 1 (2026-09-30):**
+  - Dashboard: `apps/dashboard/src/pages/bots/editorNav.ts` (new: groups, statuses, essentials, search),
+    `apps/dashboard/src/pages/bots/editor.tsx` (new: menu, overview, search, save bar, save errors),
+    `apps/dashboard/src/pages/bots/BotEditorPage.tsx` (the page frame), `apps/dashboard/src/components/Layout.tsx`
+    (icons-only main menu on the editor), `apps/dashboard/src/components/overlay.tsx` (the dialog focus helper
+    exported), `apps/dashboard/src/pages/bots/sections.tsx` and `Playground.tsx` (two titles)
+  - Docs: `PROGRESS.md`
+- **Bot editor redesign, Phase 2 (2026-09-30):**
+  - Dashboard: `apps/dashboard/src/pages/bots/Playground.tsx` (the test chat's look; its logic unchanged),
+    `apps/dashboard/src/pages/bots/BotEditorPage.tsx` (passes the chat's name), `apps/dashboard/src/lib/format.ts`
+    (`initialsOf`, moved), `apps/dashboard/src/pages/settings/SettingsPage.tsx` (imports it)
+  - Docs: `PROGRESS.md`
+- **Bot editor redesign, Phase 3 (2026-09-30):**
+  - Dashboard: `apps/dashboard/src/pages/bots/sections.tsx` (cards, feature switches, Identity & voice, anchors for
+    search), `apps/dashboard/src/pages/bots/editorNav.ts` (section descriptions, the 55 searchable settings, search
+    over them, `askedFor` shared with the overview), `apps/dashboard/src/pages/bots/editor.tsx` (section heading,
+    search results that carry a setting), `apps/dashboard/src/pages/bots/BotEditorPage.tsx` (heading, jump to a
+    setting), `apps/dashboard/src/index.css` (the highlight)
+  - Docs: `PROGRESS.md`
+- **Main menu collapses on every page (2026-09-30):**
+  - Dashboard: `apps/dashboard/src/components/Layout.tsx` (one remembered setting and the button on every page)
   - Docs: `PROGRESS.md`
 - **Conversation starters (2026-09-29):**
   - Server: `apps/server/src/modules/bots/config.ts` (schema, checks, `offeredStarters`, `handoffStarter`),
@@ -1667,6 +1746,80 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   (teal), position (left), launcher text and a broken avatar link updated it at once (initials instead of the broken
   image); dark mode used the widget's dark colours. The dialog was closed without saving; your servers weren't touched.
 
+- **Bot editor redesign, Phase 1 (2026-09-30):** typecheck clean on all three apps, the dashboard builds, 238/238
+  server tests pass (no server changes). Browser checks on isolated ports with the fake model (no paid calls):
+  - every old `?tab=` value (all 13) opened its section with the menu item marked; an unknown value opened the
+    overview; with no `tab` the overview showed the real test bot (6/6, each card's summary right)
+  - editing marked the section and showed the save bar; Discard restored the value; Save went from v5 to v6, the
+    toast showed, and the value was there after a reload; the Active / Paused pill counted as a change
+  - a duplicate starter label was refused: the error named the section, the menu marked it, "Go to it" opened it
+    from the overview, Discard cleared it
+  - turning handoff off (not saved) made the overview 5/6 with "Set up handoff" opening Handoff
+  - search: Cmd+K with real key presses, typing "greet" found Identity & voice, Enter opened it, Esc closed it,
+    focus went back; nothing opened over the Prompt preview drawer. Found and fixed: text typed right after
+    reopening the search could land on the old text; the box now starts empty each time
+  - the test chat still sent a message and showed the reply, starters and "What the AI did"
+  - the main menu was 64px on the editor, 224px when expanded (remembered) and on every other page
+  - 1440, 1280 and 1024 wide, with and without the test chat: no sideways scrolling, the header fits; below 1280 the
+    settings menu narrows and long names shorten with the full name on hover
+  - dark mode used the dashboard's dark colours; an agent saw Save disabled ("Only admins can change bots") and the
+    read-only note; no JavaScript errors or React warnings in the console
+  - known trade-off: at 1024px with the test chat open, the settings area is 356px wide (420px before)
+
+- **Bot editor redesign, Phase 2 (2026-09-30):** typecheck clean on all three apps, the dashboard builds, 238/238
+  server tests pass (no server changes). Browser checks on isolated ports with the fake model (no paid calls):
+  - a typed message (real key presses, Enter) showed on the right with its time, the typing dots appeared, the reply
+    came in as "Maya · time", the starters went away and "What the AI did" showed its counts
+  - a starter clicked twice at once sent one message; "Talk to the team" handed over: status "Human", the handoff
+    note, and the handoff event in the timeline; a team reply sent from the API showed live as "Team member"
+  - "What the AI did" opened and closed (aria-expanded and aria-controls right), listed the timeline and linked to
+    the conversation; Reset started a fresh chat with the greeting and starters
+  - an unsaved edit showed "Uses the saved version — save to test your changes."; Discard brought back the usual note;
+    Save still worked (v6 → v7 → v8 toggling Active / Paused and back)
+  - 1440, 1280 and 1024 wide: no sideways scrolling, the test chat 380px; light and dark mode checked
+  - found and fixed while checking: the send arrow was squeezed to 6px (the shared button's padding won), the open
+    timeline could squeeze the message box out of view on short windows (now at most 40% of the panel), and its
+    focus ring was clipped by the card (now drawn inside)
+  - no JavaScript errors or React warnings in the console (only the refused connection from before the test API
+    had started); not seen: word-by-word streaming and an activity label, as the fake model's reply lands at once
+    and uses no tools here (that code only changed its look)
+
+- **Bot editor redesign, Phase 3 (2026-09-30):** typecheck clean on all three apps, the dashboard builds, 238/238
+  server tests pass (no server changes). Browser checks on isolated ports with the fake model (no paid calls):
+  - all 13 sections opened with their heading and cards; each still had the same fields (control counts matched the
+    fields before, the two drop-downs for tone and reply length now being choices)
+  - tone and reply length changed with real arrow keys (focus ring shown), the summary chips followed, the menu and
+    save bar marked the change; Save went v8 → v9 and the values were there after a reload
+  - "Use a template": Enter opened the menu on the first template; arrows, Home/End and wrapping worked; Esc and a
+    click outside closed it, focus back on the button; a template filled role, tone, length, personality and goal;
+    once there was text to replace it asked first, and focus came back to the button after; Discard restored all
+  - lead capture, qualification, booking and handoff switches in the card headers: the line changed to On/Off with
+    the right text, the menu showed Off with the unsaved mark, the save bar listed all four; Discard restored them
+  - search: "calendar" opened Booking with the calendar box focused, in view and highlighted (the highlight then
+    cleared); "greet" scrolled down to the greeting box; "tone" focused the chosen tone; "handoff" listed the section,
+    then its settings; with nothing typed it listed the 14 sections as before
+  - a duplicate starter label was still refused on save, with the inline errors, the banner and the menu mark
+  - 1440, 1280 and 1024 wide with the test chat open: no sideways scrolling in any section. Found and fixed while
+    checking: at 1024 three sections' fixed-width rows (starters, qualification questions, the lead-capture table)
+    widened the page area; the forms now stack and the table scrolls by itself. At 1280 the name/company fields
+    first fell to one column; the two-column point was lowered so they stay side by side
+  - light and dark mode; the overview's summaries unchanged; no JavaScript errors or React warnings while going
+    through every section and the template menu
+
+- **Main menu collapses on every page (2026-09-30):** typecheck clean on all three apps, the dashboard builds, 238/238
+  server tests pass (no server changes). Browser checks on isolated ports:
+  - with nothing saved, all 12 pages (overview, bots, a bot's editor, conversations, leads, deals, approvals,
+    knowledge, appointments and calendars, automations, settings) showed the full menu (224px) with the button
+  - collapsed on Settings with a real Enter key press: 64px, the button became "Expand menu" (aria-expanded false)
+    and kept the focus; every page then stayed at 64px, and so did a reload; expanded again on Deals with Space, and
+    the bot editor followed
+  - collapsed, the links kept their names for screen readers and their tooltips, and the logo its name
+  - 1024, 1280 and 1440 wide, both states, every page: no sideways scrolling except the knowledge base page at 1024
+    (its documents table; the same with the menu expanded as before the change, so not caused by it; now listed
+    under Remaining issues)
+  - the bot editor at 1280 with the test chat open: settings area 405px expanded, 565px collapsed, no overflow
+  - dark mode checked; no JavaScript errors or React warnings across all pages in both states
+
 ### Verification log
 
 <!-- verification-log:start -->
@@ -1854,6 +2007,7 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | 2026-09-29 | Conversation starters: "send message" and "talk to the team" actions, shown under the greeting until the visitor's first message, and in the Playground | User |
 | 2026-09-29 | Starters live in the bot's configuration (no table or migration); the widget gets the text a click sends but not the action, and the server checks a clicked starter against the bot's current ones before handing off | Implementation |
 | 2026-09-29 | Widget redesign from the design canvas: light header, "LeadsMagnet AI" in the footer, starters as the design's suggested questions; the bot's colour stays the only accent | User |
+| 2026-09-30 | Bot editor: grouped menu with an overview (concept A plus B), `?tab=` kept for links, Active / Paused pill, Booking essential only with a calendar; built in phases, layout first | User |
 
 ## Next phase
 
