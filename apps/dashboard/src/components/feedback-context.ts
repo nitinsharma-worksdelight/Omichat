@@ -9,6 +9,8 @@ export interface ToastApi {
   success: (message: string) => void;
   error: (errorOrMessage: unknown) => void;
   info: (message: string) => void;
+  /** A new notification: title, a line of detail, and an optional button (e.g. "Open"). Stays a little longer. */
+  notify: (n: { title: string; body?: string; actionLabel?: string; onAction?: () => void }) => void;
 }
 
 export interface ConfirmOptions {

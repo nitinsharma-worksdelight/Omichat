@@ -21,6 +21,11 @@ export function currentRoute(): Route {
   return parseHash(window.location.hash);
 }
 
+/** The route's path without its query (e.g. `/conversations/<id>`). */
+export function currentPath(): string {
+  return window.location.hash.replace(/^#/, '').split('?')[0] || '/';
+}
+
 export function useRoute(): Route {
   const [hash, setHash] = useState(() => window.location.hash);
   useEffect(() => {

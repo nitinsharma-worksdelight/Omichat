@@ -740,6 +740,24 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   - **Browser check** (on your running dev servers, 1024px): the inbox filters, the overdue badge and the assignee
     picker render; the header overflowed sideways with the picker and now wraps (fixed). Assigning wasn't clicked, to
     leave your live data alone; the tests cover it.
+- **2026-09-30 — Real-time notifications and toasts** (audited, then approved as a small change outside the phases,
+  with a toast added). Before this the bell only polled every 30 s (not at all in a background tab, and not on
+  returning to it), the server never pushed notifications, and the org live stream ran only on the Conversations page.
+  - **Server:** after the notification dispatcher commits, each new notification is published with only its ID:
+    organization-wide ones on the org channel, personal ones (e.g. an assignment) on a new per-member channel
+    (`user:<org>:<member>`). The dashboard stream (`/v1/stream` without a conversation) now subscribes the signed-in
+    member to both. Works across processes through the existing Redis pub/sub; playground chats publish nothing.
+    `conversation.assigned` now also reaches the org channel (F6b sent it only to the conversation's, so the inbox
+    didn't refresh on assignment).
+  - **Dashboard:** one shared live connection for the whole signed-in app (`lib/live.tsx`); the Conversations inbox
+    uses it instead of opening its own. On a new notification the bell refetches and a toast shows its title, the
+    brief and an "Open" button (7 s; none for one already read or for the conversation already on screen).
+  - **Fallback:** the 30 s poll stays; the bell also refetches on every (re)connect and on returning to the tab.
+  - **No migration.** Tests: 3 new (org channel with ID only, personal channel only to its owner, nothing for
+    playground chats); 258/258 pass.
+  - **Browser check** (your running dev servers, on the Leads page): a test visitor asking for a person raised the
+    bell from 11 to 12 unread and showed the toast 1.5 s later without a refresh. The three test chats I created
+    ("Realtime check…") were closed afterwards; their notifications remain in the bell.
 
 ## Remaining issues
 
@@ -866,6 +884,8 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | The overdue timer (60 s) hasn't run in a deployed worker; the tests call the watcher directly. The watcher's claim (`for update skip locked`) is verified on PGlite only | Test gap | First deployment |
 | A handoff with the customer's first message still gets no recap (needs two customer messages); the alert's brief carries their message instead | P3 | Accepted |
 | The widget shows nothing for a closed chat | P3 | Not planned yet |
+| A burst of notifications shows one toast each (at most 4 on screen); there's no "3 new notifications" grouping | P3 | Not planned yet |
+| Live notifications over Redis (API and worker as separate processes) haven't run; tested with the in-process pub/sub | Test gap | When staging has Redis |
 | Default handoff phrases still catch questions such as "what are your customer service hours?" (by decision, the defaults weren't changed) | P3 | Not planned yet |
 | The chat API can't assign conversations (staff only, like takeover) | P3 | Not planned yet |
 | Assignment was tested by the suite, not by clicking in the browser | Test gap | Next time the dashboard is previewed |
@@ -2112,6 +2132,7 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | 2026-09-30 | F6b: the brief is written into the handoff event at once (no waiting for the recap); mood appears in the alert only when negative | Implementation |
 | 2026-09-30 | F6b: assigning stays staff-only (no API-key scope), like takeover and resume | Implementation |
 | 2026-09-30 | F6: skip the paid mood re-check and mark F6 complete | User |
+| 2026-09-30 | Real-time notifications: publish IDs only (the dashboard refetches with its own access), org-wide on the org channel, personal on a per-member channel; one shared live connection; the 30 s poll stays as a fallback; plus a toast | User |
 | 2026-09-30 | Bot editor: grouped menu with an overview (concept A plus B), `?tab=` kept for links, Active / Paused pill, Booking essential only with a calendar; built in phases, layout first | User |
 
 ## Next phase

@@ -1,15 +1,18 @@
-import { CircleCheck, CircleX, Info, X } from 'lucide-react';
+import { Bell, CircleCheck, CircleX, Info, X } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { errorMessage } from '../lib/api';
 import { ConfirmContext, ToastContext, type ConfirmOptions, type ToastApi } from './feedback-context';
 import { Modal } from './overlay';
 import { Button, cx } from './ui';
 
-type ToastKind = 'success' | 'error' | 'info';
+type ToastKind = 'success' | 'error' | 'info' | 'notice';
 interface ToastItem {
   id: number;
   kind: ToastKind;
   message: string;
+  body?: string;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 export function FeedbackProvider({ children }: { children: ReactNode }) {
@@ -17,10 +20,10 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   const nextId = useRef(1);
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
   const push = useCallback(
-    (kind: ToastKind, message: string) => {
+    (kind: ToastKind, message: string, extra: Partial<ToastItem> = {}) => {
       const id = nextId.current++;
-      setToasts((t) => [...t.slice(-3), { id, kind, message }]);
-      setTimeout(() => dismiss(id), kind === 'error' ? 7000 : 4000);
+      setToasts((t) => [...t.slice(-3), { id, kind, message, ...extra }]);
+      setTimeout(() => dismiss(id), kind === 'error' || kind === 'notice' ? 7000 : 4000);
     },
     [dismiss],
   );
@@ -29,6 +32,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       success: (m) => push('success', m),
       error: (e) => push('error', typeof e === 'string' ? e : errorMessage(e)),
       info: (m) => push('info', m),
+      notify: (n) => push('notice', n.title, { body: n.body, actionLabel: n.actionLabel, onAction: n.onAction }),
     }),
     [push],
   );
@@ -73,10 +77,27 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                 <CircleCheck className="mt-px size-4 shrink-0 text-success" aria-hidden />
               ) : t.kind === 'error' ? (
                 <CircleX className="mt-px size-4 shrink-0 text-danger" aria-hidden />
+              ) : t.kind === 'notice' ? (
+                <Bell className="mt-px size-4 shrink-0 text-accent" aria-hidden />
               ) : (
                 <Info className="mt-px size-4 shrink-0 text-accent" aria-hidden />
               )}
-              <p className={cx('min-w-0 flex-1 break-words', t.kind === 'error' ? 'text-fg' : 'text-fg')}>{t.message}</p>
+              <div className="min-w-0 flex-1">
+                <p className={cx('break-words text-fg', t.kind === 'notice' && 'font-medium')}>{t.message}</p>
+                {t.body && <p className="mt-0.5 line-clamp-2 text-xs whitespace-pre-line text-muted">{t.body}</p>}
+                {t.actionLabel && t.onAction && (
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs font-medium text-accent-text hover:underline"
+                    onClick={() => {
+                      t.onAction?.();
+                      dismiss(t.id);
+                    }}
+                  >
+                    {t.actionLabel}
+                  </button>
+                )}
+              </div>
               <button type="button" className="shrink-0 rounded p-0.5 text-muted hover:text-fg" aria-label="Dismiss" onClick={() => dismiss(t.id)}>
                 <X className="size-3.5" />
               </button>

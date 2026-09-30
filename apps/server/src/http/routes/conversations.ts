@@ -5,7 +5,7 @@ import type { Container } from '../../container';
 import { schema } from '../../db/client';
 import { parseInput } from '../../lib/validation';
 import type { SummaryJob } from '../../modules/ai/summary';
-import { ConversationListSchema, convChannel, orgChannel } from '../../modules/conversations/service';
+import { ConversationListSchema, convChannel, orgChannel, userChannel } from '../../modules/conversations/service';
 import { actorUserId, requireAccess, requireUser } from '../auth';
 import { openSse } from '../sse';
 
@@ -106,9 +106,11 @@ export async function registerConversationRoutes(app: FastifyInstance, c: Contai
     const q = parseInput(z.object({ conversationId: z.string().uuid().optional() }), req.query);
     if (q.conversationId) await c.conversations.get({ orgId: auth.orgId }, q.conversationId);
     const stream = openSse(req, reply);
-    const unsubscribe = c.pubsub.subscribe(q.conversationId ? convChannel(q.conversationId) : orgChannel(auth.orgId), (event) =>
-      stream.send((event as { type: string }).type, event),
-    );
-    stream.onClose(unsubscribe);
+    const forward = (event: unknown) => stream.send((event as { type: string }).type, event);
+    // The org inbox stream also carries this member's own notifications; a conversation stream carries that conversation.
+    const unsubscribes = q.conversationId
+      ? [c.pubsub.subscribe(convChannel(q.conversationId), forward)]
+      : [c.pubsub.subscribe(orgChannel(auth.orgId), forward), c.pubsub.subscribe(userChannel(auth.orgId, auth.userId), forward)];
+    stream.onClose(() => unsubscribes.forEach((u) => u()));
   });
 }

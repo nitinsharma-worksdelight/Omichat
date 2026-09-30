@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { rowsOf, schema, type Db } from '../../db/client';
 import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import type { EmailSender } from '../../infra/email';
+import type { PubSub } from '../../infra/pubsub';
 import type { QueueDriver } from '../../infra/queue';
+import { orgChannel, userChannel } from '../conversations/service';
 import { truncate } from '../../lib/async';
 import { signWebhook, type SecretBox } from '../../lib/crypto';
 import { badRequest, notFound } from '../../lib/errors';
@@ -154,7 +156,7 @@ export class AutomationService {
     private readonly secrets: SecretBox,
     private readonly email: EmailSender,
     private readonly logger: Logger,
-    private readonly opts: { allowPrivateUrls: boolean; dashboardUrl: string },
+    private readonly opts: { allowPrivateUrls: boolean; dashboardUrl: string; pubsub?: PubSub },
   ) {}
 
   // ---------- AI-facing actions ----------
@@ -395,6 +397,7 @@ export class AutomationService {
         : [];
       const contactsById = new Map(contactRows.map((c) => [c.id, c]));
       const deliveryJobs: string[] = [];
+      const created: Array<{ id: string; orgId: string; userId: string | null }> = [];
       const emails: Array<{ to: string[]; subject: string; text: string }> = [];
 
       for (const event of rows) {
@@ -413,7 +416,7 @@ export class AutomationService {
         }
         const note = notificationFor(event, contact ? displayName(contact) : null);
         if (note) {
-          await tx.insert(schema.notifications).values({
+          const [inserted] = await tx.insert(schema.notifications).values({
             organizationId: event.organizationId,
             userId: note.userId ?? null,
             type: event.type,
@@ -421,7 +424,8 @@ export class AutomationService {
             body: truncate(note.body, 1000),
             link: note.link,
             data: { eventId: event.id },
-          });
+          }).returning({ id: schema.notifications.id });
+          created.push({ id: inserted!.id, orgId: event.organizationId, userId: note.userId ?? null });
           const org = orgs.find((o) => o.id === event.organizationId);
           const recipients = note.userId ? await this.emailOf(tx, note.userId) : (org?.settings.notificationEmails ?? []);
           if (recipients.length) {
@@ -434,7 +438,7 @@ export class AutomationService {
         }
       }
       await tx.update(schema.events).set({ dispatchedAt: new Date() }).where(inArray(schema.events.id, events));
-      return { count: rows.length, deliveryJobs, emails };
+      return { count: rows.length, deliveryJobs, emails, created };
     });
     if (typeof result === 'number') return result;
     // Queued only after the commit, so a worker never looks for a delivery row that isn't visible yet.
@@ -443,6 +447,14 @@ export class AutomationService {
       await this.queue.add('webhook-delivery', { deliveryId: id }, { jobId: `delivery_${id}`, attempts: 6, backoffMs: 10_000 });
     }
     for (const e of result.emails) await this.queue.add('notification', e, { attempts: 3 });
+    // Open dashboards learn about new notifications at once (only the ID: they fetch it with their own access).
+    // Published after the commit, so the fetch always finds the row. The bell's poll covers anything missed.
+    for (const n of result.created) {
+      const message = { type: 'notification', id: n.id };
+      await this.opts.pubsub
+        ?.publish(n.userId ? userChannel(n.orgId, n.userId) : orgChannel(n.orgId), message)
+        .catch((err) => this.logger.warn({ err }, 'notification publish failed'));
+    }
     return result.count;
   }
 

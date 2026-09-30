@@ -118,6 +118,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   const automation = new AutomationService(db, tenantDb, queue, secrets, email, logger, {
     allowPrivateUrls,
     dashboardUrl: env.dashboardOrigins[0] ?? '',
+    pubsub,
   });
   const conversations = new ConversationsService(tenantDb, contacts, queue, pubsub, channelRegistry, {
     replyDebounceMs: env.AI_REPLY_DEBOUNCE_MS,

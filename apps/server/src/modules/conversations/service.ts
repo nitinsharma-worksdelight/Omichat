@@ -86,6 +86,8 @@ function truncateText(text: string, max: number): string {
 
 export const convChannel = (id: string) => `conv:${id}`;
 export const orgChannel = (id: string) => `org:${id}`;
+/** One member's own events in one organization (personal notifications). */
+export const userChannel = (orgId: string, userId: string) => `user:${orgId}:${userId}`;
 
 export const ConversationListSchema = z.object({
   status: z.enum(['ai_active', 'human_active', 'closed']).optional(),
@@ -708,7 +710,7 @@ export class ConversationsService {
 
   /** Token-level events (typing, deltas, tool activity) go only to the conversation; inbox lists get the rest. */
   async publish(orgId: string, event: RealtimeEvent): Promise<void> {
-    const inboxWorthy = event.type === 'message' || event.type === 'conversation.status' || event.type === 'ai.done';
+    const inboxWorthy = event.type === 'message' || event.type === 'conversation.status' || event.type === 'ai.done' || event.type === 'conversation.assigned';
     await Promise.all([
       this.pubsub.publish(convChannel(event.conversationId), event),
       inboxWorthy ? this.pubsub.publish(orgChannel(orgId), event) : Promise.resolve(),

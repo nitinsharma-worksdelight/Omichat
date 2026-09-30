@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   BookOpen,
@@ -25,7 +25,9 @@ import { get, post } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useAction } from '../lib/mutations';
 import { useOrg } from '../lib/queries';
-import { appLink, Link, navigate, useRoute } from '../lib/router';
+import { useLiveEvents } from '../lib/live';
+import { appLink, currentPath, Link, navigate, useRoute } from '../lib/router';
+import { useToast } from './feedback-context';
 import type { AppNotification } from '../lib/types';
 import { useApprovals } from './approvals';
 import { MenuItem, Popover } from './overlay';
@@ -269,11 +271,40 @@ function TopBar() {
 }
 
 function NotificationsBell() {
+  const qc = useQueryClient();
+  const toast = useToast();
   const notifications = useQuery({
     queryKey: ['notifications'],
     queryFn: () => get<AppNotification[]>('/v1/notifications'),
+    // The live stream brings new ones at once; the poll and the refetch on returning to the tab are the fallback.
     refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
+  useLiveEvents(
+    (event, data) => {
+      if (event !== 'notification') return;
+      const id = (data as { id?: string } | null)?.id;
+      void qc.fetchQuery({ queryKey: ['notifications'], queryFn: () => get<AppNotification[]>('/v1/notifications') }).then((list) => {
+        const n = list.find((x) => x.id === id);
+        // No toast for one already read, or for the conversation already on screen.
+        const to = appLink(n?.link);
+        if (!n || n.readAt || (to && currentPath() === to)) return;
+        toast.notify({
+          title: n.title,
+          body: n.body,
+          actionLabel: to ? 'Open' : undefined,
+          onAction: to
+            ? () => {
+                markRead.mutate([n.id]);
+                navigate(to);
+              }
+            : undefined,
+        });
+      });
+    },
+    // Catch up on anything that arrived while the stream was down.
+    () => void qc.invalidateQueries({ queryKey: ['notifications'] }),
+  );
   const markRead = useAction((ids: string[] | 'all') => post('/v1/notifications/read', { ids }), { invalidate: [['notifications']] });
   const items = notifications.data ?? [];
   const unread = items.filter((n) => !n.readAt).length;

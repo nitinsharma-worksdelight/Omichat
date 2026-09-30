@@ -27,6 +27,7 @@ import { formatDateTime, formatTime, SUMMARY_TRIGGER, timeAgo } from '../../lib/
 import { useAction } from '../../lib/mutations';
 import { roleAtLeast, useMembers, usePipelines } from '../../lib/queries';
 import { Link, navigate } from '../../lib/router';
+import { useLiveEvents } from '../../lib/live';
 import { useSse } from '../../lib/sse';
 import { useAuth } from '../../auth/AuthContext';
 import type { ConversationDetail, ConversationListItem, ConversationStatus, Message, SummaryRequest, Timeline } from '../../lib/types';
@@ -87,9 +88,9 @@ export function ConversationsPage({ conversationId }: { conversationId: string |
     timer.current = setTimeout(() => void qc.invalidateQueries({ queryKey: ['conversations'] }), 400);
   }, [qc]);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
-  const { connected } = useSse(`${API_URL}/v1/stream`, authHeaders, (event) => {
+  const { connected } = useLiveEvents((event) => {
     if (event === 'message' || event === 'conversation.status' || event === 'conversation.assigned') refreshList();
-  }, { onOpen: refreshList });
+  }, refreshList);
 
   const items = list.data?.pages.flat() ?? [];
 

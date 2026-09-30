@@ -3,6 +3,7 @@ import { useAuth } from './auth/AuthContext';
 import { LoginPage, SignupPage } from './auth/AuthPages';
 import { Layout } from './components/Layout';
 import { Button, EmptyState, ErrorBanner, Spinner } from './components/ui';
+import { LiveStreamProvider } from './lib/live';
 import { navigate, useRoute } from './lib/router';
 import { OverviewPage } from './pages/overview/OverviewPage';
 
@@ -53,18 +54,21 @@ export function App() {
     );
   }
 
+  // One live connection for the signed-in dashboard (inbox events and notifications).
   return (
-    <Layout>
-      <Suspense
-        fallback={
-          <div className="flex justify-center py-24">
-            <Spinner />
-          </div>
-        }
-      >
-        <Routes />
-      </Suspense>
-    </Layout>
+    <LiveStreamProvider>
+      <Layout>
+        <Suspense
+          fallback={
+            <div className="flex justify-center py-24">
+              <Spinner />
+            </div>
+          }
+        >
+          <Routes />
+        </Suspense>
+      </Layout>
+    </LiveStreamProvider>
   );
 }
 
