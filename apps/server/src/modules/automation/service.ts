@@ -63,6 +63,31 @@ interface StaffNotification {
   title: string;
   body: string;
   link: string | null;
+  /** Only this member sees it (and it's emailed to them, not to the notification list). */
+  userId?: string;
+}
+
+interface Brief {
+  lastMessage?: string | null;
+  intent?: string | null;
+  nextStep?: string | null;
+  sentiment?: string | null;
+}
+
+/** The handoff alert's body: why, then what staff need to pick it up. */
+function handoffBody(reason: unknown, brief: Brief | undefined): string {
+  const lines = [String(reason ?? 'Handoff requested')];
+  if (brief?.intent) lines.push(`Wants: ${brief.intent}`);
+  if (brief?.nextStep) lines.push(`Next: ${brief.nextStep}`);
+  if (brief?.sentiment === 'negative') lines.push('Mood: negative');
+  if (brief?.lastMessage) lines.push(`Last message: “${brief.lastMessage}”`);
+  return lines.join('\n');
+}
+
+function unansweredBody(reason: string): string {
+  if (reason === 'ai_disabled') return "The organization's AI is switched off, so nobody is answering website chats.";
+  if (reason === 'bot_inactive') return 'The assistant for this chat is paused, so nobody is answering.';
+  return 'This chat has no assistant, so nobody is answering.';
 }
 
 /** Which events become staff notifications (in-app + email), and how they read. */
@@ -75,7 +100,17 @@ function notificationFor(event: EventRow, contactName: string | null): StaffNoti
       // Staff taking over need no alert; nor do AI handoffs on a bot whose `handoff.notifyTeam` is off.
       return event.actor === 'user' || p.notifyTeam === false
         ? null
-        : { title: `${who} needs a human`, body: String(p.reason ?? 'Handoff requested'), link: convLink };
+        : { title: `${who} needs a human`, body: handoffBody(p.reason, p.brief as Brief | undefined), link: convLink };
+    case 'conversation.assigned': {
+      const to = typeof p.assignedUserId === 'string' ? p.assignedUserId : null;
+      // Nobody to tell, or they assigned it to themselves.
+      if (!to || to === event.actorUserId) return null;
+      return { title: `${who} was assigned to you`, body: p.auto ? 'You own this customer, so their handoff came to you.' : 'A teammate assigned this conversation to you.', link: convLink, userId: to };
+    }
+    case 'conversation.handoff_overdue':
+      return { title: `${who} is still waiting for a reply`, body: `Handed to the team ${String(p.waitedMinutes)} minutes ago and nobody has answered.`, link: convLink };
+    case 'conversation.unanswered':
+      return { title: `${who} wrote but the assistant can't reply`, body: unansweredBody(String(p.reason)), link: convLink };
     case 'lead.qualified':
       return p.notifyTeam ? { title: `New qualified lead: ${who}`, body: `Tier: ${String(p.tier)} · score ${String(p.score)}`, link: convLink } : null;
     case 'appointment.booked': {
@@ -161,6 +196,37 @@ export class AutomationService {
         type: 'ai.provider_problem',
         actor: 'system',
         payload: { kind: input.kind, provider: input.provider, message: truncate(input.message, 500) },
+      });
+      return true;
+    });
+    if (recorded) await this.kick();
+  }
+
+  /**
+   * A customer wrote and nobody will answer (AI off, assistant paused or missing). Alert staff at most once an
+   * hour per organization, so a busy chat doesn't flood them.
+   */
+  async reportUnanswered(scope: Scope, input: { reason: 'ai_disabled' | 'bot_inactive' | 'no_bot'; contactId: string; conversationId: string }) {
+    const recorded = await inScope(this.tenantDb, scope, async (tx) => {
+      const [recent] = await tx
+        .select({ id: schema.events.id })
+        .from(schema.events)
+        .where(
+          and(
+            eq(schema.events.organizationId, scope.orgId),
+            eq(schema.events.type, 'conversation.unanswered'),
+            sql`${schema.events.createdAt} > now() - interval '1 hour'`,
+          ),
+        )
+        .limit(1);
+      if (recent) return false;
+      await recordEvent(tx, {
+        orgId: scope.orgId,
+        type: 'conversation.unanswered',
+        actor: 'system',
+        contactId: input.contactId,
+        conversationId: input.conversationId,
+        payload: { reason: input.reason },
       });
       return true;
     });
@@ -349,6 +415,7 @@ export class AutomationService {
         if (note) {
           await tx.insert(schema.notifications).values({
             organizationId: event.organizationId,
+            userId: note.userId ?? null,
             type: event.type,
             title: truncate(note.title, 200),
             body: truncate(note.body, 1000),
@@ -356,7 +423,7 @@ export class AutomationService {
             data: { eventId: event.id },
           });
           const org = orgs.find((o) => o.id === event.organizationId);
-          const recipients = org?.settings.notificationEmails ?? [];
+          const recipients = note.userId ? await this.emailOf(tx, note.userId) : (org?.settings.notificationEmails ?? []);
           if (recipients.length) {
             emails.push({
               to: recipients,
@@ -588,35 +655,59 @@ export class AutomationService {
 
   // ---------- notifications & activity ----------
 
+  /**
+   * A member's notifications: the organization-wide ones plus their own. Read state is per member: `readAt` is when
+   * this member read it (organization-wide ones read before per-member reads existed stay read for everyone).
+   * Without a member, only the organization-wide ones, with their shared read state.
+   */
   async listNotifications(scope: Scope, userId: string | null, opts: { unreadOnly?: boolean } = {}) {
-    return inScope(this.tenantDb, scope, (tx) => {
-      const where = [
-        eq(schema.notifications.organizationId, scope.orgId),
-        userId ? or(isNull(schema.notifications.userId), eq(schema.notifications.userId, userId))! : isNull(schema.notifications.userId),
-      ];
-      if (opts.unreadOnly) where.push(isNull(schema.notifications.readAt));
-      return tx
-        .select()
-        .from(schema.notifications)
+    return inScope(this.tenantDb, scope, async (tx) => {
+      const n = schema.notifications;
+      const r = schema.notificationReads;
+      const readAt = userId ? sql<Date | null>`coalesce(${n.readAt}, ${r.readAt})` : sql<Date | null>`${n.readAt}`;
+      const where = [eq(n.organizationId, scope.orgId), userId ? or(isNull(n.userId), eq(n.userId, userId))! : isNull(n.userId)];
+      if (opts.unreadOnly) where.push(sql`${readAt} is null`);
+      const rows = await tx
+        .select({ n, readAt })
+        .from(n)
+        .leftJoin(r, and(eq(r.notificationId, n.id), eq(r.userId, userId ?? '00000000-0000-0000-0000-000000000000')))
         .where(and(...where))
-        .orderBy(desc(schema.notifications.createdAt))
+        .orderBy(desc(n.createdAt))
         .limit(100);
+      return rows.map((row) => ({ ...row.n, readAt: row.readAt ? new Date(row.readAt) : null }));
     });
   }
 
-  async markNotificationsRead(scope: Scope, ids: string[] | 'all') {
-    await inScope(this.tenantDb, scope, (tx) =>
-      tx
-        .update(schema.notifications)
-        .set({ readAt: new Date() })
+  async markNotificationsRead(scope: Scope, userId: string, ids: string[] | 'all') {
+    await inScope(this.tenantDb, scope, async (tx) => {
+      const n = schema.notifications;
+      const visible = await tx
+        .select({ id: n.id, userId: n.userId })
+        .from(n)
         .where(
           and(
-            eq(schema.notifications.organizationId, scope.orgId),
-            isNull(schema.notifications.readAt),
-            ids === 'all' ? undefined : inArray(schema.notifications.id, ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
+            eq(n.organizationId, scope.orgId),
+            isNull(n.readAt),
+            or(isNull(n.userId), eq(n.userId, userId)),
+            ids === 'all' ? undefined : inArray(n.id, ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
           ),
-        ),
-    );
+        );
+      // A member's own notification is simply read; an organization-wide one is read by this member only.
+      const own = visible.filter((v) => v.userId === userId).map((v) => v.id);
+      if (own.length) await tx.update(n).set({ readAt: new Date() }).where(inArray(n.id, own));
+      const shared = visible.filter((v) => !v.userId);
+      if (shared.length) {
+        await tx
+          .insert(schema.notificationReads)
+          .values(shared.map((v) => ({ notificationId: v.id, userId, organizationId: scope.orgId })))
+          .onConflictDoNothing();
+      }
+    });
+  }
+
+  private async emailOf(tx: Db, userId: string): Promise<string[]> {
+    const [u] = await tx.select({ email: schema.users.email }).from(schema.users).where(eq(schema.users.id, userId));
+    return u?.email ? [u.email] : [];
   }
 
   async listEvents(scope: Scope, opts: { contactId?: string; limit?: number }) {

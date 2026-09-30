@@ -21,7 +21,7 @@ import {
 import type { CalendarProviderRegistry } from './providers';
 
 const TimeRangeSchema = z.object({ start: z.string(), end: z.string() });
-const WeeklyHoursSchema = z
+export const WeeklyHoursSchema = z
   .object({
     mon: z.array(TimeRangeSchema).optional(),
     tue: z.array(TimeRangeSchema).optional(),

@@ -13,6 +13,7 @@ import {
   ChipsInput,
   CodeBlock,
   CopyButton,
+  cx,
   EmptyState,
   ErrorBanner,
   Field,
@@ -35,7 +36,8 @@ import { timezones } from '../../lib/hooks';
 import { useAction } from '../../lib/mutations';
 import { roleAtLeast, useBots, useChannels, useOrg } from '../../lib/queries';
 import { navigate, useRoute, withQuery } from '../../lib/router';
-import { API_KEY_SCOPES, type ApiKey, type Channel, type ChannelTheme, type CreatedApiKey, type Member, type Organization, type Role } from '../../lib/types';
+import { DAY_LABEL, RangesEditor } from '../appointments/CalendarEditor';
+import { API_KEY_SCOPES, WEEKDAYS, type ApiKey, type Channel, type ChannelTheme, type CreatedApiKey, type Member, type Organization, type Role } from '../../lib/types';
 
 type TabId = 'organization' | 'channels' | 'team' | 'api-keys';
 
@@ -89,6 +91,7 @@ interface OrgForm {
   monthlyAiBudgetUsd: number | null;
   notificationEmails: string[];
   lifecycleStages: string[];
+  teamHours: Organization['settings']['teamHours'];
 }
 
 function toOrgForm(o: Organization): OrgForm {
@@ -101,6 +104,7 @@ function toOrgForm(o: Organization): OrgForm {
     monthlyAiBudgetUsd: o.monthlyAiBudgetUsd,
     notificationEmails: [...o.settings.notificationEmails],
     lifecycleStages: [...o.settings.lifecycleStages],
+    teamHours: structuredClone(o.settings.teamHours ?? { enabled: false, weekly: {} }),
   };
 }
 
@@ -137,6 +141,7 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
         if (changed('lifecycleStages')) settings.lifecycleStages = next.lifecycleStages;
         if (changed('defaultCountry')) settings.defaultCountry = next.defaultCountry.trim().toUpperCase();
         if (changed('currency')) settings.currency = next.currency;
+        if (changed('teamHours')) settings.teamHours = next.teamHours;
         if (Object.keys(settings).length) body.settings = settings;
       }
       return patch<Organization>('/v1/org', body);
@@ -224,6 +229,35 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
           <Field label="Notification emails" hint="Who gets emailed about handoffs, qualified leads and bookings.">
             <ChipsInput value={form.notificationEmails} disabled={!isAdmin} onChange={(v) => set('notificationEmails', v)} placeholder="frontdesk@example.com" normalize={(s) => s.toLowerCase()} />
           </Field>
+          <fieldset>
+            <legend className="mb-1 text-sm font-semibold text-fg">Team hours</legend>
+            <p className="mb-3 text-[13px] text-muted">
+              When your team answers chats, in the timezone above. Bots set to respect team hours tell visitors the team is away outside these hours.
+            </p>
+            <Toggle
+              label="Use team hours"
+              description="Off means the team is always around."
+              checked={form.teamHours.enabled}
+              disabled={!isAdmin}
+              onChange={(enabled) => set('teamHours', { ...form.teamHours, enabled })}
+            />
+            {form.teamHours.enabled && (
+              <div className="mt-3 divide-y divide-border rounded-lg border border-border">
+                {WEEKDAYS.map((day) => {
+                  const ranges = form.teamHours.weekly[day] ?? [];
+                  return (
+                    <div key={day} className="grid grid-cols-[120px_1fr] items-center gap-3 px-3 py-2">
+                      <span className={cx('text-[13px] font-medium', ranges.length ? 'text-fg' : 'text-muted')}>
+                        {DAY_LABEL[day]}
+                        {!ranges.length && <span className="block text-xs font-normal">Away</span>}
+                      </span>
+                      <RangesEditor label={DAY_LABEL[day]} ranges={ranges} onChange={(r) => set('teamHours', { ...form.teamHours, weekly: { ...form.teamHours.weekly, [day]: r } })} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </fieldset>
           <Field label="Lifecycle stages" hint="The stages a contact moves through, in order. Used by filters and qualification outcomes.">
             <ChipsInput value={form.lifecycleStages} disabled={!isAdmin} onChange={(v) => set('lifecycleStages', v)} placeholder="Add a stage" />
           </Field>

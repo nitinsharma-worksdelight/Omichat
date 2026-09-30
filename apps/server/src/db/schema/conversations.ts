@@ -40,6 +40,11 @@ export const conversations = pgTable(
     status: text().$type<ConversationStatus>().notNull().default('ai_active'),
     assignedUserId: uuid().references(() => users.id, { onDelete: 'set null' }),
     handoffReason: text(),
+    /** When it last moved to a person (null while the AI has it), and whether staff have answered since. */
+    handedOffAt: ts(),
+    firstStaffReplyAt: ts(),
+    /** Set once the team was alerted (and the fallback ran) for waiting past the bot's limit. */
+    handoffEscalatedAt: ts(),
     /** Rolling summary of older turns (memory beyond the recent-message window). */
     summary: text(),
     summarizedThroughMessageId: uuid(),

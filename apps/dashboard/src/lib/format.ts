@@ -248,6 +248,12 @@ export function describeEvent(e: EventItem): string {
       return `Summary updated${SUMMARY_TRIGGER[str(p.trigger)] ? ` (${SUMMARY_TRIGGER[str(p.trigger)]})` : ''}${p.intent ? `: ${str(p.intent)}` : ''}`;
     case 'workflow.triggered':
       return `Workflow “${str(p.workflow)}” triggered`;
+    case 'conversation.handoff_overdue':
+      return `Still waiting after ${str(p.waitedMinutes)} minutes${p.fallback === 'resume_ai' || p.fallback === 'ask_contact_details' ? ': the assistant took the chat back' : ''}`;
+    case 'conversation.assigned':
+      return p.assignedUserId ? `Assigned${p.auto ? ' to the customer\'s owner' : ''}` : 'Unassigned';
+    case 'conversation.unanswered':
+      return 'A customer wrote but nobody could reply (AI off or assistant paused)';
     case 'team.notified':
       return `Team notified: ${str(p.subject) || str(p.message)}`;
     case 'action.approval_requested':

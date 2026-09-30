@@ -6,6 +6,7 @@ import type { OrgSettings, Role } from '../../db/schema';
 import type { TenantDb } from '../../db/tenant';
 import { hashPassword } from '../../lib/crypto';
 import { badRequest, conflict, notFound } from '../../lib/errors';
+import { WeeklyHoursSchema } from '../scheduling/service';
 import { bootstrapOrganization, DEFAULT_LIFECYCLE_STAGES } from './bootstrap';
 
 export const OrgUpdateSchema = z.object({
@@ -27,6 +28,7 @@ export const OrgUpdateSchema = z.object({
         .toUpperCase()
         .refine((c) => Intl.supportedValuesOf('currency').includes(c), 'unknown currency (use an ISO 4217 code such as USD, EUR or INR)')
         .optional(),
+      teamHours: z.object({ enabled: z.boolean(), weekly: WeeklyHoursSchema }).optional(),
     })
     .optional(),
 });
@@ -45,6 +47,7 @@ function toOrgView(row: typeof schema.organizations.$inferSelect) {
       notificationEmails: row.settings.notificationEmails ?? [],
       lifecycleStages: row.settings.lifecycleStages ?? DEFAULT_LIFECYCLE_STAGES,
       defaultCountry: row.settings.defaultCountry ?? 'US',
+      teamHours: row.settings.teamHours ?? { enabled: false, weekly: {} },
     },
     createdAt: row.createdAt,
   };

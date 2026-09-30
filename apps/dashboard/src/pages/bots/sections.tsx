@@ -1211,6 +1211,31 @@ export function HandoffSection({ value, onChange, ctx }: SectionProps<Handoff>) 
       <Setting id="handoff.notifyTeam">
         <Toggle label="Notify the team" description="In-app notification plus email to your notification addresses." checked={value.notifyTeam} onChange={(v) => set('notifyTeam', v)} />
       </Setting>
+      <Setting id="handoff.waitMinutes">
+        <Field label="If nobody replies" hint="Minutes to wait after a handoff before alerting the team again and doing what's chosen below. 0 means never.">
+          <NumberInput min={0} max={1440} step={1} value={value.waitMinutes} onChange={(v) => set('waitMinutes', v ?? 0)} />
+        </Field>
+        <Field label="Then" hint={`Both "take back" options hand the chat back to ${capitalize(ctx.assistantName)}; your team can still take it over again.`}>
+          <Select value={value.fallback} disabled={value.waitMinutes === 0} onChange={(e) => set('fallback', e.target.value as Handoff['fallback'])}>
+            <option value="keep_waiting">Keep waiting (just alert the team)</option>
+            <option value="resume_ai">Tell the visitor and let the assistant keep helping</option>
+            <option value="ask_contact_details">Ask for email or phone and let the assistant keep helping</option>
+          </Select>
+        </Field>
+      </Setting>
+      <Setting id="handoff.respectTeamHours">
+        <Toggle
+          label="Use the away message outside team hours"
+          description="Team hours are set in Settings → Organization."
+          checked={value.respectTeamHours}
+          onChange={(v) => set('respectTeamHours', v)}
+        />
+        {value.respectTeamHours && (
+          <Field label="Away message" hint="Sent instead of the handoff message when your team is away.">
+            <Textarea rows={3} maxLength={500} value={value.awayMessage} onChange={(e) => set('awayMessage', e.target.value)} />
+          </Field>
+        )}
+      </Setting>
     </FeatureCard>
   );
 }

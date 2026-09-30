@@ -681,6 +681,8 @@ class ChatWidget {
       this.conversationId = data.conversationId;
       this.setStatus(data.status);
       data.messages.forEach((m) => this.addBubble(m));
+      // A chat already with the team (reload or another tab) says so after its history, as it did when it happened.
+      if (data.status === 'human_active') this.showHandoffNotice();
       this.sessionMessages ??= data.messages;
       this.showIntro();
       this.error('');
@@ -1014,14 +1016,16 @@ class ChatWidget {
     if (status === this.status) return;
     const previous = this.status;
     this.status = status;
-    if (status === 'human_active' && previous) {
-      const notice = el('div', 'notice');
-      notice.innerHTML = ICON_PERSON;
-      notice.append(el('span', undefined, 'A member of our team will reply here'));
-      this.log.appendChild(notice);
-      this.hideTyping();
-      this.scroll();
-    }
+    if (status === 'human_active' && previous) this.showHandoffNotice();
+  }
+
+  private showHandoffNotice() {
+    const notice = el('div', 'notice');
+    notice.innerHTML = ICON_PERSON;
+    notice.append(el('span', undefined, 'A member of our team will reply here'));
+    this.log.appendChild(notice);
+    this.hideTyping();
+    this.scroll();
   }
 
   /** The assistant's picture and a bubble of dots under the chat, with what it's doing ("Checking availability…"). */

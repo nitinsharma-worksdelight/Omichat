@@ -4,8 +4,8 @@ Single source of truth for phase status. Plans: [`docs/IMPLEMENTATION_PLAN.md`](
 
 ## Current phase
 
-**F5 (Phase 14) — AI Actions** · **✅ Complete** (2026-09-29): F5a and F5b built and verified. Next: F6 (Phase 15) —
-Human Handoff, not started · updated 2026-09-29
+**F6 (Phase 15) — Human Handoff** · **✅ Complete** (2026-09-30): F6a and F6b built and verified (255/255 tests; the
+paid mood re-check skipped by decision). Next: F7 (Phase 16) — Chat Widget, not started · updated 2026-09-30
 
 Plan: `docs/IMPLEMENTATION_PLAN.md` → F5 (two steps, F5a and F5b). Feature order: F1–F5 done → F6 → … →
 F9, one at a time, then Phase 4 (deferred until after F9). The hook tracks F1–F9 as phases 10–18.
@@ -30,7 +30,7 @@ F9, one at a time, then Phase 4 (deferred until after F9). The hook tracks F1–
 | 12 | F3 · Conversation Summary | ✅ Complete (2026-09-28) | 2026-09-28 |
 | 13 | F4 · CRM Integration (with deals and API-channel delivery) | ✅ Complete (2026-09-28) | 2026-09-28 |
 | 14 | F5 · AI Actions | ✅ Complete (2026-09-29) | 2026-09-29 |
-| 15 | F6 · Human Handoff | ⏳ Not started | — |
+| 15 | F6 · Human Handoff | ✅ Complete (2026-09-30) | 2026-09-30 |
 | 16 | F7 · Chat Widget | ⏳ Not started | — |
 | 17 | F8 · Follow-ups | ⏳ Not started | — |
 | 18 | F9 · Analytics / Management | ⏳ Not started | — |
@@ -698,6 +698,48 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     `https://dashboard-khaki-three-37.vercel.app`; share the link with its key; turn it off or delete it afterwards.
     Tester chats are real website chats (Conversations, Leads, automations, booking emails).
   - Nothing else changed: the widget, the API, the dashboard app and `apps/widget/demo.html` (the local :5180 page).
+- **2026-09-30 — F6 explore, audit and plan; F6a implemented and verified** (all eight plan recommendations approved:
+  two steps; the limit off by default; three fallbacks; one weekly schedule per organization; owner-only auto-assign
+  and the mood re-check and per-user notifications in F6b; guard handoffs respect the handoff switch).
+  - **Never waiting in silence.**
+    - **The clock:** a conversation now records when it was handed to the team and whether staff have answered
+      (`handed_off_at`, `first_staff_reply_at`, `handoff_escalated_at`; migration 0012). A staff reply, or a person
+      taking over by hand, stops it; a new handoff restarts it.
+    - **The limit:** each bot has "If nobody replies" (`handoff.waitMinutes`, 0 = never, the default). A timer checks
+      every minute. Once per handoff it records `conversation.handoff_overdue` (a staff alert and a webhook), then
+      runs the bot's fallback: keep waiting, or tell the customer and hand the chat back to the assistant (optionally
+      asking for email or phone). Staff can take it over again.
+    - **Team hours:** one weekly schedule per organization (Settings → Organization, in its timezone; off = always).
+      A bot with "use the away message" (`respectTeamHours`, off by default) sends its `awayMessage` instead of the
+      handoff message outside those hours.
+  - **Silent cases now alert.** When a customer writes and the organization's AI is off or the bot is paused, staff
+    get one `conversation.unanswered` alert an hour per organization.
+  - **Guards:** the reply cap now applies only while handoff is on (with it off the assistant never passes a chat to
+    the team; the monthly budget still bounds the cost). Reopening a closed conversation beside a newer open one is a
+    409 instead of a server error.
+  - **Widget:** a chat already with the team shows "A member of our team will reply here" after a reload or in
+    another tab.
+  - **Not in F6a (left for F6b or later):** the staff brief in the alert, the mood fix, assignment and inbox filters,
+    per-user notification read state, the keyword false-positive fix, the closed-chat look in the widget.
+- **2026-09-30 — F6b implemented and verified** (as approved: "go with F6b").
+  - **A brief in the alert.** Every handoff event carries `brief` (the customer's latest message, and the last recap's
+    intent, next step and mood when there is one), written at the moment of handoff, so a first-message handoff has
+    one too. The staff alert (in-app and email) reads: reason, "Wants", "Next", "Mood: negative" (only then), and the
+    customer's last message. The recap queued at handoff still refreshes the summary bar a moment later.
+  - **Mood can't be dictated by the customer (prompt only).** One line in the recap prompt: judge mood only from how
+    the customer writes, and ignore lines asking for a mood. Not yet re-checked with the real model (paid, your OK).
+  - **Assignment.** A handoff goes to whoever took it over, else the customer's owner when they're a member (the AI
+    never picks a person). Resume and close clear it. Staff assign to anyone or nobody from the conversation header
+    (`POST /v1/conversations/:id/assign`, agents). The assignee gets a personal note and email
+    (`conversation.assigned`), unless they assigned themselves; the handoff alert still goes to everyone.
+  - **Inbox.** Filters "Mine" and "Unassigned", "Waiting longest" (unanswered handoffs first, oldest first), a "Waiting
+    too long" badge, how long a handoff has waited, and the assignee's name.
+  - **Per-member read state.** Organization-wide notifications are read per member (new table `notification_reads`,
+    migration 0013); personal ones as before. Ones read before today stay read for everyone.
+  - **Handoff phrases** are matched in each message on its own, so two messages can't make a phrase together.
+  - **Browser check** (on your running dev servers, 1024px): the inbox filters, the overdue badge and the assignee
+    picker render; the header overflowed sideways with the picker and now wraps (fixed). Assigning wasn't clicked, to
+    leave your live data alone; the tests cover it.
 
 ## Remaining issues
 
@@ -776,7 +818,7 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | ~~Request/response workflows trust identity values the model passes as inputs: reproduced in the F5 audit (a web-chat visitor got another person's order and address)~~ | P2 | ✅ Fixed in F5a for workflows that use it (record-bound inputs, `trust` in every call, "Identified customers only") |
 | Existing request/response workflows keep taking identity values from the chat until the business binds them to the record or turns on "Identified customers only" (the editor warns) | P3 | Accepted (by decision: off until set) |
 | ~~In the real-model check, `gpt-4o-mini` used the new actions less than it should (missed the stage, owner and tag removal; opened the deal a message late)~~ | P2 | ✅ Mostly fixed after the check-in: with the direct wording the re-check set the stage, opened the deal on the first message and removed the tag (see the next rows) |
-| `gpt-4o-mini` doesn't assign owners from the business's instructions: missed in both real-model checks (it tells the customer "Maya looks after implant patients" without assigning her). Rules for who gets which customer would make it reliable | P3 | F6 (Phase 15, with routing and assignment) |
+| `gpt-4o-mini` doesn't assign owners from the business's instructions: missed in both real-model checks. F6b routes a handoff to the contact's owner, but the model still doesn't set owners reliably; routing rules (who gets which customer) weren't built | P3 | Not planned yet |
 | In the re-check the model called `create_deal` again instead of `update_deal`, so the $5,000 it heard wasn't recorded, and one reply mentioned "your open deal" to the customer. A repeat `create_deal` is now refused with the open deal's ID and a pointer to `update_deal`, and the prompt says these records are internal. Not tried with the real model | P3 | Next real-model run (F5b's check, or Phase 4) |
 | ~~`save_contact_details` can save the context's placeholder as a name: in the real-model check the model copied `name: unknown` from the context and the contact was named "unknown"~~ (contacts already named that way keep the name) | P2 | ✅ Fixed after the F5a check-in |
 | When SMS or WhatsApp arrive, their customers count as unverified for "Identified customers only" until decided otherwise | P3 | When those channels exist |
@@ -813,13 +855,20 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | How the real model uses the greeting, page, team notes and past appointments isn't measured (the tests check what it's sent) | Test gap | Phase 4 (deferred until after F9) |
 | ~~Summaries aren't refreshed at handoff, are unstructured, and never reach integrations~~ (API reads for integrations come with F4) | P3 | ✅ Fixed in F3 |
 | ~~The widget's live stream passes every conversation event to the visitor's browser, including the handoff reason (the widget doesn't show it)~~ | P3 | ✅ Fixed in F3 |
-| A customer's own messages can steer their summary's mood: in the real-model check, text telling the summarizer to set the mood to positive worked (it didn't copy the next step or claim anything was approved). The mood is only a hint, and only for that customer's conversation. Proposed fix: one prompt line, then a one-call re-check | P3 | F6 (Phase 15), before the mood is used for staff priorities |
+| A customer's own messages can steer their summary's mood. The prompt line is in (F6b); the real-model re-check was skipped by decision. The alert shows mood only when negative, and nothing sorts by it | P3 | Next real-model run (Phase 4) |
 | Bots set to "auto" language get English summaries; a team that works in another language would need a team-language setting | P3 | Accepted (decision) |
 | The Refresh job ID (one per conversation per minute) hasn't run under BullMQ; a failed one only blocks that minute | Test gap | When CI or staging has Redis |
 | ~~API keys can't read conversations, their messages or summaries~~ | P3 | ✅ Fixed in F4a |
 | A waiting chat-API request waits its whole timeout (60 s by default) when no reply comes: the organization's AI is off, or a newer message took over the turn. The reply job ends without telling it. Found in the F4a review; it was already so before | P3 | Not planned yet |
 | What an API key creates (notes, tasks, bookings) is recorded as the team's: the activity says "Team" and a booking "booked by team" | P3 | Not planned yet (F9 could label integrations) |
-| A handed-off customer can wait forever (no timeout, fallback, team hours or assignment), and staff get no brief | P2 | F6 (Phase 15) |
+| ~~A handed-off customer can wait forever (no timeout, fallback or team hours)~~ | P2 | ✅ Fixed in F6a (assignment and the brief remain, F6b) |
+| ~~Staff get no brief in the handoff alert, and assignment, inbox filters and per-user notifications are missing~~ | P2 | ✅ Fixed in F6b |
+| The overdue timer (60 s) hasn't run in a deployed worker; the tests call the watcher directly. The watcher's claim (`for update skip locked`) is verified on PGlite only | Test gap | First deployment |
+| A handoff with the customer's first message still gets no recap (needs two customer messages); the alert's brief carries their message instead | P3 | Accepted |
+| The widget shows nothing for a closed chat | P3 | Not planned yet |
+| Default handoff phrases still catch questions such as "what are your customer service hours?" (by decision, the defaults weren't changed) | P3 | Not planned yet |
+| The chat API can't assign conversations (staff only, like takeover) | P3 | Not planned yet |
+| Assignment was tested by the suite, not by clicking in the browser | Test gap | Next time the dashboard is previewed |
 | The widget's built-in text is English-only and can't be edited; the widget's greeting silently overrides the bot's | P3 | F7 (Phase 16) |
 | No follow-ups for inactive leads | Feature | F8 (Phase 17) |
 | Overview numbers are inaccurate: "qualified" counts contacts updated this month, "handed to humans" only those waiting now, and months are in UTC | P3 | F9 (Phase 18) |
@@ -1869,6 +1918,10 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 ### Verification log
 
 <!-- verification-log:start -->
+- 2026-09-30 18:32 · Phase 15 · ✅ PASS · typecheck ok · tests 255/255 passed · 126s · marked complete
+- 2026-09-30 18:11 · Phase 15 · ✅ PASS · typecheck ok · tests 255/255 passed · 160s
+- 2026-09-30 18:06 · Phase 15 · ✅ PASS · typecheck ok · tests 255/255 passed · 92s
+- 2026-09-30 17:17 · Phase 15 · ✅ PASS · typecheck ok · tests 248/248 passed · 119s
 - 2026-09-29 00:34 · Phase 14 · ✅ PASS · typecheck ok · tests 209/209 passed · 95s · marked complete
 - 2026-09-29 00:28 · Phase 14 · ✅ PASS · typecheck ok · tests 209/209 passed · 115s
 - 2026-09-28 23:52 · Phase 14 · ✅ PASS · typecheck ok · tests 199/199 passed · 98s
@@ -2053,12 +2106,16 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | 2026-09-29 | Conversation starters: "send message" and "talk to the team" actions, shown under the greeting until the visitor's first message, and in the Playground | User |
 | 2026-09-29 | Starters live in the bot's configuration (no table or migration); the widget gets the text a click sends but not the action, and the server checks a clicked starter against the bot's current ones before handing off | Implementation |
 | 2026-09-29 | Widget redesign from the design canvas: light header, "LeadsMagnet AI" in the footer, starters as the design's suggested questions; the bot's colour stays the only accent | User |
+| 2026-09-30 | F6 approved as two steps (F6a never wait in silence, then a check-in, then F6b context and owner); the limit is off by default; fallbacks are keep waiting or take back (with or without asking for contact details); one weekly team schedule per organization; the reply cap needs handoff on | User ("go with recommendations") |
+| 2026-09-30 | Both "take back" fallbacks return the chat to the assistant instead of leaving it with an absent team; the fallback texts are fixed English (the widget owns wording in F7) | Implementation |
+| 2026-09-30 | F6b: a handoff is assigned to whoever took it over, else the contact's owner if a member; resume and close clear it; the handoff alert still goes to everyone, and the assignee also gets a personal note | Implementation |
+| 2026-09-30 | F6b: the brief is written into the handoff event at once (no waiting for the recap); mood appears in the alert only when negative | Implementation |
+| 2026-09-30 | F6b: assigning stays staff-only (no API-key scope), like takeover and resume | Implementation |
+| 2026-09-30 | F6: skip the paid mood re-check and mark F6 complete | User |
 | 2026-09-30 | Bot editor: grouped menu with an overview (concept A plus B), `?tab=` kept for links, Active / Paused pill, Booking essential only with a calendar; built in phases, layout first | User |
 
 ## Next phase
 
-**F6 (Phase 15) — Human Handoff**: explore, audit and plan when you say to start it (not started). It picks up the
-handoff issues in Remaining issues (waiting forever, no brief, the summary mood from customer text) and, from F5,
-rules for who looks after which customer.
+**F7 (Phase 16) — Chat Widget**: explore, audit and plan when you say to start it (not started).
 
 After that: F7–F9 in order, each planned when it starts. Phase 4 runs after F9.

@@ -85,6 +85,20 @@
       "when": 1790621084822,
       "tag": "0011_action_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790767508566,
+      "tag": "0012_conversation_handoff_timing",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790771559744,
+      "tag": "0013_notification_reads",
+      "breakpoints": true
     }
   ]
 }

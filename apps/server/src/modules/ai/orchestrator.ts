@@ -8,6 +8,8 @@ import type { QueueDriver } from '../../infra/queue';
 import type { Logger } from '../../lib/logger';
 import { approvalState } from '../approvals/service';
 import type { AutomationService } from '../automation/service';
+import type { OrgSettings } from '../../db/schema';
+import { isTeamOpen } from '../handoff/hours';
 import { handoffStarter, STANDARD_LEAD_FIELDS } from '../bots/config';
 import type { BotsService, BotView } from '../bots/service';
 import type { ChannelRegistry } from '../channels/adapter';
@@ -120,10 +122,15 @@ export class AiOrchestrator {
     if (conv.status !== 'ai_active' || !conv.botId) return;
     if (!org.aiEnabled) {
       log.info('AI disabled for organization; not replying');
+      await this.deps.automation.reportUnanswered(scope, { reason: 'ai_disabled', contactId: conv.contactId, conversationId: conv.id });
       return;
     }
     const bot = await this.deps.bots.get(scope, conv.botId).catch(() => null);
-    if (!bot?.isActive) return;
+    if (!bot?.isActive) {
+      if (bot) await this.deps.automation.reportUnanswered(scope, { reason: 'bot_inactive', contactId: conv.contactId, conversationId: conv.id });
+      return;
+    }
+    const handoffMessage = this.handoffMessage(bot, org);
 
     const pendingText = pending.map((m) => m.content).join('\n');
     const answered = state.recent.slice(0, lastOutboundIdx + 1);
@@ -139,21 +146,24 @@ export class AiOrchestrator {
     // A "talk to the team" starter counts only while it's still one of this bot's enabled starters.
     const chosen = handoffStarter(bot.config, pending.map((m) => state.starterOf.get(m.id)));
     if (chosen) {
-      await this.handoff(scope, conv.id, bot, `Customer chose "${chosen.label}"`, bot.config.handoff.message);
+      await this.handoff(scope, conv.id, bot, `Customer chose "${chosen.label}"`, handoffMessage);
       return;
     }
-    if (bot.config.handoff.enabled && matchesHandoffKeyword(pendingText, bot.config.handoff.keywords)) {
-      await this.handoff(scope, conv.id, bot, 'Customer asked for a person', bot.config.handoff.message);
+    // Each message on its own, so the end of one and the start of the next can't make a phrase together.
+    if (bot.config.handoff.enabled && pending.some((m) => matchesHandoffKeyword(m.content, bot.config.handoff.keywords))) {
+      await this.handoff(scope, conv.id, bot, 'Customer asked for a person', handoffMessage);
       return;
     }
-    if (conv.aiReplyCount >= bot.config.guardrails.maxAiRepliesPerConversation) {
-      await this.handoff(scope, conv.id, bot, 'AI reply limit reached for this conversation', bot.config.handoff.message);
+    // With handoff switched off the assistant never passes a chat to the team, so the cap doesn't apply
+    // (the monthly budget still bounds the cost).
+    if (bot.config.handoff.enabled && conv.aiReplyCount >= bot.config.guardrails.maxAiRepliesPerConversation) {
+      await this.handoff(scope, conv.id, bot, 'AI reply limit reached for this conversation', handoffMessage);
       return;
     }
     if (org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(tenantDb, job.orgId)) >= Number(org.monthlyAiBudgetUsd)) {
       log.warn('monthly AI budget exhausted');
       // Like an error, this stops the AI everywhere, so staff always hear about it.
-      await this.handoff(scope, conv.id, bot, 'Monthly AI budget reached', bot.config.handoff.message, { alwaysNotify: true });
+      await this.handoff(scope, conv.id, bot, 'Monthly AI budget reached', handoffMessage, { alwaysNotify: true });
       return;
     }
 
@@ -383,7 +393,7 @@ export class AiOrchestrator {
     // ---- 5. Deliver ----
     let messageId: string | null = null;
     if (outcome !== 'skipped') {
-      const finalText = texts.join('\n\n').trim() || (handoffReason ? bot.config.handoff.message : '');
+      const finalText = texts.join('\n\n').trim() || (handoffReason ? handoffMessage : '');
       // Re-check right before sending: never talk over a human who just took over.
       if (!handoffReason && !(await this.stillAiActive(job.orgId, conv.id))) {
         outcome = 'skipped';
@@ -417,6 +427,12 @@ export class AiOrchestrator {
     await conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId, messageId });
     await this.deps.automation.kick();
     await this.maybeFold(job.orgId, conv.id, conv.summarizedThroughMessageId, unsummarized);
+  }
+
+  /** What a customer is told when handed to the team: the away message outside team hours, if the bot asks for that. */
+  private handoffMessage(bot: BotView, org: { settings: OrgSettings; timezone: string }): string {
+    const h = bot.config.handoff;
+    return h.respectTeamHours && !isTeamOpen(org.settings, org.timezone, this.now()) ? h.awayMessage : h.message;
   }
 
   private async stillAiActive(orgId: string, conversationId: string): Promise<boolean> {

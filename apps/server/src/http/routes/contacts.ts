@@ -92,7 +92,7 @@ export async function registerContactRoutes(app: FastifyInstance, c: Container) 
 
   app.get('/contacts/:id/conversations', async (req) => {
     const auth = await requireAccess(c, req, 'viewer', 'conversations:read');
-    return c.conversations.list({ orgId: auth.orgId }, { contactId: parseInput(Id, req.params).id, includeTest: true, limit: 50, offset: 0 });
+    return c.conversations.list({ orgId: auth.orgId }, { contactId: parseInput(Id, req.params).id, includeTest: true, sort: 'recent', limit: 50, offset: 0 });
   });
 
   // ---- duplicate reviews (an email/phone given in a chat that belongs to another contact) ----

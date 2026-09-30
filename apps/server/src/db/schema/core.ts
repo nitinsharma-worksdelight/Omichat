@@ -11,6 +11,8 @@ export interface OrgSettings {
   defaultCountry?: string;
   /** ISO 4217 currency for deal values (default USD). */
   currency?: string;
+  /** When the team is around (in the organization's timezone). Off or missing = always. */
+  teamHours?: { enabled: boolean; weekly: Partial<Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', Array<{ start: string; end: string }>>> };
 }
 
 export const organizations = pgTable('organizations', {

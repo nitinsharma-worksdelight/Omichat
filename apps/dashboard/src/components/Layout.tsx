@@ -331,7 +331,7 @@ function NotificationsBell() {
                   <span className={cx('mt-1.5 size-2 shrink-0 rounded-full', n.readAt ? 'bg-transparent' : 'bg-accent')} aria-hidden />
                   <span className="min-w-0 flex-1">
                     <span className={cx('block truncate text-[13px]', n.readAt ? 'text-fg-2' : 'font-medium text-fg')}>{n.title}</span>
-                    {n.body && <span className="line-clamp-2 block text-xs text-muted">{n.body}</span>}
+                    {n.body && <span className="line-clamp-3 block whitespace-pre-line text-xs text-muted">{n.body}</span>}
                     <span className="mt-0.5 block text-[11px] text-faint">{timeAgo(n.createdAt)}</span>
                   </span>
                 </button>

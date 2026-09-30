@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, pgTable, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createdAt, pk, ts, updatedAt } from './_helpers';
 import { organizations, users } from './core';
@@ -123,4 +123,16 @@ export const notifications = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('notifications_org_created_idx').on(t.organizationId, t.createdAt.desc())],
+);
+
+/** Who has read an organization-wide notification (each member reads their own copy). */
+export const notificationReads = pgTable(
+  'notification_reads',
+  {
+    notificationId: uuid().notNull().references(() => notifications.id, { onDelete: 'cascade' }),
+    userId: uuid().notNull().references(() => users.id, { onDelete: 'cascade' }),
+    organizationId: uuid().notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+    readAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.notificationId, t.userId] })],
 );

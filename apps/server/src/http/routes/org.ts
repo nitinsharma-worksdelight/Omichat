@@ -96,7 +96,7 @@ export async function registerOrgRoutes(app: FastifyInstance, c: Container) {
   app.post('/notifications/read', async (req) => {
     const auth = await requireUser(c, req);
     const input = parseInput(z.object({ ids: z.union([z.array(z.string().uuid()), z.literal('all')]) }), req.body);
-    await c.automation.markNotificationsRead({ orgId: auth.orgId }, input.ids);
+    await c.automation.markNotificationsRead({ orgId: auth.orgId }, auth.userId, input.ids);
     return { ok: true };
   });
 

@@ -12,7 +12,7 @@ import { navigate } from '../../lib/router';
 import { groupSlots } from '../../lib/slots';
 import { WEEKDAYS, type Availability, type Calendar, type CalendarInput, type DateOverride, type TimeRange, type Weekday } from '../../lib/types';
 
-const DAY_LABEL: Record<Weekday, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+export const DAY_LABEL: Record<Weekday, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 
 const REMINDER_CHOICES: Array<{ value: string; label: string }> = [
   { value: '', label: 'Off' },
@@ -57,7 +57,7 @@ function toInput(c: Calendar): CalendarInput {
   };
 }
 
-function RangesEditor({ ranges, onChange, label }: { ranges: TimeRange[]; onChange: (r: TimeRange[]) => void; label: string }) {
+export function RangesEditor({ ranges, onChange, label }: { ranges: TimeRange[]; onChange: (r: TimeRange[]) => void; label: string }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {ranges.map((r, i) => (

@@ -184,6 +184,13 @@ export const HandoffSchema = z.object({
     .max(500)
     .default("I'm connecting you with a member of our team. They'll reply here as soon as possible."),
   notifyTeam: z.boolean().default(true),
+  /** After a handoff, alert the team (and run `fallback`) if nobody has answered in this many minutes. 0 = never. */
+  waitMinutes: z.number().int().min(0).max(1440).default(0),
+  /** What happens when that time is up. Both resume options hand the chat back to the assistant. */
+  fallback: z.enum(['keep_waiting', 'resume_ai', 'ask_contact_details']).default('keep_waiting'),
+  /** Outside the organization's team hours, the customer gets `awayMessage` instead of `message` (only when this is on). */
+  respectTeamHours: z.boolean().default(false),
+  awayMessage: z.string().max(500).default("Our team is away right now. We'll reply here as soon as we're back."),
 });
 
 /** At most this many starters per bot (enabled or not). */

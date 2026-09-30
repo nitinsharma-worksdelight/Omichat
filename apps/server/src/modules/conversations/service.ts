@@ -1,11 +1,11 @@
-import { and, asc, desc, eq, gt, inArray, lt, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '../../db/client';
 import type { ChannelType, Citation, ConversationStatus, SenderType } from '../../db/schema';
 import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import type { PubSub } from '../../infra/pubsub';
 import type { QueueDriver } from '../../infra/queue';
-import { badRequest, notFound } from '../../lib/errors';
+import { badRequest, conflict, notFound } from '../../lib/errors';
 import { normalizeIp } from '../../lib/ip';
 import { queryBool } from '../../lib/validation';
 import type { SummaryJob } from '../ai/summary';
@@ -70,8 +70,19 @@ export type RealtimeEvent =
   | { type: 'ai.activity'; conversationId: string; runId: string; label: string }
   | { type: 'ai.done'; conversationId: string; runId: string; messageId: string | null }
   | { type: 'conversation.status'; conversationId: string; status: ConversationStatus; reason?: string | null }
+  /** Staff only: who looks after the conversation changed. */
+  | { type: 'conversation.assigned'; conversationId: string; assignedUserId: string | null }
   /** Staff only: a new summary was saved (the dashboard refetches it). */
   | { type: 'conversation.summary'; conversationId: string };
+
+/** Handed to the team, not yet answered, and already past its bot's limit. */
+function isOverdue(c: typeof schema.conversations.$inferSelect): boolean {
+  return c.status === 'human_active' && !c.firstStaffReplyAt && Boolean(c.handoffEscalatedAt);
+}
+
+function truncateText(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
 
 export const convChannel = (id: string) => `conv:${id}`;
 export const orgChannel = (id: string) => `org:${id}`;
@@ -82,6 +93,10 @@ export const ConversationListSchema = z.object({
   contactId: z.string().uuid().optional(),
   includeTest: queryBool.optional(),
   search: z.string().trim().max(200).optional(),
+  /** `me` (needs the signed-in user), `unassigned`, or a member's ID. */
+  assignee: z.union([z.enum(['me', 'unassigned']), z.string().uuid()]).optional(),
+  /** `waiting`: handed-off chats nobody has answered first, longest wait first. */
+  sort: z.enum(['recent', 'waiting']).default('recent'),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -300,6 +315,9 @@ export class ConversationsService {
           messageCount: sql`${schema.conversations.messageCount} + 1`,
           aiReplyCount: input.senderType === 'ai' ? sql`${schema.conversations.aiReplyCount} + 1` : undefined,
           lastMessageAt: new Date(),
+          // The first staff answer after a handoff stops the "still waiting" clock.
+          firstStaffReplyAt:
+            input.senderType === 'human' && conversation.status === 'human_active' && !conversation.firstStaffReplyAt ? new Date() : undefined,
         })
         .where(eq(schema.conversations.id, conversation.id));
       // A chat-API customer only sees what the integration passes on: every message to them goes out as an event,
@@ -369,15 +387,38 @@ export class ConversationsService {
     const updated = await inScope(this.tenantDb, scope, async (tx) => {
       const conv = await this.row(tx, scope.orgId, conversationId);
       if (conv.status === status) return conv;
+      if (conv.status === 'closed') {
+        // One open conversation per customer per channel: reopening an old one would collide with a newer one.
+        const [open] = await tx
+          .select({ id: schema.conversations.id })
+          .from(schema.conversations)
+          .where(
+            and(
+              eq(schema.conversations.channelAccountId, conv.channelAccountId),
+              eq(schema.conversations.contactId, conv.contactId),
+              ne(schema.conversations.status, 'closed'),
+            ),
+          )
+          .limit(1);
+        if (open) throw conflict('This customer already has a newer open conversation');
+      }
       changed = true;
+      // Who looks after it: whoever took it over, else the customer's owner when they're a member; nobody once it's
+      // back with the AI or closed.
+      const assignee = status === 'human_active' ? (opts.actorUserId ?? (await this.memberOwner(tx, scope.orgId, conv.contactId))) : null;
+      const brief = status === 'human_active' ? await this.brief(tx, conv) : null;
       const [row] = await tx
         .update(schema.conversations)
         .set({
           status,
           handoffReason: status === 'human_active' ? (opts.reason ?? null) : conv.handoffReason,
-          assignedUserId: status === 'human_active' && opts.actorUserId ? opts.actorUserId : conv.assignedUserId,
+          assignedUserId: assignee,
           // Returning to the AI resets the per-conversation reply budget.
           aiReplyCount: status === 'ai_active' ? 0 : conv.aiReplyCount,
+          // The waiting clock: starts at a handoff, and a person taking over by hand is already answering.
+          handedOffAt: status === 'human_active' ? new Date() : null,
+          firstStaffReplyAt: status === 'human_active' && opts.actor === 'user' ? new Date() : null,
+          handoffEscalatedAt: null,
         })
         .where(eq(schema.conversations.id, conv.id))
         .returning();
@@ -390,8 +431,24 @@ export class ConversationsService {
         actorUserId: opts.actorUserId,
         contactId: conv.contactId,
         conversationId: conv.id,
-        payload: { reason: opts.reason ?? null, previousStatus: conv.status, ...(opts.notifyTeam === undefined ? {} : { notifyTeam: opts.notifyTeam }) },
+        payload: {
+          reason: opts.reason ?? null,
+          previousStatus: conv.status,
+          ...(opts.notifyTeam === undefined ? {} : { notifyTeam: opts.notifyTeam }),
+          ...(brief ? { brief, assignedUserId: assignee } : {}),
+        },
       });
+      // A handoff given to the customer's owner tells them personally (staff taking over need no note).
+      if (assignee && assignee !== opts.actorUserId) {
+        await recordEvent(tx, {
+          orgId: scope.orgId,
+          type: 'conversation.assigned',
+          actor: 'system',
+          contactId: conv.contactId,
+          conversationId: conv.id,
+          payload: { assignedUserId: assignee, previousUserId: conv.assignedUserId, auto: true },
+        });
+      }
       return row!;
     });
     await this.publish(scope.orgId, { type: 'conversation.status', conversationId, status: updated.status, reason: opts.reason });
@@ -404,12 +461,74 @@ export class ConversationsService {
     return updated;
   }
 
+  /** Gives the conversation to a team member (or nobody). The new assignee is notified unless they did it themselves. */
+  async assign(scope: Scope, conversationId: string, userId: string | null, actorUserId: string) {
+    const result = await inScope(this.tenantDb, scope, async (tx) => {
+      const conv = await this.row(tx, scope.orgId, conversationId);
+      if (userId && !(await this.isMember(tx, scope.orgId, userId))) throw badRequest('That person is not a member of this organization');
+      if (conv.assignedUserId === userId) return conv;
+      const [row] = await tx.update(schema.conversations).set({ assignedUserId: userId }).where(eq(schema.conversations.id, conv.id)).returning();
+      await recordEvent(tx, {
+        orgId: scope.orgId,
+        type: 'conversation.assigned',
+        actor: 'user',
+        actorUserId,
+        contactId: conv.contactId,
+        conversationId: conv.id,
+        payload: { assignedUserId: userId, previousUserId: conv.assignedUserId, auto: false },
+      });
+      return row!;
+    });
+    await this.opts.onEventRecorded?.();
+    await this.publish(scope.orgId, { type: 'conversation.assigned', conversationId, assignedUserId: result.assignedUserId });
+    return result;
+  }
+
+  private async isMember(tx: Db, orgId: string, userId: string): Promise<boolean> {
+    const [m] = await tx
+      .select({ userId: schema.memberships.userId })
+      .from(schema.memberships)
+      .where(and(eq(schema.memberships.organizationId, orgId), eq(schema.memberships.userId, userId)));
+    return Boolean(m);
+  }
+
+  private async memberOwner(tx: Db, orgId: string, contactId: string): Promise<string | null> {
+    const [contact] = await tx.select({ ownerUserId: schema.contacts.ownerUserId }).from(schema.contacts).where(eq(schema.contacts.id, contactId));
+    const owner = contact?.ownerUserId ?? null;
+    return owner && (await this.isMember(tx, orgId, owner)) ? owner : null;
+  }
+
+  /**
+   * What staff read in the handoff alert, available at once: the customer's latest words, plus the parts of the
+   * last recap when there is one (the recap queued at handoff refreshes the summary bar a moment later).
+   */
+  private async brief(tx: Db, conv: typeof schema.conversations.$inferSelect) {
+    const [last] = await tx
+      .select({ content: schema.messages.content })
+      .from(schema.messages)
+      .where(and(eq(schema.messages.conversationId, conv.id), eq(schema.messages.senderType, 'contact')))
+      .orderBy(desc(schema.messages.createdAt))
+      .limit(1);
+    const d = conv.summaryDetails;
+    return {
+      lastMessage: last ? truncateText(last.content, 280) : null,
+      intent: d?.intent ?? null,
+      nextStep: d?.nextStep ?? null,
+      sentiment: d?.sentiment ?? null,
+    };
+  }
+
   // ---------- reads ----------
 
-  async list(scope: Scope, filters: z.infer<typeof ConversationListSchema>) {
+  async list(scope: Scope, filters: z.infer<typeof ConversationListSchema>, userId: string | null = null) {
     return inScope(this.tenantDb, scope, async (tx) => {
       const c = schema.conversations;
       const where: SQL[] = [eq(c.organizationId, scope.orgId)];
+      if (filters.assignee === 'unassigned') where.push(isNull(c.assignedUserId));
+      else if (filters.assignee === 'me') {
+        if (!userId) throw badRequest('assignee=me needs a signed-in team member');
+        where.push(eq(c.assignedUserId, userId));
+      } else if (filters.assignee) where.push(eq(c.assignedUserId, filters.assignee));
       if (filters.status) where.push(eq(c.status, filters.status));
       if (filters.channel) where.push(eq(c.channel, filters.channel as ChannelType));
       if (filters.contactId) where.push(eq(c.contactId, filters.contactId));
@@ -429,7 +548,12 @@ export class ConversationsService {
         .from(c)
         .innerJoin(schema.contacts, eq(schema.contacts.id, c.contactId))
         .where(and(...where))
-        .orderBy(desc(sql`coalesce(${c.lastMessageAt}, ${c.createdAt})`))
+        .orderBy(
+          ...(filters.sort === 'waiting'
+            ? [sql`(${c.status} = 'human_active' and ${c.firstStaffReplyAt} is null) desc`, sql`${c.handedOffAt} asc nulls last`]
+            : []),
+          desc(sql`coalesce(${c.lastMessageAt}, ${c.createdAt})`),
+        )
         .limit(filters.limit)
         .offset(filters.offset);
       const ids = rows.map((r) => r.conversation.id);
@@ -446,20 +570,36 @@ export class ConversationsService {
             .orderBy(schema.messages.conversationId, desc(schema.messages.createdAt))
         : [];
       const last = new Map(lastMessages.map((m) => [m.conversationId, m]));
+      const assignees = await this.people(tx, rows.map((r) => r.conversation.assignedUserId));
       const items = rows.map((r) => ({
         ...r.conversation,
         contact: { id: r.contact.id, name: displayName(r.contact), email: r.contact.email, phone: r.contact.phone, leadTier: r.contact.leadTier },
         lastMessage: last.get(r.conversation.id) ?? null,
+        assignee: r.conversation.assignedUserId ? (assignees.get(r.conversation.assignedUserId) ?? null) : null,
+        overdue: isOverdue(r.conversation),
       }));
       return Object.assign(items, { total });
     });
+  }
+
+  private async people(tx: Db, ids: Array<string | null>) {
+    const wanted = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+    if (!wanted.length) return new Map<string, { id: string; name: string }>();
+    const rows = await tx.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email }).from(schema.users).where(inArray(schema.users.id, wanted));
+    return new Map(rows.map((u) => [u.id, { id: u.id, name: u.name || u.email }]));
   }
 
   async get(scope: Scope, conversationId: string) {
     return inScope(this.tenantDb, scope, async (tx) => {
       const conv = await this.row(tx, scope.orgId, conversationId);
       const contact = await this.contacts.row(tx, scope.orgId, conv.contactId);
-      return { ...conv, contact: { ...toContactView(contact), tags: await this.contacts.tagsFor(tx, contact.id) } };
+      const assignees = await this.people(tx, [conv.assignedUserId]);
+      return {
+        ...conv,
+        contact: { ...toContactView(contact), tags: await this.contacts.tagsFor(tx, contact.id) },
+        assignee: conv.assignedUserId ? (assignees.get(conv.assignedUserId) ?? null) : null,
+        overdue: isOverdue(conv),
+      };
     });
   }
 

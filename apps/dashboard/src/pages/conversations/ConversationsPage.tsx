@@ -25,7 +25,7 @@ import { Badge, Button, Checkbox, cx, DefinitionList, EmptyState, ErrorBanner, K
 import { API_URL, authHeaders, get, post } from '../../lib/api';
 import { formatDateTime, formatTime, SUMMARY_TRIGGER, timeAgo } from '../../lib/format';
 import { useAction } from '../../lib/mutations';
-import { roleAtLeast, usePipelines } from '../../lib/queries';
+import { roleAtLeast, useMembers, usePipelines } from '../../lib/queries';
 import { Link, navigate } from '../../lib/router';
 import { useSse } from '../../lib/sse';
 import { useAuth } from '../../auth/AuthContext';
@@ -34,14 +34,48 @@ import { DealDrawer } from '../deals/DealsPage';
 
 const PAGE = 30;
 
+/** Who looks after the conversation: "Assign to me", a teammate, or nobody. */
+function AssigneePicker({ conversationId, assignee, canAssign }: { conversationId: string; assignee: { id: string; name: string } | null; canAssign: boolean }) {
+  const { me } = useAuth();
+  const members = useMembers();
+  const assign = useAction((userId: string | null) => post<unknown>(`/v1/conversations/${conversationId}/assign`, { userId }), {
+    invalidate: [['conversation', conversationId], ['conversations'], ['timeline', conversationId]],
+    success: (_d, userId) => (userId ? (userId === me?.user.id ? 'Assigned to you' : 'Assigned') : 'Unassigned'),
+  });
+  if (!canAssign) return assignee ? <span className="text-xs text-muted">Assigned to {assignee.name}</span> : null;
+  return (
+    <Select
+      aria-label="Assigned to"
+      className="h-8 w-44 text-xs"
+      value={assignee?.id ?? ''}
+      disabled={assign.isPending}
+      onChange={(e) => assign.mutate(e.target.value || null)}
+    >
+      <option value="">Unassigned</option>
+      {me && <option value={me.user.id}>Me ({me.user.name || me.user.email})</option>}
+      {(members.data ?? [])
+        .filter((m) => m.userId !== me?.user.id && m.role !== 'viewer')
+        .map((m) => (
+          <option key={m.userId} value={m.userId}>
+            {m.name || m.email}
+          </option>
+        ))}
+      {assignee && !members.data?.some((m) => m.userId === assignee.id) && assignee.id !== me?.user.id && <option value={assignee.id}>{assignee.name}</option>}
+    </Select>
+  );
+}
+
 export function ConversationsPage({ conversationId }: { conversationId: string | null }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState<ConversationStatus | ''>('');
   const [includeTest, setIncludeTest] = useState(false);
+  const [assignee, setAssignee] = useState<'' | 'me' | 'unassigned'>('');
+  const [sort, setSort] = useState<'recent' | 'waiting'>('recent');
 
   const list = useInfiniteQuery({
-    queryKey: ['conversations', { status, includeTest }],
-    queryFn: ({ pageParam }) => get<ConversationListItem[]>('/v1/conversations', { status: status || undefined, includeTest, limit: PAGE, offset: pageParam }),
+    queryKey: ['conversations', { status, includeTest, assignee, sort }],
+    queryFn: ({ pageParam }) =>
+      get<ConversationListItem[]>('/v1/conversations', { status: status || undefined, assignee: assignee || undefined, sort, includeTest, limit: PAGE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (last, all) => (last.length === PAGE ? all.length * PAGE : undefined),
   });
@@ -54,7 +88,7 @@ export function ConversationsPage({ conversationId }: { conversationId: string |
   }, [qc]);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
   const { connected } = useSse(`${API_URL}/v1/stream`, authHeaders, (event) => {
-    if (event === 'message' || event === 'conversation.status') refreshList();
+    if (event === 'message' || event === 'conversation.status' || event === 'conversation.assigned') refreshList();
   }, { onOpen: refreshList });
 
   const items = list.data?.pages.flat() ?? [];
@@ -81,6 +115,17 @@ export function ConversationsPage({ conversationId }: { conversationId: string |
               <option value="closed">Closed</option>
             </Select>
             <Checkbox label="Include tests" checked={includeTest} onChange={(e) => setIncludeTest(e.target.checked)} className="shrink-0 text-xs" />
+          </div>
+          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+            <Select aria-label="Assigned to" className="flex-1" value={assignee} onChange={(e) => setAssignee(e.target.value as '' | 'me' | 'unassigned')}>
+              <option value="">Everyone's</option>
+              <option value="me">Mine</option>
+              <option value="unassigned">Unassigned</option>
+            </Select>
+            <Select aria-label="Sort" className="flex-1" value={sort} onChange={(e) => setSort(e.target.value as 'recent' | 'waiting')}>
+              <option value="recent">Latest first</option>
+              <option value="waiting">Waiting longest</option>
+            </Select>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {list.isLoading ? (
@@ -118,7 +163,12 @@ export function ConversationsPage({ conversationId }: { conversationId: string |
                       </p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1">
                         <ConversationStatusBadge status={c.status} />
+                        {c.overdue && <Badge tone="red">Waiting too long</Badge>}
+                        {c.status === 'human_active' && !c.firstStaffReplyAt && c.handedOffAt && !c.overdue && (
+                          <span className="text-[11px] text-muted">waiting {timeAgo(c.handedOffAt).replace(/ ago$/, '')}</span>
+                        )}
                         <ChannelBadge channel={c.channel} />
+                        {c.assignee && <span className="text-[11px] text-muted">· {c.assignee.name}</span>}
                         {c.contact.leadTier && <TierBadge tier={c.contact.leadTier} />}
                         {c.isTest && <Badge tone="blue">Test</Badge>}
                       </div>
@@ -222,6 +272,7 @@ function Thread({ conversationId }: { conversationId: string }) {
           break;
         case 'conversation.status':
         case 'conversation.summary':
+        case 'conversation.assigned':
           void qc.invalidateQueries({ queryKey: ['conversation', conversationId] });
           void qc.invalidateQueries({ queryKey: ['timeline', conversationId] });
           break;
@@ -296,7 +347,9 @@ function Thread({ conversationId }: { conversationId: string }) {
               {conv.status === 'human_active' && conv.handoffReason ? ` · Handoff: ${conv.handoffReason}` : ''}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {conv.overdue && <Badge tone="red">Waiting too long</Badge>}
+            <AssigneePicker conversationId={conv.id} assignee={conv.assignee} canAssign={canReply && conv.status !== 'closed'} />
             {canReply && conv.status === 'ai_active' && (
               <Button size="sm" icon={<Hand className="size-3.5" />} loading={setStatus.isPending && setStatus.variables === 'takeover'} onClick={() => setStatus.mutate('takeover')}>
                 Take over

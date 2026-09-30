@@ -23,6 +23,7 @@ import { BotsService } from './modules/bots/service';
 import { ChannelRegistry } from './modules/channels/adapter';
 import { ChannelsService } from './modules/channels/service';
 import { ContactsService } from './modules/contacts/service';
+import { HandoffWatcher } from './modules/handoff/service';
 import { ConversationsService } from './modules/conversations/service';
 import { DealsService } from './modules/deals/service';
 import { LocalHashEmbeddingProvider, OpenAIEmbeddingProvider, type EmbeddingProvider } from './modules/knowledge/embeddings';
@@ -123,6 +124,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
     summaryIdleMs: env.AI_SUMMARY_IDLE_MINUTES * 60_000,
     onEventRecorded: () => automation.kick(),
   });
+  const handoffWatcher = new HandoffWatcher(db, tenantDb, conversations, logger, () => automation.kick(), clock);
   const toolExecutor = new ToolExecutor(createTools({ contacts, qualification, knowledge, scheduling, automation, deals }), tenantDb, logger);
   const orchestrator = new AiOrchestrator({
     env,
@@ -179,6 +181,8 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
       refreshWebsites();
       timers.push(setInterval(refreshWebsites, 600_000));
       // Reminders (and any email whose send failed and is waiting to retry) every minute.
+      // Handed-off chats nobody has answered within their bot's limit, every minute.
+      timers.push(setInterval(() => void handoffWatcher.escalateOverdue().catch((err) => logger.error({ err }, 'handoff watch failed')), 60_000));
       timers.push(setInterval(() => void appointmentEmails.sendDue().catch((err) => logger.error({ err }, 'appointment email run failed')), 60_000));
     }
   }
@@ -217,6 +221,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
     knowledge,
     scheduling,
     appointmentEmails,
+    handoffWatcher,
     automation,
     conversations,
     deals,

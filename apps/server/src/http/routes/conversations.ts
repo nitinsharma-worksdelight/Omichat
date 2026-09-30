@@ -6,7 +6,7 @@ import { schema } from '../../db/client';
 import { parseInput } from '../../lib/validation';
 import type { SummaryJob } from '../../modules/ai/summary';
 import { ConversationListSchema, convChannel, orgChannel } from '../../modules/conversations/service';
-import { requireAccess, requireUser } from '../auth';
+import { actorUserId, requireAccess, requireUser } from '../auth';
 import { openSse } from '../sse';
 
 const Id = z.object({ id: z.string().uuid() });
@@ -14,7 +14,7 @@ const Id = z.object({ id: z.string().uuid() });
 export async function registerConversationRoutes(app: FastifyInstance, c: Container) {
   app.get('/conversations', async (req, reply) => {
     const auth = await requireAccess(c, req, 'viewer', 'conversations:read');
-    const items = await c.conversations.list({ orgId: auth.orgId }, parseInput(ConversationListSchema, req.query));
+    const items = await c.conversations.list({ orgId: auth.orgId }, parseInput(ConversationListSchema, req.query), actorUserId(auth) ?? null);
     // The body stays a plain array; the total count travels in a header for pagination.
     void reply.header('x-total-count', String(items.total)).header('access-control-expose-headers', 'x-total-count');
     return [...items];
@@ -90,6 +90,14 @@ export async function registerConversationRoutes(app: FastifyInstance, c: Contai
       actorUserId: auth.userId,
       reason: reason ?? (action === 'takeover' ? 'Taken over by staff' : null),
     });
+  });
+
+  /** Gives the conversation to a team member (`userId`), or to nobody (`null`). */
+  app.post('/conversations/:id/assign', async (req) => {
+    const auth = await requireUser(c, req, 'agent');
+    const { userId } = parseInput(z.object({ userId: z.string().uuid().nullable() }), req.body);
+    await c.conversations.assign({ orgId: auth.orgId }, parseInput(Id, req.params).id, userId, auth.userId);
+    return c.conversations.get({ orgId: auth.orgId }, parseInput(Id, req.params).id);
   });
 
   /** Live updates for the dashboard: one conversation (`?conversationId=`) or the whole org inbox. */

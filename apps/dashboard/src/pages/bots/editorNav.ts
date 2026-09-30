@@ -236,6 +236,8 @@ export const SETTINGS: SettingInfo[] = [
   { id: 'handoff.keywords', section: 'handoff', label: 'Trigger phrases', keywords: ['keywords', 'talk to a human'] },
   { id: 'handoff.message', section: 'handoff', label: 'Handoff message', keywords: ['transfer message'] },
   { id: 'handoff.notifyTeam', section: 'handoff', label: 'Notify the team', keywords: ['alert', 'notification', 'email the team'] },
+  { id: 'handoff.waitMinutes', section: 'handoff', label: 'If nobody replies', keywords: ['wait', 'timeout', 'escalate', 'fallback', 'overdue'] },
+  { id: 'handoff.respectTeamHours', section: 'handoff', label: 'Away message outside team hours', keywords: ['hours', 'away', 'offline', 'closed'] },
   { id: 'guardrails.stayOnTopic', section: 'guardrails', label: 'Stay on topic', keywords: ['off topic', 'focus'] },
   { id: 'guardrails.forbiddenTopics', section: 'guardrails', label: 'Forbidden topics', keywords: ['avoid', 'banned topics', 'competitors'] },
   { id: 'guardrails.unknownAnswer', section: 'guardrails', label: "When it doesn't know the answer", keywords: ['unknown answer', "don't know", 'fallback'] },

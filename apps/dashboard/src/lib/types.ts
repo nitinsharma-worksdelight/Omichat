@@ -40,6 +40,8 @@ export interface OrgSettings {
   defaultCountry: string;
   /** ISO 4217 currency for deal values; absent means USD. */
   currency?: string;
+  /** When the team is around, in the organization's timezone. */
+  teamHours: { enabled: boolean; weekly: Partial<Record<Weekday, TimeRange[]>> };
 }
 
 export interface Organization {
@@ -286,7 +288,14 @@ export interface Handoff {
   keywords: string[];
   message: string;
   notifyTeam: boolean;
+  /** Minutes after a handoff before the team is alerted and `fallback` runs; 0 = never. */
+  waitMinutes: number;
+  fallback: HandoffFallback;
+  respectTeamHours: boolean;
+  awayMessage: string;
 }
+
+export type HandoffFallback = 'keep_waiting' | 'resume_ai' | 'ask_contact_details';
 
 export type UnknownAnswer = 'offer_handoff' | 'collect_contact' | 'say_dont_know';
 
@@ -620,6 +629,13 @@ export interface ConversationListItem {
   summaryDetails: SummaryDetails | null;
   contact: { id: string; name: string | null; email: string | null; phone: string | null; leadTier: LeadTier | null };
   lastMessage: { content: string; senderType: SenderType; createdAt: string } | null;
+  /** Who looks after it (the member who took it over, or the customer's owner at handoff). */
+  assignee: { id: string; name: string } | null;
+  /** When it was last handed to the team, and when staff first answered after that. */
+  handedOffAt: string | null;
+  firstStaffReplyAt: string | null;
+  /** Handed off, still unanswered, and past its bot's "if nobody replies" limit. */
+  overdue: boolean;
 }
 
 export type SummaryTrigger = 'quiet' | 'closed' | 'handoff' | 'manual';
@@ -872,6 +888,9 @@ export const EVENT_TYPES = [
   'conversation.started',
   'conversation.handoff_requested',
   'conversation.resumed_by_ai',
+  'conversation.handoff_overdue',
+  'conversation.assigned',
+  'conversation.unanswered',
   'conversation.closed',
   'conversation.summarized',
   'message.outbound',
