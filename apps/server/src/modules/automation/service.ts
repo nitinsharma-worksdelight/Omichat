@@ -734,6 +734,9 @@ export class AutomationService {
             opts.contactId ? eq(schema.events.contactId, opts.contactId) : undefined,
             // Messages to chat-API customers exist for webhooks; the conversation already shows them.
             ne(schema.events.type, 'message.outbound'),
+            // Test (playground) contacts stay out of the org-wide feed, as they do out of notifications and webhooks
+            // (a test contact's own page still shows its history).
+            opts.contactId ? undefined : sql`coalesce(${schema.contacts.isTest}, false) = false`,
           ),
         )
         .orderBy(desc(schema.events.createdAt))

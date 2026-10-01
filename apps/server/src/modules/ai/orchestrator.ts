@@ -160,7 +160,7 @@ export class AiOrchestrator {
       await this.handoff(scope, conv.id, bot, 'AI reply limit reached for this conversation', handoffMessage);
       return;
     }
-    if (org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(tenantDb, job.orgId)) >= Number(org.monthlyAiBudgetUsd)) {
+    if (org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(tenantDb, job.orgId, org.timezone, this.now())) >= Number(org.monthlyAiBudgetUsd)) {
       log.warn('monthly AI budget exhausted');
       // Like an error, this stops the AI everywhere, so staff always hear about it.
       await this.handoff(scope, conv.id, bot, 'Monthly AI budget reached', handoffMessage, { alwaysNotify: true });

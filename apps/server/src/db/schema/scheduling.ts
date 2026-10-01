@@ -91,6 +91,7 @@ export const appointments = pgTable(
     index('appointments_org_starts_idx').on(t.organizationId, t.startsAt),
     index('appointments_calendar_starts_idx').on(t.calendarId, t.startsAt),
     index('appointments_contact_idx').on(t.contactId),
+    index('appointments_org_created_idx').on(t.organizationId, t.createdAt),
   ],
 );
 

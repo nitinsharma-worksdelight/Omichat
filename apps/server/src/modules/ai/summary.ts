@@ -102,7 +102,7 @@ export class ConversationSummarizer {
     if (mode === 'fold') {
       // Summaries are AI spend like replies: they stop with the AI switch and the monthly budget.
       if (!org.aiEnabled) return;
-      if (org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(this.tenantDb, job.orgId)) >= Number(org.monthlyAiBudgetUsd)) return;
+      if (org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(this.tenantDb, job.orgId, org.timezone)) >= Number(org.monthlyAiBudgetUsd)) return;
       batch = fresh.slice(0, Math.max(0, fresh.length - this.env.AI_HISTORY_MESSAGES));
       if (batch.length < FOLD_MIN) return;
     } else if (await this.blocker(job.orgId, data)) {
@@ -231,7 +231,7 @@ export class ConversationSummarizer {
     const { conv, org, fresh } = data;
     // Summaries are AI spend like replies: they stop with the AI switch and the monthly budget.
     if (!org.aiEnabled) return 'ai_off';
-    if (org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(this.tenantDb, orgId)) >= Number(org.monthlyAiBudgetUsd)) return 'budget';
+    if (org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(this.tenantDb, orgId, org.timezone)) >= Number(org.monthlyAiBudgetUsd)) return 'budget';
     if (!fresh.some((x) => x.senderType === 'contact' || x.senderType === 'human')) return 'nothing_new';
     // A one-message chat has nothing worth recalling.
     if (!conv.summary && fresh.filter((x) => x.senderType === 'contact').length < 2) return 'too_short';

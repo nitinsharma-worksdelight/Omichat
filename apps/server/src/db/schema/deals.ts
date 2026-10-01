@@ -1,4 +1,5 @@
 import { date, index, integer, numeric, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { createdAt, pk, ts, updatedAt } from './_helpers';
 import { conversations } from './conversations';
 import { organizations, users } from './core';
@@ -62,5 +63,7 @@ export const deals = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('deals_board_idx').on(t.organizationId, t.pipelineId, t.stageId, t.status), index('deals_contact_idx').on(t.contactId)],
+  (t) => [index('deals_board_idx').on(t.organizationId, t.pipelineId, t.stageId, t.status), index('deals_contact_idx').on(t.contactId),
+    index('deals_org_closed_idx').on(t.organizationId, t.closedAt).where(sql`${t.closedAt} is not null`),
+  ],
 );

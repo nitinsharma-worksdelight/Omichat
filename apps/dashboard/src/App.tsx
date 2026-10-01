@@ -9,6 +9,7 @@ import { OverviewPage } from './pages/overview/OverviewPage';
 
 // Pages load on demand so the first paint only needs the shell and the overview.
 const AppointmentsPage = lazy(() => import('./pages/appointments/AppointmentsPage').then((m) => ({ default: m.AppointmentsPage })));
+const AnalyticsPage = lazy(() => import('./pages/analytics/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
 const AutomationsPage = lazy(() => import('./pages/automations/AutomationsPage').then((m) => ({ default: m.AutomationsPage })));
 const BotEditorPage = lazy(() => import('./pages/bots/BotEditorPage').then((m) => ({ default: m.BotEditorPage })));
 const BotsPage = lazy(() => import('./pages/bots/BotsPage').then((m) => ({ default: m.BotsPage })));
@@ -78,6 +79,8 @@ function Routes() {
   switch (first) {
     case undefined:
       return <OverviewPage />;
+    case 'analytics':
+      return <AnalyticsPage />;
     case 'bots':
       return second ? <BotEditorPage key={second} botId={second} /> : <BotsPage />;
     case 'conversations':

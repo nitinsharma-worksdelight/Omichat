@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, CalendarCheck, CircleDollarSign, Hand, ListChecks, MessagesSquare, Star, UserPlus } from 'lucide-react';
+import { Activity, CalendarCheck, CircleDollarSign, Hand, ListChecks, MessagesSquare, Sparkles, Star, UserPlus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { EventRow } from '../../components/activity';
 import { Badge, Card, CardHeader, cx, EmptyState, ErrorBanner, PageHeader, Skeleton, SkeletonRows } from '../../components/ui';
@@ -14,34 +14,48 @@ export function OverviewPage() {
   const usage = useQuery({ queryKey: ['usage'], queryFn: () => get<Usage>('/v1/usage'), refetchInterval: 60_000 });
   const org = useOrg();
   const since = usage.data ? new Date(usage.data.since) : null;
-  const monthLabel = since ? since.toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }) : 'this month';
+  // The month is the organization's, so name it in its timezone.
+  const monthLabel = since ? since.toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: org.data?.timezone ?? 'UTC' }) : 'this month';
   const budget = org.data?.monthlyAiBudgetUsd ?? null;
-  const cost = usage.data?.ai.costUsd ?? 0;
+  const spend = usage.data?.ai ?? null;
+  const cost = spend?.costUsd ?? 0;
 
   return (
     <div>
-      <PageHeader title="Overview" description={`How your assistants are doing in ${monthLabel}.`} />
+      <PageHeader
+        title="Overview"
+        description={`How your assistants are doing in ${monthLabel}. Test chats are left out.`}
+        actions={
+          <Link to="/analytics" className="text-[13px] font-medium text-accent-text hover:underline">
+            See analytics →
+          </Link>
+        }
+      />
       <div className="space-y-6 px-8 py-6">
         {usage.error ? <ErrorBanner error={usage.error} onRetry={() => void usage.refetch()} /> : null}
         <div className="grid grid-cols-3 gap-4 xl:grid-cols-6">
-          <Stat loading={usage.isLoading} icon={<MessagesSquare className="size-4" />} label="Conversations" value={formatNumber(usage.data?.conversations.total)} hint="Excludes playground tests" />
+          <Stat loading={usage.isLoading} icon={<MessagesSquare className="size-4" />} label="Conversations" value={formatNumber(usage.data?.conversations.total)} hint="Started this month" />
           <Stat loading={usage.isLoading} icon={<UserPlus className="size-4" />} label="Leads captured" value={formatNumber(usage.data?.leads.captured)} />
-          <Stat loading={usage.isLoading} icon={<Star className="size-4" />} label="Qualified leads" value={formatNumber(usage.data?.leads.qualified)} />
-          <Stat loading={usage.isLoading} icon={<CalendarCheck className="size-4" />} label="AI bookings" value={formatNumber(usage.data?.appointmentsBookedByAi)} />
-          <Stat
-            loading={usage.isLoading}
-            icon={<CircleDollarSign className="size-4" />}
-            label="AI cost"
-            value={formatUsd(cost)}
-            hint={budget !== null ? `of ${formatUsd(budget)} budget` : `${formatNumber(usage.data?.ai.runs)} AI replies`}
-            progress={budget ? Math.min(1, cost / budget) : undefined}
-          />
+          <Stat loading={usage.isLoading} icon={<Star className="size-4" />} label="Qualified leads" value={formatNumber(usage.data?.leads.qualified)} hint="Became qualified this month" />
+          <Stat loading={usage.isLoading} icon={<CalendarCheck className="size-4" />} label="AI bookings" value={formatNumber(usage.data?.appointmentsBookedByAi)} hint="Not counting cancelled" />
+          {spend ? (
+            <Stat
+              loading={usage.isLoading}
+              icon={<CircleDollarSign className="size-4" />}
+              label="AI cost"
+              value={formatUsd(cost)}
+              hint={budget !== null ? `of ${formatUsd(budget)} budget` : `${formatNumber(usage.data?.aiReplies)} AI replies`}
+              progress={budget ? Math.min(1, cost / budget) : undefined}
+            />
+          ) : (
+            <Stat loading={usage.isLoading} icon={<Sparkles className="size-4" />} label="AI replies" value={formatNumber(usage.data?.aiReplies)} />
+          )}
           <Stat
             loading={usage.isLoading}
             icon={<Hand className="size-4" />}
-            label="Handed to humans"
+            label="Handoffs"
             value={formatNumber(usage.data?.conversations.handedOff)}
-            hint="Currently waiting on your team"
+            hint="Chats handed to your team this month"
           />
         </div>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">

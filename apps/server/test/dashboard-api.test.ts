@@ -54,7 +54,11 @@ describe('dashboard read endpoints (seeded demo tenant)', () => {
     expect((await get(`/v1/contacts/${r.contactId}/conversations`)).length).toBe(1);
     await get(`/v1/contacts/${r.contactId}/notes`);
 
+    // Rows are stamped by the database's own clock; read this month as of that clock.
+    const testNow = t.now.value;
+    t.now.value = new Date();
     const usage = await get('/v1/usage');
+    t.now.value = testNow;
     expect(usage).toMatchObject({ conversations: { total: 1 }, leads: { captured: 1 }, appointmentsBookedByAi: 1 });
     expect(usage.ai.runs).toBeGreaterThan(0);
     expect((await get('/v1/notifications')).map((n: { type: string }) => n.type)).toContain('appointment.booked');

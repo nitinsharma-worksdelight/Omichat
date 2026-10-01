@@ -115,10 +115,53 @@ export interface EventItem {
 
 export interface Usage {
   since: string;
-  ai: { runs: number; costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number };
+  /** All AI spend this month, Test chats included (what the budget counts). Null for non-admins. */
+  ai: { runs: number; costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number } | null;
+  aiReplies: number;
+  /** `handedOff`: handoffs this month, however they ended. */
   conversations: { total: number; handedOff: number };
   leads: { captured: number; qualified: number };
   appointmentsBookedByAi: number;
+  dealsWon: number;
+}
+
+export interface AnalyticsPerformance {
+  from: string;
+  to: string;
+  handoffs: {
+    total: number;
+    byAi: number;
+    takenOverByStaff: number;
+    answered: number;
+    unanswered: number;
+    firstReplySeconds: { median: number | null; p90: number | null };
+    waitedTooLong: number;
+    takenBackByAi: number;
+    reasons: Array<{ reason: string; count: number }>;
+  };
+  team: Array<{ userId: string; name: string; assigned: number; replies: number; conversations: number; firstReplyMedianSeconds: number | null }>;
+  funnel: Array<{ step: 'conversations' | 'leads' | 'qualified' | 'bookings' | 'dealsWon'; count: number }>;
+  sources: Array<{ source: string; campaign: string | null; channel: string | null; count: number }>;
+  actions: Array<{ tool: string; calls: number; failed: number; askedTeam: number }>;
+  approvals: { approved: number; declined: number; waiting: number; expired: number };
+  handoffRate: number | null;
+  cost: { totalUsd: number; perConversationUsd: number | null; perLeadUsd: number | null } | null;
+}
+
+export type AnalyticsMetric = 'conversations' | 'leads' | 'qualified' | 'handoffs' | 'bookings' | 'dealsWon' | 'aiReplies';
+
+export interface AnalyticsReport {
+  from: string;
+  to: string;
+  timezone: string;
+  interval: 'day' | 'week';
+  totals: Record<AnalyticsMetric, number>;
+  /** The same length just before the range. */
+  previous: Record<AnalyticsMetric, number>;
+  series: Array<{ date: string } & Record<AnalyticsMetric, number>>;
+  dealsWonValue: Array<{ currency: string; value: number }>;
+  /** Admins only (null otherwise). */
+  aiCostUsd: number | null;
 }
 
 // ---------- bots ----------

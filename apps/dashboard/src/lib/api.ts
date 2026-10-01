@@ -183,6 +183,20 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
 }
 
 export const get = <T>(path: string, query?: Record<string, QueryValue>) => api<T>(path, { query });
+
+/** Downloads a file the API returns (e.g. a CSV export) under the name the server gives it. */
+export async function download(path: string, query?: Record<string, QueryValue>): Promise<void> {
+  const res = await fetch(buildUrl(path, query), { headers: authHeaders() });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) throw new ApiError(res.status, 'download_failed', `Download failed (${res.status})`);
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'export.csv';
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 export const post = <T>(path: string, body?: unknown) => api<T>(path, { method: 'POST', body });
 export const patch = <T>(path: string, body: unknown) => api<T>(path, { method: 'PATCH', body });
 export const del = (path: string) => api<void>(path, { method: 'DELETE' });

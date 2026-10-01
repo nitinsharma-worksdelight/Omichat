@@ -2842,7 +2842,17 @@ Not planned yet.
 
 ## F9 (Phase 18) — Analytics / Management
 
-Not planned yet.
+*Audited and approved 2026-10-01 (all recommendations), ahead of F7 and F8. F9a built and verified 2026-10-01; F9b
+waits for the check-in.*
+
+- **Split:** F9a — correct numbers (one counting service; Test chats, merged duplicates and repeats left out; the
+  organization's timezone and clock), `GET /v1/analytics` and an Analytics page (date range, bot and channel filters,
+  change against the previous period, SVG bar chart), indexes only (migration 0014). F9b — handoff and team response
+  times (median and 90th percentile, from events), per-agent figures, the lead funnel and sources, AI actions and
+  approvals, cost per conversation and per lead, CSV export (admins).
+- **Access:** counts for every member; AI cost and export for admins.
+- **Later:** follow-up figures (after F8), widget opens (after F7), deal forecasts, mood and outcome reports (after the
+  mood re-check).
 
 - **Built:** month-to-date totals (conversations, leads, qualified, AI bookings, AI cost, waiting handoffs), the
   activity feed, open tasks, per-conversation AI runs.

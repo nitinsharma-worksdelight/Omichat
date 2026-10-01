@@ -23,6 +23,7 @@ import { BotsService } from './modules/bots/service';
 import { ChannelRegistry } from './modules/channels/adapter';
 import { ChannelsService } from './modules/channels/service';
 import { ContactsService } from './modules/contacts/service';
+import { AnalyticsService } from './modules/analytics/service';
 import { HandoffWatcher } from './modules/handoff/service';
 import { ConversationsService } from './modules/conversations/service';
 import { DealsService } from './modules/deals/service';
@@ -126,6 +127,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
     onEventRecorded: () => automation.kick(),
   });
   const handoffWatcher = new HandoffWatcher(db, tenantDb, conversations, logger, () => automation.kick(), clock);
+  const analytics = new AnalyticsService(tenantDb, clock);
   const toolExecutor = new ToolExecutor(createTools({ contacts, qualification, knowledge, scheduling, automation, deals }), tenantDb, logger);
   const orchestrator = new AiOrchestrator({
     env,
@@ -223,6 +225,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
     scheduling,
     appointmentEmails,
     handoffWatcher,
+    analytics,
     automation,
     conversations,
     deals,

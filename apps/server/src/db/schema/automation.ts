@@ -23,6 +23,7 @@ export const events = pgTable(
   },
   (t) => [
     index('events_org_created_idx').on(t.organizationId, t.createdAt),
+    index('events_org_type_created_idx').on(t.organizationId, t.type, t.createdAt),
     index('events_conversation_idx').on(t.conversationId, t.createdAt),
     index('events_contact_idx').on(t.contactId, t.createdAt),
     index('events_undispatched_idx').on(t.createdAt).where(sql`${t.dispatchedAt} is null`),

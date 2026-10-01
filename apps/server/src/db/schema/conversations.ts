@@ -61,6 +61,7 @@ export const conversations = pgTable(
   },
   (t) => [
     index('conversations_org_status_idx').on(t.organizationId, t.status, t.lastMessageAt.desc()),
+    index('conversations_org_created_idx').on(t.organizationId, t.createdAt),
     index('conversations_contact_idx').on(t.contactId, t.lastMessageAt.desc()),
     // One open conversation per contact per channel account.
     uniqueIndex('conversations_open_uq').on(t.channelAccountId, t.contactId).where(sql`${t.status} <> 'closed'`),

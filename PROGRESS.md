@@ -4,11 +4,10 @@ Single source of truth for phase status. Plans: [`docs/IMPLEMENTATION_PLAN.md`](
 
 ## Current phase
 
-**F6 (Phase 15) — Human Handoff** · **✅ Complete** (2026-09-30): F6a and F6b built and verified (255/255 tests; the
-paid mood re-check skipped by decision). Next: F7 (Phase 16) — Chat Widget, not started · updated 2026-09-30
+**F9 (Phase 18) — Analytics / Management** · **✅ Complete** (2026-10-01): F9a and F9b built and verified (269/269
+tests). Next: F7 (Phase 16) — Chat Widget, not started · updated 2026-10-01
 
-Plan: `docs/IMPLEMENTATION_PLAN.md` → F5 (two steps, F5a and F5b). Feature order: F1–F5 done → F6 → … →
-F9, one at a time, then Phase 4 (deferred until after F9). The hook tracks F1–F9 as phases 10–18.
+Feature order (changed 2026-10-01): F1–F6 done → F9 → F7 → F8, then Phase 4. The hook tracks F1–F9 as phases 10–18.
 
 ## Phase status
 
@@ -33,7 +32,7 @@ F9, one at a time, then Phase 4 (deferred until after F9). The hook tracks F1–
 | 15 | F6 · Human Handoff | ✅ Complete (2026-09-30) | 2026-09-30 |
 | 16 | F7 · Chat Widget | ⏳ Not started | — |
 | 17 | F8 · Follow-ups | ⏳ Not started | — |
-| 18 | F9 · Analytics / Management | ⏳ Not started | — |
+| 18 | F9 · Analytics / Management | ✅ Complete (2026-10-01) | 2026-10-01 |
 <!-- phase-status:end -->
 
 Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned — awaiting approval · 🔨 In progress ·
@@ -759,6 +758,52 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
     bell from 11 to 12 unread and showed the toast 1.5 s later without a refresh. The three test chats I created
     ("Realtime check…") were closed afterwards; their notifications remain in the bell.
 
+- **2026-10-01 — F9 explore, audit and plan; F9a implemented and verified** (all five recommendations approved: two
+  steps; counts for everyone, AI cost for admins; plain SVG charts; the Overview kept with a link; F9 before F7 and F8).
+  - **Audit:** today's Overview numbers were wrong in seven ways: "qualified" counted qualified contacts *edited* this
+    month; "handed to humans" only conversations started this month and still waiting; merged duplicates counted as
+    leads twice; AI cost and "AI replies" included Test chats, summaries and failed runs; "AI bookings" included Test
+    chats and cancelled bookings; months were in UTC on the real clock; the activity feed showed Test chats. No date
+    range, trends, per-bot or per-channel figures, charts or export existed.
+  - **One counting service** (`modules/analytics`) used by both pages: Test chats and test contacts are left out; a
+    merged duplicate counts as the contact it went into; a lead qualified twice counts once; "qualified" and
+    "handoffs" come from the event history (when they happened); AI bookings exclude cancelled ones; AI replies are
+    finished replies (not summaries or failures); days and months are the organization's (its timezone, the
+    injected clock).
+  - **Analytics page** (new, in the main menu): last 7/30/90 days, this or last month, or custom dates; bot and channel
+    filters; seven figures (conversations, leads, qualified, AI bookings, handoffs, deals won, AI replies) with the
+    change against the period just before; a bar chart by day (by week past 62 days) for the figure you pick, with won
+    deal value per currency; AI cost for admins. Filters live in the address, so a view can be shared.
+    `GET /v1/analytics?from=&to=&botId=&channel=` (staff; at most 366 days).
+  - **Overview:** the same rules for this month in the organization's timezone, "Handoffs" this month (not "waiting
+    now"), "See analytics", and the AI cost card for admins only (others see AI replies). The AI cost there is all
+    spend including Test chats, as the monthly budget counts it; the budget now also uses the organization's month.
+  - **Activity feed** leaves out Test chats (a test contact's own page still shows its history).
+  - **DB:** migration 0014, indexes only (conversations, appointments, events by type, deals by close date, contacts by
+    lead date).
+  - **Browser check** (your dev servers): the page shows your September data (18 conversations, 15 handoffs, $0.08 AI
+    cost) and its weekly view; the Overview shows October in Toronto (all zero on the 1st); no sideways scrolling.
+
+- **2026-10-01 — F9b implemented and verified** (as approved: "start F9b"). The Analytics page gains, under the chart:
+  - **Handoffs:** time to the team's first reply after an AI handoff (median and the slowest 10%), handoff rate per
+    conversation, not answered yet, waited too long, taken back by the assistant, and why chats were handed over
+    (top 10 reasons). Staff takeovers count apart and aren't timed. Worked out from the event history and messages,
+    so handoffs from before F6 count too.
+  - **Team:** per member: chats assigned, replies sent, chats answered, and median first reply after a handoff.
+  - **Funnel:** conversations → leads → qualified → AI bookings → deals won, each as it happened in the period (not one
+    group followed through, so a later step can be larger; the "% of previous step" shows only when it isn't), plus
+    AI cost per conversation and per lead for admins.
+  - **Lead sources:** UTM source, ad click (Google, Meta, Microsoft), referring site or direct, with the campaign.
+  - **What the assistant did:** each action's calls, failures and ask-first requests (retries not counted twice), and
+    approvals approved, declined, waiting and expired.
+  - **CSV export (admins):** daily figures, handoff reasons, team, sources and actions, for the chosen dates, bot and
+    channel. Cells that start with `=`, `+`, `-` or `@` are prefixed so a spreadsheet never runs them as formulas.
+  - **API:** `GET /v1/analytics/performance` (staff; cost for admins) and `GET /v1/analytics/export?report=` (admins).
+    No migration.
+  - **Browser check** (your dev servers, last 30 days): median first reply 38 s, 83% handoff rate, 13 of 15 AI handoffs
+    not answered yet, reasons led by "Customer asked for a person"; your three "Realtime check" chats from yesterday
+    are in these figures. No sideways scrolling.
+
 ## Remaining issues
 
 | Issue | Severity | Planned in |
@@ -891,7 +936,12 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | Assignment was tested by the suite, not by clicking in the browser | Test gap | Next time the dashboard is previewed |
 | The widget's built-in text is English-only and can't be edited; the widget's greeting silently overrides the bot's | P3 | F7 (Phase 16) |
 | No follow-ups for inactive leads | Feature | F8 (Phase 17) |
-| Overview numbers are inaccurate: "qualified" counts contacts updated this month, "handed to humans" only those waiting now, and months are in UTC | P3 | F9 (Phase 18) |
+| ~~Overview numbers are inaccurate: "qualified" counts contacts updated this month, "handed to humans" only those waiting now, and months are in UTC~~ | P3 | ✅ Fixed in F9a (and four more errors the audit found) |
+| Analytics rows are stamped by the database clock while reports use the app clock; tests move rows to the dates they need | Test gap | Accepted |
+| Viewers and agents can still read the budget amount in Settings, though not the spend | P3 | Accepted |
+| The funnel counts each step in the period, not one group of customers followed through (a cohort funnel would need first-touch dates per step) | P3 | Not planned yet |
+| A first reply is the first staff message after a handoff, even if it came after the customer was handed back and handed over again | P3 | Accepted |
+| Follow-up figures (after F8), widget opens (after F7), deal forecasts and mood reports aren't in Analytics | Feature | Later, with those features |
 
 ## Files changed
 
@@ -1938,6 +1988,10 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 ### Verification log
 
 <!-- verification-log:start -->
+- 2026-10-01 19:17 · Phase 18 · ✅ PASS · typecheck ok · tests 269/269 passed · 127s · marked complete
+- 2026-10-01 19:14 · Phase 18 · ✅ PASS · typecheck ok · tests 269/269 passed · 130s
+- 2026-10-01 19:11 · Phase 18 · ❌ FAIL · typecheck FAILED · tests 269/269 passed · 128s
+- 2026-10-01 19:02 · Phase 18 · ✅ PASS · typecheck ok · tests 264/264 passed · 143s
 - 2026-09-30 18:32 · Phase 15 · ✅ PASS · typecheck ok · tests 255/255 passed · 126s · marked complete
 - 2026-09-30 18:11 · Phase 15 · ✅ PASS · typecheck ok · tests 255/255 passed · 160s
 - 2026-09-30 18:06 · Phase 15 · ✅ PASS · typecheck ok · tests 255/255 passed · 92s
@@ -2131,12 +2185,13 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | 2026-09-30 | F6b: a handoff is assigned to whoever took it over, else the contact's owner if a member; resume and close clear it; the handoff alert still goes to everyone, and the assignee also gets a personal note | Implementation |
 | 2026-09-30 | F6b: the brief is written into the handoff event at once (no waiting for the recap); mood appears in the alert only when negative | Implementation |
 | 2026-09-30 | F6b: assigning stays staff-only (no API-key scope), like takeover and resume | Implementation |
+| 2026-10-01 | F9 before F7 and F8; F9 in two steps (F9a correct numbers and an Analytics page, then F9b team performance, funnel, AI actions and CSV export); counts for everyone, AI cost and export for admins; plain SVG charts; the Overview stays with a link | User ("go with recommendations") |
+| 2026-10-01 | The Overview's AI cost is all spend including Test chats (what the budget counts); Analytics' AI cost leaves Test chats out; the monthly budget uses the organization's timezone | Implementation |
 | 2026-09-30 | F6: skip the paid mood re-check and mark F6 complete | User |
 | 2026-09-30 | Real-time notifications: publish IDs only (the dashboard refetches with its own access), org-wide on the org channel, personal on a per-member channel; one shared live connection; the 30 s poll stays as a fallback; plus a toast | User |
 | 2026-09-30 | Bot editor: grouped menu with an overview (concept A plus B), `?tab=` kept for links, Active / Paused pill, Booking essential only with a calendar; built in phases, layout first | User |
 
 ## Next phase
 
-**F7 (Phase 16) — Chat Widget**: explore, audit and plan when you say to start it (not started).
-
-After that: F7–F9 in order, each planned when it starts. Phase 4 runs after F9.
+**F7 (Phase 16) — Chat Widget**: explore, audit and plan when you say to start it (not started). After that: F8
+(Follow-ups). Phase 4 runs after them.

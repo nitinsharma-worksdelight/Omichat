@@ -5,6 +5,7 @@ import {
   Bot,
   Building2,
   CalendarDays,
+  ChartColumn,
   Check,
   ChevronDown,
   Handshake,
@@ -35,6 +36,7 @@ import { Badge, cx } from './ui';
 
 const NAV = [
   { to: '/', segment: undefined, label: 'Overview', icon: LayoutDashboard },
+  { to: '/analytics', segment: 'analytics', label: 'Analytics', icon: ChartColumn },
   { to: '/bots', segment: 'bots', label: 'Bots', icon: Bot },
   { to: '/conversations', segment: 'conversations', label: 'Conversations', icon: MessagesSquare },
   { to: '/contacts', segment: 'contacts', label: 'Leads', icon: Users },

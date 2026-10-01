@@ -1,13 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import { DateTime } from 'luxon';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Container } from '../../container';
 import { schema } from '../../db/client';
 import { badRequest } from '../../lib/errors';
 import { parseInput, parsePatch, queryBool } from '../../lib/validation';
-import { API_KEY_SCOPES } from '../../modules/auth/service';
+import { API_KEY_SCOPES, hasRole } from '../../modules/auth/service';
 import { OrgUpdateSchema } from '../../modules/tenancy/service';
+import { AnalyticsQuerySchema } from '../../modules/analytics/service';
+import { EXPORTS, exportCsv } from '../../modules/analytics/export';
 import { requireUser } from '../auth';
 
 const Id = z.object({ id: z.string().uuid() });
@@ -106,43 +107,52 @@ export async function registerOrgRoutes(app: FastifyInstance, c: Container) {
     return c.automation.listEvents({ orgId: auth.orgId }, q);
   });
 
-  /** Headline numbers for the dashboard home and for billing export later. */
+  /**
+   * Month-to-date headline numbers for the Overview, in the organization's timezone. Test chats and merged duplicates
+   * are left out; `ai` (all spend, Test chats included, as the monthly budget counts it) is for admins only.
+   */
   app.get('/usage', async (req) => {
     const auth = await requireUser(c, req);
-    const since = DateTime.utc().startOf('month').toJSDate();
-    return c.tenantDb.run(auth.orgId, async (tx) => {
-      const [ai] = await tx
-        .select({
-          runs: sql<number>`count(*)::int`,
-          cost: sql<string>`coalesce(sum(${schema.aiRuns.costUsd}), 0)`,
-          inputTokens: sql<number>`coalesce(sum(${schema.aiRuns.inputTokens}), 0)::int`,
-          outputTokens: sql<number>`coalesce(sum(${schema.aiRuns.outputTokens}), 0)::int`,
-          cacheReadTokens: sql<number>`coalesce(sum(${schema.aiRuns.cacheReadTokens}), 0)::int`,
-        })
-        .from(schema.aiRuns)
-        .where(and(eq(schema.aiRuns.organizationId, auth.orgId), gte(schema.aiRuns.createdAt, since)));
-      const [conv] = await tx
-        .select({ total: sql<number>`count(*)::int`, handedOff: sql<number>`count(*) filter (where ${schema.conversations.status} = 'human_active')::int` })
-        .from(schema.conversations)
-        .where(and(eq(schema.conversations.organizationId, auth.orgId), eq(schema.conversations.isTest, false), gte(schema.conversations.createdAt, since)));
-      const [leads] = await tx
-        .select({
-          captured: sql<number>`count(*) filter (where ${schema.contacts.leadCapturedAt} >= ${since})::int`,
-          qualified: sql<number>`count(*) filter (where ${schema.contacts.qualificationStatus} = 'qualified' and ${schema.contacts.updatedAt} >= ${since})::int`,
-        })
-        .from(schema.contacts)
-        .where(and(eq(schema.contacts.organizationId, auth.orgId), eq(schema.contacts.isTest, false)));
-      const [appts] = await tx
-        .select({ booked: sql<number>`count(*)::int` })
-        .from(schema.appointments)
-        .where(and(eq(schema.appointments.organizationId, auth.orgId), gte(schema.appointments.createdAt, since), eq(schema.appointments.createdBy, 'ai')));
-      return {
-        since,
-        ai: { ...ai, costUsd: Number(ai?.cost ?? 0) },
-        conversations: conv,
-        leads,
-        appointmentsBookedByAi: appts?.booked ?? 0,
-      };
-    });
+    const org = await c.tenancy.getOrganization(auth.orgId);
+    const isAdmin = hasRole(auth, 'admin');
+    const r = await c.analytics.monthToDate(auth.orgId, org.timezone, { includeCost: isAdmin });
+    return {
+      since: r.since,
+      ai: r.spend,
+      aiReplies: r.totals.aiReplies,
+      conversations: { total: r.totals.conversations, handedOff: r.totals.handoffs },
+      leads: { captured: r.totals.leads, qualified: r.totals.qualified },
+      appointmentsBookedByAi: r.totals.bookings,
+      dealsWon: r.totals.dealsWon,
+    };
+  });
+
+  /** Reports over a date range, by bot and channel (staff). AI cost is for admins. */
+  app.get('/analytics', async (req) => {
+    const auth = await requireUser(c, req);
+    const q = parseInput(AnalyticsQuerySchema, req.query);
+    const org = await c.tenancy.getOrganization(auth.orgId);
+    const isAdmin = hasRole(auth, 'admin');
+    return c.analytics.report(auth.orgId, org.timezone, q, { includeCost: isAdmin });
+  });
+
+  /** Team performance, the funnel, lead sources, AI actions and approvals over a date range (staff). */
+  app.get('/analytics/performance', async (req) => {
+    const auth = await requireUser(c, req);
+    const q = parseInput(AnalyticsQuerySchema, req.query);
+    const org = await c.tenancy.getOrganization(auth.orgId);
+    return c.analytics.performance(auth.orgId, org.timezone, q, { includeCost: hasRole(auth, 'admin') });
+  });
+
+  /** One report as a CSV file (admins). */
+  app.get('/analytics/export', async (req, reply) => {
+    const auth = await requireUser(c, req, 'admin');
+    const q = parseInput(AnalyticsQuerySchema.extend({ report: z.enum(EXPORTS) }), req.query);
+    const org = await c.tenancy.getOrganization(auth.orgId);
+    const csv = await exportCsv(c, auth.orgId, org.timezone, q);
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="${q.report}-${csv.from}-to-${csv.to}.csv"`)
+      .send(csv.body);
   });
 }

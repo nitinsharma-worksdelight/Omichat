@@ -3,9 +3,12 @@ import { DateTime } from 'luxon';
 import { schema } from '../../db/client';
 import type { TenantDb } from '../../db/tenant';
 
-/** AI spend (USD) this calendar month (UTC), from the recorded runs: replies and summaries alike. */
-export async function monthSpendUsd(tenantDb: TenantDb, orgId: string): Promise<number> {
-  const monthStart = DateTime.utc().startOf('month').toJSDate();
+/**
+ * AI spend (USD) this calendar month in the organization's timezone, from the recorded runs: replies and summaries
+ * alike, Test chats included (it's real spend).
+ */
+export async function monthSpendUsd(tenantDb: TenantDb, orgId: string, timezone: string, now: Date = new Date()): Promise<number> {
+  const monthStart = DateTime.fromJSDate(now, { zone: timezone }).startOf('month').toJSDate();
   const [row] = await tenantDb.run(orgId, (tx) =>
     tx
       .select({ total: sql<string>`coalesce(sum(${schema.aiRuns.costUsd}), 0)` })

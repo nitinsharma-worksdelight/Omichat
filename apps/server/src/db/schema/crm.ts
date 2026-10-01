@@ -90,6 +90,7 @@ export const contacts = pgTable(
   },
   (t) => [
     index('contacts_org_created_idx').on(t.organizationId, t.createdAt.desc()),
+    index('contacts_org_lead_captured_idx').on(t.organizationId, t.leadCapturedAt).where(sql`${t.leadCapturedAt} is not null`),
     index('contacts_org_activity_idx').on(t.organizationId, t.lastActivityAt.desc()),
     uniqueIndex('contacts_org_email_uq')
       .on(t.organizationId, sql`lower(${t.email})`)
