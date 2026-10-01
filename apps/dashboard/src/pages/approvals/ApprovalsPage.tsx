@@ -26,7 +26,7 @@ export function ApprovalsPage() {
   return (
     <div>
       <PageHeader title="Approvals" description="Actions the assistant asked your team to approve before doing them. The customer is told a team member will confirm." />
-      <div className="space-y-4 px-8 py-6">
+      <div className="space-y-5 px-4 sm:px-8 py-6">
         <Tabs
           ariaLabel="Requests"
           tabs={TABS.map((t) => ({ ...t, badge: t.id === 'pending' && pending.data?.length ? pending.data.length : undefined }))}
@@ -35,7 +35,7 @@ export function ApprovalsPage() {
         />
         <QueryState isLoading={approvals.isLoading} error={approvals.error} onRetry={() => void approvals.refetch()}>
           {approvals.data?.length ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {approvals.data.map((a) => (
                 <ApprovalCard key={a.id} approval={a} showContact />
               ))}

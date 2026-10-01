@@ -80,21 +80,21 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={cx('flex max-h-[84vh] w-full flex-col rounded-xl border border-border bg-surface shadow-pop outline-none', modalSizes[size])}
+        className={cx('flex max-h-[84vh] w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-modal outline-none', modalSizes[size])}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="min-w-0">
-            <h2 id={titleId} className="text-base font-semibold text-fg">
+            <h2 id={titleId} className="text-heading font-semibold text-fg">
               {title}
             </h2>
-            {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
+            {description && <p className="mt-0.5 text-body-sm text-muted">{description}</p>}
           </div>
           <IconButton label="Close" size="sm" onClick={onClose}>
             <X className="size-4" />
           </IconButton>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        {footer && <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-2/60 px-6 py-3.5">{footer}</div>}
       </div>
     </div>,
     document.body,
@@ -124,21 +124,21 @@ export function Drawer({ open, onClose, title, description, children, footer, wi
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={cx('flex h-full w-full flex-col border-l border-border bg-surface shadow-pop outline-none', width)}
+        className={cx('flex h-full w-full flex-col border-l border-border bg-surface shadow-modal outline-none', width)}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="min-w-0">
-            <h2 id={titleId} className="text-base font-semibold text-fg">
+            <h2 id={titleId} className="text-heading font-semibold text-fg">
               {title}
             </h2>
-            {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
+            {description && <p className="mt-0.5 text-body-sm text-muted">{description}</p>}
           </div>
           <IconButton label="Close" size="sm" onClick={onClose}>
             <X className="size-4" />
           </IconButton>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        {footer && <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-2/60 px-6 py-3.5">{footer}</div>}
       </div>
     </div>,
     document.body,
@@ -186,7 +186,7 @@ export function Popover({
           role="menu"
           aria-label={label}
           className={cx(
-            'absolute top-full z-40 mt-1.5 min-w-48 rounded-lg border border-border bg-surface p-1 shadow-pop',
+            'absolute top-full z-40 mt-1.5 min-w-48 rounded-xl border border-border bg-surface p-1.5 shadow-pop',
             align === 'right' ? 'right-0' : 'left-0',
             className,
           )}
@@ -206,7 +206,7 @@ export function MenuItem({ children, onClick, icon, danger, disabled }: { childr
       disabled={disabled}
       onClick={onClick}
       className={cx(
-        'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors disabled:opacity-50',
+        'flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-body-sm transition-colors disabled:opacity-50',
         danger ? 'text-danger-text hover:bg-danger-soft' : 'text-fg hover:bg-surface-2',
       )}
     >

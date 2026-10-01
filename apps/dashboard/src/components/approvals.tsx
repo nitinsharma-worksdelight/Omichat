@@ -53,16 +53,24 @@ export function ApprovalCard({ approval, showContact, className }: { approval: A
   const who = approval.contact.name || approval.contact.email || approval.contact.phone || 'A visitor';
 
   return (
-    <div className={cx('rounded-lg border px-4 py-3', approval.status === 'pending' ? 'border-warning/40 bg-warning-soft' : 'border-border bg-surface', className)}>
+    <div className={cx('rounded-xl border px-4 py-3.5', approval.status === 'pending' ? 'border-warning/35 bg-warning-soft' : 'border-border bg-surface shadow-card', className)}>
       <div className="flex items-start gap-3">
-        <ShieldQuestion className={cx('mt-0.5 size-4 shrink-0', approval.status === 'pending' ? 'text-warning' : 'text-muted')} aria-hidden />
+        <span
+          className={cx(
+            'flex size-7 shrink-0 items-center justify-center rounded-lg',
+            approval.status === 'pending' ? 'bg-warning/15 text-warning' : 'bg-surface-2 text-muted',
+          )}
+          aria-hidden
+        >
+          <ShieldQuestion className="size-4" />
+        </span>
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-fg">
+          <p className="flex flex-wrap items-center gap-2 pt-0.5 text-body font-semibold text-fg">
             {approval.summary}
             <ApprovalStatusBadge status={approval.status} />
             {approval.contact.isTest && <Badge tone="blue">Test</Badge>}
           </p>
-          <p className="text-xs text-muted">
+          <p className="text-caption text-muted">
             {showContact && (
               <>
                 <Link to={`/conversations/${approval.conversationId}`} className="font-medium text-accent-text hover:underline">
@@ -77,7 +85,7 @@ export function ApprovalCard({ approval, showContact, className }: { approval: A
             {approval.reason && ` · “${approval.reason}”`}
           </p>
           {canDecide && !mode && (
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-2">
               <Button size="sm" variant="primary" onClick={() => setMode('approve')}>
                 Approve…
               </Button>
@@ -87,7 +95,7 @@ export function ApprovalCard({ approval, showContact, className }: { approval: A
             </div>
           )}
           {canDecide && mode && (
-            <div className="space-y-2 pt-1">
+            <div className="space-y-2 pt-2">
               {mode === 'reject' && (
                 <Input aria-label="Reason" placeholder="Why (optional; the assistant sees it)" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} />
               )}

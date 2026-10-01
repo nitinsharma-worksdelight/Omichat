@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowLeft,
   ChevronDown,
   ChevronUp,
   ExternalLink,
@@ -11,17 +12,17 @@ import {
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
-  RotateCcw,
-  ScrollText,
   Send,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { TimelineList } from '../../components/activity';
 import { ApprovalCard, useApprovals } from '../../components/approvals';
+import { AiAvatar, PersonAvatar } from '../../components/avatar';
 import { useToast } from '../../components/feedback-context';
 import { ChannelBadge, ConversationStatusBadge, QualificationBadge, TagChip, TierBadge } from '../../components/status';
-import { Badge, Button, Checkbox, cx, DefinitionList, EmptyState, ErrorBanner, Kbd, PageHeader, Select, Spinner, SkeletonRows, type Tone } from '../../components/ui';
+import { Badge, Button, Checkbox, cx, DefinitionList, EmptyState, ErrorBanner, IconButton, Kbd, PageHeader, Select, Spinner, SkeletonRows, type Tone } from '../../components/ui';
 import { API_URL, authHeaders, get, post } from '../../lib/api';
 import { formatDateTime, formatTime, SUMMARY_TRIGGER, timeAgo } from '../../lib/format';
 import { useAction } from '../../lib/mutations';
@@ -43,11 +44,11 @@ function AssigneePicker({ conversationId, assignee, canAssign }: { conversationI
     invalidate: [['conversation', conversationId], ['conversations'], ['timeline', conversationId]],
     success: (_d, userId) => (userId ? (userId === me?.user.id ? 'Assigned to you' : 'Assigned') : 'Unassigned'),
   });
-  if (!canAssign) return assignee ? <span className="text-xs text-muted">Assigned to {assignee.name}</span> : null;
+  if (!canAssign) return assignee ? <span className="text-caption text-muted">Assigned to {assignee.name}</span> : null;
   return (
     <Select
       aria-label="Assigned to"
-      className="h-8 w-44 text-xs"
+      className="w-44 [&_select]:h-8 [&_select]:py-1 [&_select]:text-body-sm"
       value={assignee?.id ?? ''}
       disabled={assign.isPending}
       onChange={(e) => assign.mutate(e.target.value || null)}
@@ -100,24 +101,25 @@ export function ConversationsPage({ conversationId }: { conversationId: string |
         title="Conversations"
         description="Every chat with your assistants. Take over any time — the AI pauses while your team replies."
         actions={
-          <span className="flex items-center gap-1.5 text-xs text-muted">
-            <span className={cx('size-2 rounded-full', connected ? 'bg-success' : 'bg-faint')} aria-hidden />
+          <span className="flex items-center gap-1.5 text-caption text-muted">
+            <span className={cx('size-2 rounded-full', connected ? 'bg-success ring-3 ring-success/20' : 'bg-faint')} aria-hidden />
             {connected ? 'Live' : 'Connecting…'}
           </span>
         }
       />
       <div className="flex min-h-0 flex-1">
-        <div className="flex w-72 shrink-0 flex-col border-r border-border bg-surface">
-          <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
+        {/* Below 1024 px one pane shows at a time: the list, or the open conversation. */}
+        <div className={cx('w-full shrink-0 flex-col border-r border-border bg-surface lg:flex lg:w-72 xl:w-80', conversationId ? 'hidden' : 'flex')}>
+          <div className="flex items-center gap-3 px-3.5 pt-3 pb-2">
             <Select aria-label="Status" className="flex-1" value={status} onChange={(e) => setStatus(e.target.value as ConversationStatus | '')}>
               <option value="">All statuses</option>
               <option value="ai_active">AI handling</option>
               <option value="human_active">Needs a human</option>
               <option value="closed">Closed</option>
             </Select>
-            <Checkbox label="Include tests" checked={includeTest} onChange={(e) => setIncludeTest(e.target.checked)} className="shrink-0 text-xs" />
+            <Checkbox label="Include tests" checked={includeTest} onChange={(e) => setIncludeTest(e.target.checked)} className="shrink-0 [&_label]:text-caption" />
           </div>
-          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <div className="flex items-center gap-2 border-b border-border px-3.5 pb-3">
             <Select aria-label="Assigned to" className="flex-1" value={assignee} onChange={(e) => setAssignee(e.target.value as '' | 'me' | 'unassigned')}>
               <option value="">Everyone's</option>
               <option value="me">Mine</option>
@@ -146,32 +148,42 @@ export function ConversationsPage({ conversationId }: { conversationId: string |
                     <Link
                       to={`/conversations/${c.id}`}
                       aria-current={c.id === conversationId ? 'true' : undefined}
-                      className={cx('block border-b border-border px-3 py-3 transition-colors', c.id === conversationId ? 'bg-accent-soft' : 'hover:bg-surface-2')}
+                      className={cx(
+                        'relative flex gap-3 border-b border-border px-3.5 py-3 transition-colors',
+                        c.id === conversationId ? 'bg-accent-soft before:absolute before:inset-y-2.5 before:left-0 before:w-[3px] before:rounded-r-full before:bg-accent' : 'hover:bg-surface-2',
+                      )}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-[13px] font-medium text-fg">{c.contact.name || c.contact.email || c.contact.phone || 'Anonymous visitor'}</span>
-                        <span className="shrink-0 text-[11px] text-muted">{timeAgo(c.lastMessageAt ?? c.createdAt)}</span>
-                      </div>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-muted">
-                        {c.lastMessage ? (
-                          <>
-                            {c.lastMessage.senderType === 'ai' ? 'AI: ' : c.lastMessage.senderType === 'human' ? 'Team: ' : ''}
-                            {c.lastMessage.content}
-                          </>
-                        ) : (
-                          'No messages yet'
-                        )}
-                      </p>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                        <ConversationStatusBadge status={c.status} />
-                        {c.overdue && <Badge tone="red">Waiting too long</Badge>}
-                        {c.status === 'human_active' && !c.firstStaffReplyAt && c.handedOffAt && !c.overdue && (
-                          <span className="text-[11px] text-muted">waiting {timeAgo(c.handedOffAt).replace(/ ago$/, '')}</span>
-                        )}
-                        <ChannelBadge channel={c.channel} />
-                        {c.assignee && <span className="text-[11px] text-muted">· {c.assignee.name}</span>}
-                        {c.contact.leadTier && <TierBadge tier={c.contact.leadTier} />}
-                        {c.isTest && <Badge tone="blue">Test</Badge>}
+                      <PersonAvatar name={c.contact.name || c.contact.email || c.contact.phone} size="lg" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-body-sm font-semibold text-fg">{c.contact.name || c.contact.email || c.contact.phone || 'Anonymous visitor'}</span>
+                          <span className="shrink-0 text-label text-muted tabular-nums">{timeAgo(c.lastMessageAt ?? c.createdAt)}</span>
+                        </div>
+                        <p className="mt-0.5 line-clamp-2 text-caption text-muted">
+                          {c.lastMessage ? (
+                            <>
+                              {c.lastMessage.senderType === 'ai' ? (
+                                <span className="font-semibold text-ai-text">AI: </span>
+                              ) : c.lastMessage.senderType === 'human' ? (
+                                <span className="font-semibold text-human-text">Team: </span>
+                              ) : null}
+                              {c.lastMessage.content}
+                            </>
+                          ) : (
+                            'No messages yet'
+                          )}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1">
+                          <ConversationStatusBadge status={c.status} />
+                          {c.overdue && <Badge tone="red">Waiting too long</Badge>}
+                          {c.status === 'human_active' && !c.firstStaffReplyAt && c.handedOffAt && !c.overdue && (
+                            <span className="text-label text-muted">waiting {timeAgo(c.handedOffAt).replace(/ ago$/, '')}</span>
+                          )}
+                          <ChannelBadge channel={c.channel} />
+                          {c.assignee && <span className="text-label text-muted">· {c.assignee.name}</span>}
+                          {c.contact.leadTier && <TierBadge tier={c.contact.leadTier} />}
+                          {c.isTest && <Badge tone="blue">Test</Badge>}
+                        </div>
                       </div>
                     </Link>
                   </li>
@@ -187,7 +199,7 @@ export function ConversationsPage({ conversationId }: { conversationId: string |
             )}
           </div>
         </div>
-        <div className="min-w-0 flex-1">
+        <div className={cx('min-w-0 flex-1', !conversationId && 'hidden lg:block')}>
           {conversationId ? (
             <Thread key={conversationId} conversationId={conversationId} />
           ) : (
@@ -282,6 +294,16 @@ function Thread({ conversationId }: { conversationId: string }) {
     { onOpen: () => void fillGaps() },
   );
 
+  // On narrow screens the details are an overlay: Escape closes it.
+  useEffect(() => {
+    if (!showDetails) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape' && !window.matchMedia('(min-width: 1280px)').matches) setShowDetails(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showDetails]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -334,30 +356,35 @@ function Thread({ conversationId }: { conversationId: string }) {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border bg-surface px-5 py-2.5">
-          <div className="min-w-0">
-            <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-fg">
-              {contactName}
-              <ConversationStatusBadge status={conv.status} />
-              <ChannelBadge channel={conv.channel} />
-              {conv.isTest && <Badge tone="blue">Test</Badge>}
-              <span className={cx('size-1.5 rounded-full', connected ? 'bg-success' : 'bg-faint')} title={connected ? 'Live' : 'Connecting…'} />
-            </p>
-            <p className="truncate text-xs text-muted">
-              Started {formatDateTime(conv.createdAt)} · {conv.messageCount} messages
-              {conv.status === 'human_active' && conv.handoffReason ? ` · Handoff: ${conv.handoffReason}` : ''}
-            </p>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border bg-surface px-4 py-3 sm:px-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <IconButton label="Back to inbox" size="sm" className="-ml-1 lg:hidden" onClick={() => navigate('/conversations')}>
+              <ArrowLeft className="size-4" />
+            </IconButton>
+            <div className="min-w-0">
+              <p className="flex flex-wrap items-center gap-2 text-[15px] leading-[22px] font-semibold text-fg">
+                {contactName}
+                <ConversationStatusBadge status={conv.status} />
+                <ChannelBadge channel={conv.channel} />
+                {conv.isTest && <Badge tone="blue">Test</Badge>}
+                <span className={cx('size-2 rounded-full', connected ? 'bg-success' : 'bg-faint')} title={connected ? 'Live' : 'Connecting…'} />
+              </p>
+              <p className="mt-0.5 truncate text-caption text-muted">
+                Started {formatDateTime(conv.createdAt)} · {conv.messageCount} messages
+                {conv.status === 'human_active' && conv.handoffReason ? ` · Handoff: ${conv.handoffReason}` : ''}
+              </p>
+            </div>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {conv.overdue && <Badge tone="red">Waiting too long</Badge>}
             <AssigneePicker conversationId={conv.id} assignee={conv.assignee} canAssign={canReply && conv.status !== 'closed'} />
             {canReply && conv.status === 'ai_active' && (
-              <Button size="sm" icon={<Hand className="size-3.5" />} loading={setStatus.isPending && setStatus.variables === 'takeover'} onClick={() => setStatus.mutate('takeover')}>
+              <Button size="sm" icon={<Hand className="size-3.5 text-human" />} loading={setStatus.isPending && setStatus.variables === 'takeover'} onClick={() => setStatus.mutate('takeover')}>
                 Take over
               </Button>
             )}
             {canReply && conv.status === 'human_active' && (
-              <Button size="sm" icon={<RotateCcw className="size-3.5" />} loading={setStatus.isPending && setStatus.variables === 'resume'} onClick={() => setStatus.mutate('resume')}>
+              <Button size="sm" icon={<Sparkles className="size-3.5 text-ai" />} loading={setStatus.isPending && setStatus.variables === 'resume'} onClick={() => setStatus.mutate('resume')}>
                 Resume AI
               </Button>
             )}
@@ -375,6 +402,7 @@ function Thread({ conversationId }: { conversationId: string }) {
               size="sm"
               variant="ghost"
               aria-pressed={showDetails}
+              className={showDetails ? 'bg-surface-2 text-fg' : undefined}
               icon={showDetails ? <PanelRightClose className="size-3.5" /> : <PanelRightOpen className="size-3.5" />}
               onClick={() => setShowDetails((s) => !s)}
             >
@@ -384,14 +412,14 @@ function Thread({ conversationId }: { conversationId: string }) {
         </div>
         <SummaryBar conv={conv} messages={messages.data} canRefresh={canReply} />
         {approvals.data?.length ? (
-          <div className="space-y-2 border-b border-border bg-surface px-5 py-3">
+          <div className="space-y-2 border-b border-border bg-surface px-5 py-3.5">
             {approvals.data.map((a) => (
               <ApprovalCard key={a.id} approval={a} />
             ))}
           </div>
         ) : null}
 
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-bg px-6 py-5" aria-live="polite">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-bg px-6 py-6" aria-live="polite">
           {messages.isLoading ? (
             <SkeletonRows rows={6} />
           ) : messages.error ? (
@@ -403,49 +431,54 @@ function Thread({ conversationId }: { conversationId: string }) {
               ))}
               {streamText && <MessageBubble message={{ senderType: 'ai', direction: 'outbound', content: streamText, citations: [], createdAt: '' }} contactName={contactName} streaming />}
               {activity && (
-                <p className="flex items-center justify-end gap-1.5 text-xs text-muted">
+                <p className="flex items-center justify-end gap-1.5 pr-10 text-caption text-ai-text">
                   <Loader2 className="size-3 animate-spin" aria-hidden />
                   {activity}
                 </p>
               )}
               {typing && !streamText && !activity && (
-                <div className="flex justify-end gap-1 pr-1" aria-label="AI is typing">
-                  <span className="typing-dot size-1.5 rounded-full bg-faint" />
-                  <span className="typing-dot size-1.5 rounded-full bg-faint" />
-                  <span className="typing-dot size-1.5 rounded-full bg-faint" />
+                <div className="flex items-center justify-end gap-2" aria-label="AI is typing">
+                  <span className="flex gap-1 rounded-2xl rounded-br-md bg-ai-soft px-3.5 py-3">
+                    <span className="typing-dot size-1.5 rounded-full bg-ai" />
+                    <span className="typing-dot size-1.5 rounded-full bg-ai" />
+                    <span className="typing-dot size-1.5 rounded-full bg-ai" />
+                  </span>
+                  <AiAvatar />
                 </div>
               )}
-              {messages.data?.length === 0 && <p className="py-8 text-center text-[13px] text-muted">No messages yet.</p>}
+              {messages.data?.length === 0 && <p className="py-8 text-center text-body-sm text-muted">No messages yet.</p>}
             </>
           )}
         </div>
 
         {canReply && conv.status !== 'closed' ? (
-          <form onSubmit={submitReply} className="border-t border-border bg-surface p-3">
-            <label htmlFor="staff-reply" className="sr-only">
-              Reply
-            </label>
-            <textarea
-              id="staff-reply"
-              rows={3}
-              className="control resize-none"
-              placeholder={conv.status === 'ai_active' ? 'Reply as your team — sending takes over from the AI' : 'Write a reply…'}
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              onKeyDown={onKeyDown}
-              maxLength={4000}
-            />
-            <div className="mt-2 flex items-center justify-between">
-              <p className="text-xs text-muted">
-                <Kbd>⌘</Kbd>/<Kbd>Ctrl</Kbd> + <Kbd>Enter</Kbd> to send
-              </p>
-              <Button type="submit" variant="primary" size="sm" icon={<Send className="size-3.5" />} loading={sendReply.isPending} disabled={!reply.trim()}>
-                Send
-              </Button>
+          <form onSubmit={submitReply} className="border-t border-border bg-surface px-5 py-4">
+            <div className="rounded-xl border border-border-strong bg-input-bg transition-[border-color,box-shadow] focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--ring)]">
+              <label htmlFor="staff-reply" className="sr-only">
+                Reply
+              </label>
+              <textarea
+                id="staff-reply"
+                rows={3}
+                className="block w-full resize-none bg-transparent px-3.5 pt-3 text-body text-fg outline-none placeholder:text-faint"
+                placeholder={conv.status === 'ai_active' ? 'Reply as your team — sending takes over from the AI' : 'Write a reply…'}
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                onKeyDown={onKeyDown}
+                maxLength={4000}
+              />
+              <div className="flex items-center justify-between gap-3 px-3 pt-1 pb-2.5">
+                <p className="pl-0.5 text-caption text-muted">
+                  <Kbd>⌘</Kbd>/<Kbd>Ctrl</Kbd> + <Kbd>Enter</Kbd> to send
+                </p>
+                <Button type="submit" variant="primary" size="sm" icon={<Send className="size-3.5" />} loading={sendReply.isPending} disabled={!reply.trim()}>
+                  Send
+                </Button>
+              </div>
             </div>
           </form>
         ) : conv.status === 'closed' ? (
-          <p className="border-t border-border bg-surface px-4 py-3 text-center text-[13px] text-muted">This conversation is closed. A new message from the visitor starts a new conversation.</p>
+          <p className="border-t border-border bg-surface-2/60 px-5 py-4 text-center text-body-sm text-muted">This conversation is closed. A new message from the visitor starts a new conversation.</p>
         ) : null}
       </div>
 
@@ -461,14 +494,26 @@ function Thread({ conversationId }: { conversationId: string }) {
           onClose={() => setDealOpen(false)}
         />
       )}
+      {showDetails && <div className="fixed inset-0 z-30 bg-overlay xl:hidden" aria-hidden onClick={() => setShowDetails(false)} />}
       {showDetails && (
-        <aside className="w-72 shrink-0 overflow-y-auto border-l border-border bg-surface" aria-label="Conversation details">
-          <div className="space-y-3 border-b border-border p-4">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-fg">Contact</h3>
-              <Link to={`/contacts/${contact.id}`} className="inline-flex items-center gap-1 text-xs text-accent-text hover:underline">
+        // Below 1280 px the details open over the thread instead of squeezing it.
+        <aside
+          className="fixed inset-y-0 right-0 z-40 w-[min(20rem,100vw)] shrink-0 overflow-y-auto border-l border-border bg-surface shadow-modal xl:static xl:z-auto xl:w-80 xl:shadow-none"
+          aria-label="Conversation details"
+        >
+          <div className="space-y-4 border-b border-border p-5">
+            <div className="flex items-center gap-3">
+              <PersonAvatar name={contact.name || contact.email || contact.phone} size="lg" />
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-body font-semibold text-fg">{contactName}</h3>
+                <p className="text-caption text-muted">Contact</p>
+              </div>
+              <Link to={`/contacts/${contact.id}`} className="inline-flex items-center gap-1 text-caption font-medium text-accent-text hover:underline">
                 Open <ExternalLink className="size-3" />
               </Link>
+              <IconButton label="Close details" size="sm" className="xl:hidden" onClick={() => setShowDetails(false)}>
+                <X className="size-4" />
+              </IconButton>
             </div>
             <DefinitionList
               items={[
@@ -483,7 +528,7 @@ function Thread({ conversationId }: { conversationId: string }) {
                   ? [
                       [
                         'IP address',
-                        <span key="ip" className="font-mono text-[12.5px]" title={visitorIpAt ? `Last seen ${formatDateTime(visitorIpAt)}` : undefined}>
+                        <span key="ip" className="font-mono text-caption" title={visitorIpAt ? `Last seen ${formatDateTime(visitorIpAt)}` : undefined}>
                           {visitorIp}
                         </span>,
                       ] as [string, ReactNode],
@@ -499,9 +544,9 @@ function Thread({ conversationId }: { conversationId: string }) {
               </div>
             )}
           </div>
-          <div className="p-4">
+          <div className="p-5">
             <div className="mb-1 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-fg">Timeline</h3>
+              <h3 className="text-body font-semibold text-fg">Timeline</h3>
               {timeline.isFetching && <Spinner />}
             </div>
             {timeline.error ? <ErrorBanner error={timeline.error} /> : <TimelineList timeline={timeline.data} emptyText="No AI actions or events yet." />}
@@ -574,19 +619,21 @@ function SummaryBar({ conv, messages, canRefresh }: { conv: ConversationDetail; 
   );
 
   return (
-    <div className="border-b border-border bg-surface-2/60 px-5 py-1.5" aria-label="Conversation summary">
+    <div className="border-b border-border bg-surface-2/60 px-5 py-2" aria-label="Conversation summary">
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left text-xs text-fg-2 disabled:cursor-default"
+          className="flex min-w-0 flex-1 items-center gap-2.5 py-0.5 text-left text-body-sm text-fg-2 disabled:cursor-default"
           aria-expanded={open}
           disabled={!conv.summary}
           onClick={() => setOpen((o) => !o)}
         >
-          <ScrollText className="size-3.5 shrink-0 text-muted" aria-hidden />
+          <span className="flex size-5.5 shrink-0 items-center justify-center rounded-md bg-ai-soft text-ai" aria-hidden>
+            <Sparkles className="size-3" />
+          </span>
           <span className="min-w-0 flex-1 truncate">{headline}</span>
           {mood?.tone === 'red' && !open && <Badge tone="red">{mood.label}</Badge>}
-          {since ? <span className="shrink-0 text-[11px] text-muted">{since} new</span> : null}
+          {since ? <span className="shrink-0 text-label text-muted">{since} new</span> : null}
           {conv.summary && (open ? <ChevronUp className="size-3.5 shrink-0 text-muted" aria-hidden /> : <ChevronDown className="size-3.5 shrink-0 text-muted" aria-hidden />)}
         </button>
         {canRefresh && conv.status !== 'closed' && (
@@ -596,10 +643,10 @@ function SummaryBar({ conv, messages, canRefresh }: { conv: ConversationDetail; 
         )}
       </div>
       {open && conv.summary && (
-        <div className="space-y-2 pt-1.5 pb-1.5 pl-[22px]">
+        <div className="space-y-2 pt-2 pb-2 pl-8">
           {d && (
             <DefinitionList
-              className="text-xs"
+              className="text-caption"
               items={[
                 ['Wants', d.intent ?? '—'],
                 ['Outcome', d.outcome ?? '—'],
@@ -608,8 +655,8 @@ function SummaryBar({ conv, messages, canRefresh }: { conv: ConversationDetail; 
               ]}
             />
           )}
-          <p className="text-xs leading-relaxed whitespace-pre-wrap text-fg-2">{conv.summary}</p>
-          <p className="text-[11px] text-muted">
+          <p className="text-caption leading-relaxed whitespace-pre-wrap text-fg-2">{conv.summary}</p>
+          <p className="text-label text-muted">
             {d
               ? `Updated ${timeAgo(d.at)}${SUMMARY_TRIGGER[d.trigger] ? ` ${SUMMARY_TRIGGER[d.trigger]}` : ''} · ${
                   since === null ? 'the conversation up to then' : since === 0 ? 'covers the whole conversation' : `${since} new message${since === 1 ? '' : 's'} since`
@@ -625,42 +672,67 @@ function SummaryBar({ conv, messages, canRefresh }: { conv: ConversationDetail; 
 function MessageBubble({ message, contactName: name, streaming }: { message: Pick<Message, 'senderType' | 'direction' | 'content' | 'citations' | 'createdAt'>; contactName: string; streaming?: boolean }) {
   const citations = message.citations.filter((c, i, all) => all.findIndex((x) => x.title === c.title && (x.url ?? null) === (c.url ?? null)) === i);
   if (message.senderType === 'system') {
-    return <p className="text-center text-xs text-muted">{message.content}</p>;
+    return (
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-border" aria-hidden />
+        <p className="max-w-[70%] rounded-full border border-border bg-surface px-3 py-1 text-center text-caption text-muted">{message.content}</p>
+        <span className="h-px flex-1 bg-border" aria-hidden />
+      </div>
+    );
   }
   const fromContact = message.direction === 'inbound';
-  const label = fromContact ? name : message.senderType === 'human' ? 'Team' : 'AI';
+  const team = !fromContact && message.senderType === 'human';
+  const label = fromContact ? name : team ? 'Team' : 'AI';
+  // Three voices: the visitor (neutral, left), the AI (iris, right) and your team (apricot, right).
   return (
-    <div className={cx('flex flex-col', fromContact ? 'items-start' : 'items-end')}>
-      <span className="mb-0.5 flex items-center gap-1.5 px-1 text-[11px] text-muted">
-        {!fromContact && <Badge tone={message.senderType === 'human' ? 'amber' : 'indigo'}>{label}</Badge>}
-        {fromContact && label}
-        {message.createdAt && <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>}
-      </span>
-      <div
-        className={cx(
-          'max-w-[75%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed whitespace-pre-wrap',
-          fromContact ? 'rounded-bl-md border border-border bg-surface text-fg' : message.senderType === 'human' ? 'rounded-br-md bg-accent text-accent-fg' : 'rounded-br-md bg-accent-soft text-fg',
-        )}
-      >
-        {message.content}
-        {streaming && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-current align-middle opacity-60" aria-hidden />}
-      </div>
-      {citations.length > 0 && (
-        <div className="mt-1 flex max-w-[75%] flex-wrap justify-end gap-x-2 gap-y-0.5 px-1">
-          <span className="text-[11px] text-faint">Sources:</span>
-          {citations.map((c, i) =>
-            c.url ? (
-              <a key={i} href={c.url} target="_blank" rel="noreferrer" className="text-[11px] text-accent-text hover:underline">
-                {c.title}
-              </a>
-            ) : (
-              <span key={i} className="text-[11px] text-muted">
-                {c.title}
-              </span>
-            ),
+    <div className={cx('flex items-end gap-2.5', fromContact ? 'flex-row' : 'flex-row-reverse')}>
+      {fromContact ? <PersonAvatar name={name === 'Anonymous visitor' ? null : name} /> : team ? <PersonAvatar name="Team" tone="human" /> : <AiAvatar />}
+      <div className={cx('flex max-w-[75%] min-w-0 flex-col', fromContact ? 'items-start' : 'items-end')}>
+        <span className={cx('mb-1 flex items-center gap-1.5 px-1 text-label', fromContact ? 'text-muted' : team ? 'font-semibold text-human-text' : 'font-semibold text-ai-text')}>
+          {label}
+          {message.createdAt && (
+            <time dateTime={message.createdAt} className="font-normal text-muted">
+              {formatTime(message.createdAt)}
+            </time>
           )}
+        </span>
+        <div
+          className={cx(
+            'rounded-2xl px-3.5 py-2.5 text-body break-words whitespace-pre-wrap',
+            fromContact
+              ? 'rounded-bl-md border border-border bg-surface text-fg'
+              : team
+                ? 'rounded-br-md border border-human/25 bg-human-soft text-fg'
+                : 'rounded-br-md border border-ai/25 bg-ai-soft text-fg',
+          )}
+        >
+          {message.content}
+          {streaming && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-ai align-middle opacity-70" aria-hidden />}
         </div>
-      )}
+        {citations.length > 0 && (
+          <div className={cx('mt-1.5 flex flex-wrap items-center gap-1 px-1', fromContact ? 'justify-start' : 'justify-end')}>
+            <span className="text-label text-muted">Sources:</span>
+            {citations.map((c, i) =>
+              c.url ? (
+                <a
+                  key={i}
+                  href={c.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={c.title}
+                  className="max-w-64 truncate rounded-md border border-border bg-surface px-1.5 py-0.5 text-label text-accent-text hover:border-border-strong hover:underline"
+                >
+                  {c.title}
+                </a>
+              ) : (
+                <span key={i} title={c.title} className="max-w-64 truncate rounded-md border border-border bg-surface px-1.5 py-0.5 text-label text-fg-2">
+                  {c.title}
+                </span>
+              ),
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

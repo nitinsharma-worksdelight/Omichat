@@ -34,7 +34,7 @@ export function BotsPage() {
           )
         }
       />
-      <div className="px-8 py-6">
+      <div className="px-4 sm:px-8 py-6">
         {bots.isLoading ? (
           <SkeletonRows rows={4} />
         ) : bots.error ? (
@@ -49,18 +49,23 @@ export function BotsPage() {
             />
           </Card>
         ) : (
-          <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {bots.data.map((bot) => {
               const usedBy = (channels.data ?? []).filter((c) => c.botId === bot.id && c.channel === 'webchat');
               return (
-                <Card key={bot.id} className="flex flex-col p-4 transition-colors hover:border-border-strong">
+                <Card key={bot.id} className="flex flex-col p-5 transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-raise">
                   <div className="flex items-start justify-between gap-3">
-                    <Link to={`/bots/${bot.id}`} className="group min-w-0">
-                      <p className="truncate text-sm font-semibold text-fg group-hover:text-accent-text">{bot.name}</p>
-                      <p className="truncate text-xs text-muted">
-                        {bot.config.persona.assistantName}
-                        {bot.config.persona.companyName && ` · ${bot.config.persona.companyName}`}
-                      </p>
+                    <Link to={`/bots/${bot.id}`} className="group flex min-w-0 items-center gap-3">
+                      <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-ai-soft font-display text-[17px] font-bold text-ai-text ring-1 ring-ai/30">
+                        {(bot.config.persona.assistantName.trim() || bot.name.trim() || '?').charAt(0).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-display text-heading font-semibold tracking-[-0.01em] text-fg group-hover:text-accent-text">{bot.name}</p>
+                        <p className="truncate text-caption text-muted">
+                          {bot.config.persona.assistantName}
+                          {bot.config.persona.companyName && ` · ${bot.config.persona.companyName}`}
+                        </p>
+                      </div>
                     </Link>
                     <Badge tone={bot.isActive ? 'green' : 'slate'} dot>
                       {bot.isActive ? 'Active' : 'Inactive'}
@@ -73,7 +78,7 @@ export function BotsPage() {
                     <FeatureBadge on={bot.config.handoff.enabled} label="Handoff" />
                     <FeatureBadge on={bot.knowledgeBaseIds.length > 0} label={`${bot.knowledgeBaseIds.length} knowledge base${bot.knowledgeBaseIds.length === 1 ? '' : 's'}`} />
                   </div>
-                  <div className="mt-auto flex items-end justify-between gap-2 border-t border-border pt-3 text-xs text-muted">
+                  <div className="mt-auto flex items-end justify-between gap-2 border-t border-border pt-3.5 text-caption text-muted">
                     <span className="min-w-0">
                       <span className="block">
                         {bot.model ?? aiConfig?.model ?? 'server default'}

@@ -22,9 +22,9 @@ export function SlotPicker({ calendarId, value, onChange, days = 7 }: { calendar
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[13px] text-fg-2">
+        <p className="text-body-sm text-fg-2">
           {formatDayHeading(from)} – {formatDayHeading(to)}
-          {availability.data && <span className="ml-1 text-xs text-muted">({availability.data.calendar.timezone})</span>}
+          {availability.data && <span className="ml-1 text-caption text-muted">({availability.data.calendar.timezone})</span>}
         </p>
         <div className="flex gap-1">
           <Button size="xs" variant="ghost" icon={<ChevronLeft className="size-3.5" />} disabled={from <= today} onClick={() => shift(-days)}>
@@ -45,7 +45,7 @@ export function SlotPicker({ calendarId, value, onChange, days = 7 }: { calendar
         <div className="max-h-72 space-y-3 overflow-y-auto pr-1" role="radiogroup" aria-label="Available times">
           {groups.map(([day, slots]) => (
             <div key={day}>
-              <p className="mb-1.5 text-xs font-medium text-muted">{formatDayHeading(day)}</p>
+              <p className="mb-1.5 text-caption font-medium text-muted">{formatDayHeading(day)}</p>
               <div className="flex flex-wrap gap-1.5">
                 {slots.map((s) => {
                   const selected = s.local === value;
@@ -57,7 +57,7 @@ export function SlotPicker({ calendarId, value, onChange, days = 7 }: { calendar
                       aria-checked={selected}
                       onClick={() => onChange(s)}
                       className={cx(
-                        'rounded-md border px-2.5 py-1 text-[13px] tabular-nums transition-colors',
+                        'h-8 rounded-lg border px-3 text-body-sm font-medium tabular-nums transition-colors',
                         selected ? 'border-accent bg-accent text-accent-fg' : 'border-border-strong bg-surface text-fg hover:border-accent hover:text-accent-text',
                       )}
                     >

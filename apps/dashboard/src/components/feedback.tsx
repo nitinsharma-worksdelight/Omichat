@@ -64,14 +64,14 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             </>
           }
         >
-          <div className="text-sm text-fg-2">{confirmState?.message}</div>
+          <div className="text-body text-fg-2">{confirmState?.message}</div>
         </Modal>
         <div aria-live="polite" className="pointer-events-none fixed right-4 bottom-4 z-[60] flex w-96 max-w-[calc(100vw-2rem)] flex-col gap-2">
           {toasts.map((t) => (
             <div
               key={t.id}
               role={t.kind === 'error' ? 'alert' : 'status'}
-              className="pointer-events-auto flex items-start gap-2.5 rounded-lg border border-border bg-surface px-3.5 py-3 text-[13px] shadow-pop"
+              className="pointer-events-auto flex items-start gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-body-sm shadow-pop"
             >
               {t.kind === 'success' ? (
                 <CircleCheck className="mt-px size-4 shrink-0 text-success" aria-hidden />
@@ -84,11 +84,11 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               )}
               <div className="min-w-0 flex-1">
                 <p className={cx('break-words text-fg', t.kind === 'notice' && 'font-medium')}>{t.message}</p>
-                {t.body && <p className="mt-0.5 line-clamp-2 text-xs whitespace-pre-line text-muted">{t.body}</p>}
+                {t.body && <p className="mt-0.5 line-clamp-2 text-caption whitespace-pre-line text-muted">{t.body}</p>}
                 {t.actionLabel && t.onAction && (
                   <button
                     type="button"
-                    className="mt-1.5 text-xs font-medium text-accent-text hover:underline"
+                    className="mt-1.5 text-caption font-medium text-accent-text hover:underline"
                     onClick={() => {
                       t.onAction?.();
                       dismiss(t.id);
@@ -98,7 +98,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                   </button>
                 )}
               </div>
-              <button type="button" className="shrink-0 rounded p-0.5 text-muted hover:text-fg" aria-label="Dismiss" onClick={() => dismiss(t.id)}>
+              <button type="button" className="shrink-0 rounded-md p-0.5 text-muted hover:bg-surface-2 hover:text-fg" aria-label="Dismiss" onClick={() => dismiss(t.id)}>
                 <X className="size-3.5" />
               </button>
             </div>

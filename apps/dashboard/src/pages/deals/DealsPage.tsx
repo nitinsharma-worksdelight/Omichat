@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, ExternalLink, Handshake, Plus, Search, Settings2, T
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useConfirm } from '../../components/feedback-context';
+import { PersonAvatar } from '../../components/avatar';
 import { Drawer, Modal } from '../../components/overlay';
 import { Badge, Button, EmptyState, ErrorBanner, Field, IconButton, Input, NumberInput, PageHeader, Select, SkeletonRows, Spinner, Textarea } from '../../components/ui';
 import { del, get, patch, post } from '../../lib/api';
@@ -69,7 +70,7 @@ export function DealsPage() {
           </>
         }
       >
-        <div className="flex flex-wrap items-center gap-3 px-8 pb-3">
+        <div className="flex flex-wrap items-center gap-2 px-4 sm:px-8 pb-4">
           {(pipelines.data?.length ?? 0) > 1 && (
             <Select aria-label="Pipeline" className="w-48" value={pipelineId} onChange={(e) => setPipelineId(e.target.value)}>
               {pipelines.data!.map((p) => (
@@ -107,7 +108,7 @@ export function DealsPage() {
       ) : pipelines.error ? (
         <ErrorBanner error={pipelines.error} className="m-6" onRetry={() => void pipelines.refetch()} />
       ) : pipeline ? (
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-6" aria-label={`${pipeline.name} pipeline`}>
+        <div className="flex min-h-0 flex-1 snap-x gap-3 overflow-x-auto px-4 py-6 sm:px-8" aria-label={`${pipeline.name} pipeline`}>
           {pipeline.stages.map((stage) => (
             <StageColumn
               key={stage.id}
@@ -164,33 +165,36 @@ function StageColumn({
   });
   const items = deals.data?.pages.flat() ?? [];
   return (
-    <section className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-surface-2/40" aria-label={`Stage ${stage.name}`}>
-      <header className="border-b border-border px-3 py-2.5">
+    <section className="flex w-72 shrink-0 snap-start scroll-ml-4 flex-col rounded-xl border border-border bg-surface-2/70" aria-label={`Stage ${stage.name}`}>
+      <header className="px-3.5 pt-3 pb-2.5">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="truncate text-[13px] font-semibold text-fg">{stage.name}</h2>
-          <Badge tone="slate">{summary?.count ?? '…'}</Badge>
+          <h2 className="truncate text-body-sm font-semibold text-fg">{stage.name}</h2>
+          <span className="rounded-full bg-surface px-2 text-label font-semibold text-fg-2 tabular-nums shadow-card">{summary?.count ?? '…'}</span>
         </div>
-        <p className="mt-0.5 h-4 text-xs text-muted">{summary?.totals.length ? totalsLine(summary.totals) : ''}</p>
+        <p className="mt-0.5 h-4 text-caption font-medium text-muted tabular-nums">{summary?.totals.length ? totalsLine(summary.totals) : ''}</p>
       </header>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
         {deals.isLoading ? (
           <SkeletonRows rows={2} className="p-0" />
         ) : deals.error ? (
           <ErrorBanner error={deals.error} />
         ) : items.length === 0 ? (
-          <p className="px-1 py-4 text-center text-xs text-muted">No deals</p>
+          <p className="mx-1 rounded-lg border border-dashed border-border-strong px-1 py-5 text-center text-caption text-muted">No deals</p>
         ) : (
           items.map((d) => (
             <button
               key={d.id}
               type="button"
               onClick={() => onOpen(d)}
-              className="block w-full rounded-lg border border-border bg-surface px-3 py-2 text-left shadow-xs transition-colors hover:border-border-strong"
+              className="block w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-left shadow-card transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-raise"
             >
-              <p className="truncate text-[13px] font-medium text-fg">{d.title}</p>
-              <p className="truncate text-xs text-muted">{d.contact?.name || d.contact?.email || 'Unnamed contact'}</p>
-              <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
-                <span className="font-medium text-fg-2">{d.value !== null ? formatMoney(d.value, d.currency) : '—'}</span>
+              <p className="truncate text-body-sm font-semibold text-fg">{d.title}</p>
+              <p className="mt-1 flex items-center gap-1.5 truncate text-caption text-muted">
+                <PersonAvatar name={d.contact?.name || d.contact?.email} size="sm" />
+                <span className="truncate">{d.contact?.name || d.contact?.email || 'Unnamed contact'}</span>
+              </p>
+              <div className="mt-2 flex items-center justify-between gap-2 text-caption">
+                <span className="font-semibold text-fg tabular-nums">{d.value !== null ? formatMoney(d.value, d.currency) : '—'}</span>
                 <span className="truncate text-muted">
                   {d.ownerUserId ? memberName.get(d.ownerUserId) ?? 'Owner' : 'No owner'} · {timeAgo(d.stageChangedAt)}
                 </span>
@@ -220,7 +224,7 @@ function ContactPicker({ value, onChange }: { value: Pick<Contact, 'id' | 'name'
   if (value) {
     return (
       <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-        <span className="min-w-0 truncate text-[13px] text-fg">
+        <span className="min-w-0 truncate text-body-sm text-fg">
           <span className="font-medium">{value.name || 'Unnamed'}</span>
           <span className="text-muted"> · {[value.email, value.phone].filter(Boolean).join(' · ') || 'no contact details'}</span>
         </span>
@@ -243,12 +247,12 @@ function ContactPicker({ value, onChange }: { value: Pick<Contact, 'id' | 'name'
               <Spinner />
             </div>
           ) : !results.data?.items.length ? (
-            <p className="p-3 text-[13px] text-muted">No contacts match “{debounced}”.</p>
+            <p className="p-3 text-body-sm text-muted">No contacts match “{debounced}”.</p>
           ) : (
             <ul role="listbox" aria-label="Matching contacts" className="max-h-48 overflow-y-auto">
               {results.data.items.map((c) => (
                 <li key={c.id}>
-                  <button type="button" role="option" aria-selected={false} className="w-full px-3 py-2 text-left text-[13px] hover:bg-surface-2" onClick={() => onChange(c)}>
+                  <button type="button" role="option" aria-selected={false} className="w-full px-3 py-2 text-left text-body-sm hover:bg-surface-2" onClick={() => onChange(c)}>
                     <span className="font-medium text-fg">{c.name || 'Unnamed'}</span>
                     <span className="text-muted"> · {[c.email, c.phone].filter(Boolean).join(' · ') || 'no details'}</span>
                   </button>
@@ -363,22 +367,22 @@ export function DealDrawer({
       }
     >
       <div className="space-y-4">
-        {deal?.status === 'lost' && deal.lostReason && <p className="rounded-md bg-danger-soft px-3 py-2 text-[13px] text-danger-text">Lost: {deal.lostReason}</p>}
+        {deal?.status === 'lost' && deal.lostReason && <p className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-body-sm text-danger-text">Lost: {deal.lostReason}</p>}
         <Field label="Title" required>
           <Input value={title} maxLength={200} disabled={!canEdit} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Invisalign for Ana" />
         </Field>
         <Field label="Contact" required>
           {deal ? (
-            <Link to={`/contacts/${deal.contactId}`} className="inline-flex items-center gap-1 text-[13px] text-accent-text hover:underline">
+            <Link to={`/contacts/${deal.contactId}`} className="inline-flex items-center gap-1 text-body-sm text-accent-text hover:underline">
               {deal.contact?.name || deal.contact?.email || 'Open contact'} <ExternalLink className="size-3" />
             </Link>
           ) : preset?.contact ? (
-            <p className="text-[13px] text-fg">{preset.contact.name || preset.contact.email || 'This conversation’s contact'}</p>
+            <p className="text-body-sm text-fg">{preset.contact.name || preset.contact.email || 'This conversation’s contact'}</p>
           ) : (
             <ContactPicker value={contact} onChange={setContact} />
           )}
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Pipeline">
             <Select
               value={pipelineId}
@@ -423,7 +427,7 @@ export function DealDrawer({
           </Select>
         </Field>
         {deal?.conversationId && (
-          <Link to={`/conversations/${deal.conversationId}`} className="inline-flex items-center gap-1 text-[13px] text-accent-text hover:underline">
+          <Link to={`/conversations/${deal.conversationId}`} className="inline-flex items-center gap-1 text-body-sm text-accent-text hover:underline">
             The conversation it came from <ExternalLink className="size-3" />
           </Link>
         )}
@@ -447,7 +451,7 @@ export function DealDrawer({
                 </div>
               ) : (
                 <div className="flex gap-2">
-                  <Button icon={<Trophy className="size-4" />} loading={setStatus.isPending} onClick={() => setStatus.mutate({ status: 'won' })}>
+                  <Button icon={<Trophy className="size-4 text-success" />} loading={setStatus.isPending} onClick={() => setStatus.mutate({ status: 'won' })}>
                     Mark won
                   </Button>
                   <Button variant="ghost" icon={<X className="size-4" />} onClick={() => setLosing(true)}>
@@ -550,7 +554,7 @@ function PipelineEditor({ pipeline, onClose, onCreated }: { pipeline: Pipeline |
           <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sales" />
         </Field>
         <fieldset className="space-y-2">
-          <legend className="mb-1 text-[13px] font-medium text-fg-2">Stages, in order</legend>
+          <legend className="mb-1 text-body-sm font-medium text-fg-2">Stages, in order</legend>
           {stages.map((s, i) => (
             <div key={s.key} className="flex items-center gap-2">
               <Input
@@ -619,8 +623,8 @@ export function ContactDeals({ contact, canEdit }: { contact: Pick<Contact, 'id'
             <li key={d.id}>
               <button type="button" className="flex w-full items-center justify-between gap-3 py-2.5 text-left hover:bg-surface-2/60" onClick={() => setOpen(d)}>
                 <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-medium text-fg">{d.title}</span>
-                  <span className="block text-xs text-muted">
+                  <span className="block truncate text-body-sm font-medium text-fg">{d.title}</span>
+                  <span className="block text-caption text-muted">
                     {stageName(d)}
                     {d.value !== null ? ` · ${formatMoney(d.value, d.currency)}` : ''}
                   </span>

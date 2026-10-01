@@ -1,26 +1,21 @@
-import { MessageSquare } from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { api, session } from '../lib/api';
 import { timezones } from '../lib/hooks';
 import { Link } from '../lib/router';
 import type { LoginResponse, SignupResponse } from '../lib/types';
+import { BrandLockup } from '../components/brand';
 import { Button, ErrorBanner, Field, Input, Select } from '../components/ui';
 import { useAuth } from './AuthContext';
 
 function AuthShell({ title, subtitle, children, footer }: { title: string; subtitle: string; children: ReactNode; footer: ReactNode }) {
   return (
     <div className="flex min-h-full items-center justify-center bg-bg px-4 py-12">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex items-center gap-2.5">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-accent text-accent-fg">
-            <MessageSquare className="size-5" aria-hidden />
-          </div>
-          <span className="text-base font-semibold text-fg">Omni AI</span>
-        </div>
-        <h1 className="text-xl font-semibold text-fg">{title}</h1>
-        <p className="mt-1 text-[13px] text-muted">{subtitle}</p>
-        <div className="mt-6 rounded-lg border border-border bg-surface p-6">{children}</div>
-        <p className="mt-4 text-center text-[13px] text-muted">{footer}</p>
+      <div className="w-full max-w-[400px]">
+        <BrandLockup className="mb-10" />
+        <h1 className="font-display text-display font-semibold tracking-[-0.025em] text-fg">{title}</h1>
+        <p className="mt-1.5 text-body text-muted">{subtitle}</p>
+        <div className="mt-7 rounded-2xl border border-border bg-surface p-7 shadow-card">{children}</div>
+        <p className="mt-5 text-center text-body-sm text-muted">{footer}</p>
       </div>
     </div>
   );
@@ -74,7 +69,7 @@ export function LoginPage() {
           Sign in
         </Button>
         {import.meta.env.DEV && (
-          <p className="text-center text-xs text-muted">
+          <p className="text-center text-caption text-muted">
             Local demo: <code className="font-mono">demo@example.com</code> / <code className="font-mono">demo-password-123</code>
           </p>
         )}

@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Plus, Search, Users } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../../auth/AuthContext';
+import { PersonAvatar } from '../../components/avatar';
 import { Modal } from '../../components/overlay';
 import { QualificationBadge, TagChip, TierBadge } from '../../components/status';
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, SkeletonRows, Table, TD, TH } from '../../components/ui';
@@ -95,9 +96,9 @@ export function ContactsPage() {
           )
         }
       />
-      <div className="space-y-4 px-8 py-6">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="relative w-72">
+      <div className="space-y-4 px-4 sm:px-8 py-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-72">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" aria-hidden />
             <Input aria-label="Search contacts" placeholder="Search name, email, phone, company" className="pl-8" value={searchText} onChange={(e) => setSearchText(e.target.value)} />
           </div>
@@ -156,7 +157,7 @@ export function ContactsPage() {
             <option value="declined">Declined</option>
             <option value="none">Not asked</option>
           </Select>
-          <div className="flex h-9 items-center gap-4">
+          <div className="ml-auto flex h-9 items-center gap-4 pl-2">
             <Checkbox label="Leads only" checked={filters.leadsOnly} onChange={(e) => setFilter({ leads: e.target.checked ? '1' : null })} />
             <Checkbox label="Include tests" checked={filters.includeTest} onChange={(e) => setFilter({ test: e.target.checked ? '1' : null })} />
           </div>
@@ -213,8 +214,8 @@ export function ContactsPage() {
                   ))}
                 </tbody>
               </Table>
-              <div className="flex items-center justify-between px-4 py-2.5 text-[13px] text-muted">
-                <span>
+              <div className="flex items-center justify-between px-4 py-2.5 text-body-sm text-muted">
+                <span className="tabular-nums">
                   {from}–{to} of {total.toLocaleString()}
                 </span>
                 <div className="flex gap-1">
@@ -248,37 +249,50 @@ export function ContactsPage() {
 
 function ContactRow({ contact: c }: { contact: Contact }) {
   const name = c.name || c.email || c.phone || 'Anonymous visitor';
+  const dash = <span className="text-muted">—</span>;
   return (
-    <tr className="hover:bg-surface-2/60">
+    <tr className="transition-colors hover:bg-surface-2/60">
       <TD>
-        <span className="flex items-center gap-1.5 whitespace-nowrap">
-          <Link to={`/contacts/${c.id}`} className="font-medium text-fg hover:text-accent-text">
-            {name}
-          </Link>
-          {c.isTest && <Badge tone="blue">Test</Badge>}
-          {c.hasPendingMerge && <Badge tone="amber">Possible duplicate</Badge>}
-        </span>
-        {c.company && <p className="text-xs text-muted">{c.company}</p>}
+        <div className="flex items-center gap-2.5">
+          <PersonAvatar name={c.name || c.email || c.phone} />
+          <div className="min-w-0">
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
+              <Link to={`/contacts/${c.id}`} className="font-semibold text-fg hover:text-accent-text">
+                {name}
+              </Link>
+              {c.isTest && <Badge tone="blue">Test</Badge>}
+              {c.hasPendingMerge && <Badge tone="amber">Possible duplicate</Badge>}
+            </span>
+            {c.company && <p className="text-caption text-muted">{c.company}</p>}
+          </div>
+        </div>
       </TD>
-      <TD className="max-w-48 truncate text-fg-2">{c.email ?? <span className="text-faint">—</span>}</TD>
-      <TD className="whitespace-nowrap text-fg-2">{c.phone ?? <span className="text-faint">—</span>}</TD>
+      <TD className="max-w-48 truncate text-fg-2">{c.email ?? dash}</TD>
+      <TD className="whitespace-nowrap text-fg-2 tabular-nums">{c.phone ?? dash}</TD>
       <TD>
         <TierBadge tier={c.leadTier} />
       </TD>
-      <TD className="text-right tabular-nums">{c.leadScore}</TD>
+      <TD className="text-right">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-1 w-10 overflow-hidden rounded-full bg-surface-3" aria-hidden>
+            <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(0, Math.min(100, c.leadScore))}%` }} />
+          </span>
+          <span className="min-w-6 font-semibold text-fg tabular-nums">{c.leadScore}</span>
+        </span>
+      </TD>
       <TD>
         <QualificationBadge status={c.qualificationStatus} />
       </TD>
       <TD className="text-fg-2">{c.lifecycleStage}</TD>
       <TD className="max-w-36 truncate text-fg-2" title={c.firstTouch?.utmCampaign ?? undefined}>
-        {c.firstTouch?.utmSource ?? c.sourceChannel ?? <span className="text-faint">—</span>}
+        {c.firstTouch?.utmSource ?? c.sourceChannel ?? dash}
       </TD>
       <TD>
         <div className="flex max-w-56 flex-wrap gap-1">
           {c.tags.slice(0, 3).map((t) => (
             <TagChip key={t.id} name={t.name} color={t.color} />
           ))}
-          {c.tags.length > 3 && <span className="text-xs text-muted">+{c.tags.length - 3}</span>}
+          {c.tags.length > 3 && <span className="text-caption text-muted">+{c.tags.length - 3}</span>}
         </div>
       </TD>
       <TD className="whitespace-nowrap text-muted">{timeAgo(c.lastActivityAt ?? c.createdAt)}</TD>
@@ -326,7 +340,7 @@ function CreateContactModal({ open, onClose }: { open: boolean; onClose: () => v
         </>
       }
     >
-      <form id="create-contact" className="grid grid-cols-2 gap-4" onSubmit={submit}>
+      <form id="create-contact" className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={submit}>
         <Field label="First name">
           <Input value={form.firstName} onChange={set('firstName')} />
         </Field>

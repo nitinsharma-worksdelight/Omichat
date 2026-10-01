@@ -70,7 +70,7 @@ export function AutomationsPage() {
           ]}
         />
       </PageHeader>
-      <div className="px-8 py-6">
+      <div className="px-4 sm:px-8 py-6">
         {!isAdmin && (tab === 'webhooks' || tab === 'workflows') ? (
           <Card>
             <EmptyState title="Admins only" description="Ask an admin of this organization to manage webhooks and workflows." />
@@ -93,8 +93,8 @@ function SectionHeader({ title, description, action }: { title: string; descript
   return (
     <div className="mb-4 flex items-start justify-between gap-4">
       <div>
-        <h2 className="text-sm font-semibold text-fg">{title}</h2>
-        <p className="mt-0.5 max-w-2xl text-[13px] text-muted">{description}</p>
+        <h2 className="text-body font-semibold text-fg">{title}</h2>
+        <p className="mt-0.5 max-w-2xl text-body-sm text-muted">{description}</p>
       </div>
       {action}
     </div>
@@ -105,11 +105,11 @@ function SecretModal({ title, secret, onClose, children }: { title: string; secr
   return (
     <Modal open onClose={onClose} title={title} size="lg" footer={<Button variant="primary" onClick={onClose}>I've saved it</Button>}>
       <div className="space-y-4">
-        <p className="rounded-md bg-warning-soft px-3 py-2 text-[13px] text-warning-text">
+        <p className="rounded-md bg-warning-soft px-3 py-2 text-body-sm text-warning-text">
           Copy this secret now — it's shown only once. If you lose it, delete and recreate the endpoint.
         </p>
         <div className="flex items-center gap-2">
-          <code className="flex-1 truncate rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-[13px] text-fg">{secret}</code>
+          <code className="flex-1 truncate rounded-lg border border-border bg-surface-2 px-3 py-2 font-mono text-body-sm text-fg">{secret}</code>
           <CopyButton text={secret} />
         </div>
         {children}
@@ -127,13 +127,13 @@ const valid = crypto.timingSafeEqual(Buffer.from(v1, 'hex'), Buffer.from(expecte
 
 function SignatureHelp() {
   return (
-    <div className="space-y-2 text-[13px] text-fg-2">
+    <div className="space-y-2 text-body-sm text-fg-2">
       <p>
-        Every request is a <code className="font-mono text-xs">POST</code> with the headers <code className="font-mono text-xs">x-omni-event</code>,{' '}
-        <code className="font-mono text-xs">x-omni-delivery</code> and <code className="font-mono text-xs">x-omni-signature</code>. Verify the signature before trusting the payload:
+        Every request is a <code className="font-mono text-caption">POST</code> with the headers <code className="font-mono text-caption">x-omni-event</code>,{' '}
+        <code className="font-mono text-caption">x-omni-delivery</code> and <code className="font-mono text-caption">x-omni-signature</code>. Verify the signature before trusting the payload:
       </p>
       <CodeBlock>{SIGNATURE_HELP}</CodeBlock>
-      <p className="text-xs text-muted">Non-2xx responses are retried with exponential backoff (up to 6 attempts).</p>
+      <p className="text-caption text-muted">Non-2xx responses are retried with exponential backoff (up to 6 attempts).</p>
     </div>
   );
 }
@@ -184,13 +184,13 @@ function WebhooksTab() {
                 <tr key={h.id}>
                   <TD className="max-w-md">
                     <p className="font-medium text-fg">{h.name}</p>
-                    <p className="truncate font-mono text-xs text-muted">{h.url}</p>
+                    <p className="truncate font-mono text-caption text-muted">{h.url}</p>
                   </TD>
                   <TD>
                     {h.eventTypes.includes('*') ? (
                       <Badge tone="indigo">All events</Badge>
                     ) : (
-                      <span className="text-[13px] text-fg-2" title={h.eventTypes.join(', ')}>
+                      <span className="text-body-sm text-fg-2" title={h.eventTypes.join(', ')}>
                         {h.eventTypes.length} event{h.eventTypes.length === 1 ? '' : 's'}
                       </span>
                     )}
@@ -279,7 +279,7 @@ function WebhookDialog({ hook, onClose, onCreated }: { hook?: Webhook; onClose: 
     >
       <div className="space-y-4">
         {save.error ? <ErrorBanner error={save.error} /> : null}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Name" required>
             <Input value={name} maxLength={120} placeholder="n8n – new leads" onChange={(e) => setName(e.target.value)} />
           </Field>
@@ -288,17 +288,17 @@ function WebhookDialog({ hook, onClose, onCreated }: { hook?: Webhook; onClose: 
           </Field>
         </div>
         <fieldset className="space-y-3">
-          <legend className="mb-1 text-[13px] font-medium text-fg-2">Events</legend>
+          <legend className="mb-1 text-body-sm font-medium text-fg-2">Events</legend>
           <Checkbox label="All events" description="Including event types added in the future." checked={all} onChange={(e) => setAll(e.target.checked)} />
           {!all && (
-            <div className="grid grid-cols-3 gap-x-4 gap-y-3 rounded-lg border border-border p-3">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border p-3 sm:grid-cols-3">
               {[...groups.entries()].map(([group, list]) => (
                 <div key={group} className="space-y-1.5">
-                  <p className="text-xs font-medium text-muted uppercase">{group}</p>
+                  <p className="text-caption font-medium text-muted uppercase">{group}</p>
                   {list.map((t) => (
                     <Checkbox
                       key={t}
-                      label={<code className="font-mono text-xs">{t}</code>}
+                      label={<code className="font-mono text-caption">{t}</code>}
                       checked={types.includes(t)}
                       onChange={(e) => setTypes((s) => (e.target.checked ? [...s, t] : s.filter((x) => x !== t)))}
                     />
@@ -345,18 +345,18 @@ function DeliveriesDrawer({ hook, onClose }: { hook: Webhook | null; onClose: ()
             {deliveries.data.map((d) => (
               <tr key={d.id}>
                 <TD>
-                  <code className="font-mono text-xs">{d.eventType}</code>
+                  <code className="font-mono text-caption">{d.eventType}</code>
                 </TD>
                 <TD>
                   <Badge tone={d.status === 'success' ? 'green' : d.status === 'failed' ? 'red' : 'amber'}>{d.status}</Badge>
                 </TD>
                 <TD className="tabular-nums">{d.attemptCount}</TD>
                 <TD className="max-w-64">
-                  {d.responseStatus !== null && <span className="font-mono text-xs">HTTP {d.responseStatus}</span>}
-                  {d.lastError && <p className="truncate text-xs text-danger-text" title={d.lastError}>{d.lastError}</p>}
-                  {d.responseBody && <p className="truncate text-xs text-muted" title={d.responseBody}>{d.responseBody}</p>}
+                  {d.responseStatus !== null && <span className="font-mono text-caption">HTTP {d.responseStatus}</span>}
+                  {d.lastError && <p className="truncate text-caption text-danger-text" title={d.lastError}>{d.lastError}</p>}
+                  {d.responseBody && <p className="truncate text-caption text-muted" title={d.responseBody}>{d.responseBody}</p>}
                 </TD>
-                <TD className="whitespace-nowrap text-xs text-muted">{formatDateTime(d.deliveredAt ?? d.createdAt)}</TD>
+                <TD className="whitespace-nowrap text-caption text-muted">{formatDateTime(d.deliveredAt ?? d.createdAt)}</TD>
               </tr>
             ))}
           </tbody>
@@ -411,9 +411,9 @@ function WorkflowsTab() {
                 <tr key={w.id}>
                   <TD className="max-w-md">
                     <p className="font-medium text-fg">
-                      {w.name} <code className="ml-1 font-mono text-xs font-normal text-muted">{w.key}</code>
+                      {w.name} <code className="ml-1 font-mono text-caption font-normal text-muted">{w.key}</code>
                     </p>
-                    <p className="line-clamp-2 text-xs text-muted">{w.description}</p>
+                    <p className="line-clamp-2 text-caption text-muted">{w.description}</p>
                   </TD>
                   <TD>
                     <div className="flex flex-wrap gap-1">
@@ -422,7 +422,7 @@ function WorkflowsTab() {
                       {w.askFirst && <Badge tone="amber">Asks the team first</Badge>}
                     </div>
                   </TD>
-                  <TD className="text-[13px] text-fg-2">{w.inputFields.length ? w.inputFields.map((f) => f.name).join(', ') : '—'}</TD>
+                  <TD className="text-body-sm text-fg-2">{w.inputFields.length ? w.inputFields.map((f) => f.name).join(', ') : '—'}</TD>
                   <TD>
                     <Badge tone={w.isActive ? 'green' : 'slate'}>{w.isActive ? 'Active' : 'Inactive'}</Badge>
                   </TD>
@@ -461,9 +461,9 @@ function WorkflowsTab() {
       )}
       {secret && (
         <SecretModal title="Workflow signing secret" secret={secret} onClose={() => setSecret(null)}>
-          <p className="text-[13px] text-fg-2">
-            Calls to your workflow carry an <code className="font-mono text-xs">x-omni-workflow</code> header with the key and an{' '}
-            <code className="font-mono text-xs">x-omni-signature</code> header signed with this secret (same format as webhooks).
+          <p className="text-body-sm text-fg-2">
+            Calls to your workflow carry an <code className="font-mono text-caption">x-omni-workflow</code> header with the key and an{' '}
+            <code className="font-mono text-caption">x-omni-signature</code> header signed with this secret (same format as webhooks).
           </p>
           <SignatureHelp />
         </SecretModal>
@@ -530,12 +530,12 @@ function WorkflowDialog({ workflow, onClose, onCreated }: { workflow?: Workflow;
     >
       <div className="space-y-4">
         {save.error ? <ErrorBanner error={save.error} /> : null}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Name" required>
             <Input value={form.name} maxLength={120} placeholder="Create CRM deal" onChange={(e) => set('name', e.target.value)} />
           </Field>
           <Field label="Key" required hint={workflow ? 'The key cannot be changed.' : 'Lowercase letters, digits and underscores.'}>
-            <Input className="font-mono text-[13px]" value={form.key} disabled={Boolean(workflow)} maxLength={64} placeholder="create_deal" onChange={(e) => set('key', slugify(e.target.value))} />
+            <Input className="font-mono text-body-sm" value={form.key} disabled={Boolean(workflow)} maxLength={64} placeholder="create_deal" onChange={(e) => set('key', slugify(e.target.value))} />
           </Field>
         </div>
         <Field label="When should the assistant use it?" required hint="The assistant reads this to decide when to call the workflow (at least 10 characters)." error={form.description && descTooShort ? 'Describe it in at least 10 characters.' : null}>
@@ -544,7 +544,7 @@ function WorkflowDialog({ workflow, onClose, onCreated }: { workflow?: Workflow;
         <Field label="Webhook URL" required hint="Your n8n Webhook trigger URL.">
           <Input type="url" value={form.url} placeholder="https://n8n.example.com/webhook/…" onChange={(e) => set('url', e.target.value)} />
         </Field>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Field label="Mode" className="col-span-2">
             <Select value={form.mode} onChange={(e) => set('mode', e.target.value as Workflow['mode'])}>
               <option value="fire_and_forget">Fire and forget — queue it and continue</option>
@@ -556,11 +556,11 @@ function WorkflowDialog({ workflow, onClose, onCreated }: { workflow?: Workflow;
           </Field>
         </div>
         <fieldset className="space-y-2">
-          <legend className="mb-1 text-[13px] font-medium text-fg-2">Inputs the assistant should send</legend>
-          {form.inputFields.length === 0 && <p className="text-xs text-muted">No inputs — the workflow receives the contact and conversation only.</p>}
+          <legend className="mb-1 text-body-sm font-medium text-fg-2">Inputs the assistant should send</legend>
+          {form.inputFields.length === 0 && <p className="text-caption text-muted">No inputs — the workflow receives the contact and conversation only.</p>}
           {form.inputFields.map((f, i) => (
             <div key={i} className="grid grid-cols-[140px_100px_1fr_170px_auto_auto] items-center gap-2">
-              <Input aria-label={`Input ${i + 1} name`} className="font-mono text-[13px]" placeholder="name" value={f.name} maxLength={64} onChange={(e) => setInput(i, { name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })} />
+              <Input aria-label={`Input ${i + 1} name`} className="font-mono text-body-sm" placeholder="name" value={f.name} maxLength={64} onChange={(e) => setInput(i, { name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })} />
               <Select
                 aria-label={`Input ${i + 1} type`}
                 value={f.type}
@@ -595,12 +595,12 @@ function WorkflowDialog({ workflow, onClose, onCreated }: { workflow?: Workflow;
           <Button size="sm" icon={<Plus className="size-3.5" />} disabled={form.inputFields.length >= 20} onClick={() => set('inputFields', [...form.inputFields, emptyField()])}>
             Add input
           </Button>
-          <p className="text-xs text-muted">
+          <p className="text-caption text-muted">
             Values from the chat are whatever the customer typed. Values on record come from their contact, and the assistant can't send others instead. A web-chat
             visitor's record still holds only what they told the assistant, so neither proves who is asking: that takes “Identified customers only”.
           </p>
           {identityFromChat && !form.identifiedOnly && (
-            <p className="rounded-md bg-warning-soft px-3 py-2 text-[13px] text-warning-text">
+            <p className="rounded-md bg-warning-soft px-3 py-2 text-body-sm text-warning-text">
               This workflow sends its answer back to the assistant and takes an email, phone or account from the chat. Anyone could type someone else's. If it returns personal
               data, take those values from the record and turn on “Identified customers only”.
             </p>
@@ -662,11 +662,11 @@ function WorkflowTestDialog({ workflow, onClose }: { workflow: Workflow; onClose
     >
       <div className="space-y-4">
         {workflow.inputFields.length === 0 ? (
-          <p className="text-[13px] text-muted">This workflow has no inputs.</p>
+          <p className="text-body-sm text-muted">This workflow has no inputs.</p>
         ) : (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {workflow.inputFields.map((f) => (
-              <Field key={f.name} label={<code className="font-mono text-xs">{f.name}</code>} hint={f.description || f.type} required={f.required}>
+              <Field key={f.name} label={<code className="font-mono text-caption">{f.name}</code>} hint={f.description || f.type} required={f.required}>
                 {f.type === 'boolean' ? (
                   <Select value={inputs[f.name] ?? 'true'} onChange={(e) => setInputs((s) => ({ ...s, [f.name]: e.target.value }))}>
                     <option value="true">Yes</option>
@@ -682,12 +682,12 @@ function WorkflowTestDialog({ workflow, onClose }: { workflow: Workflow; onClose
         {test.error ? <ErrorBanner error={test.error} /> : null}
         {test.data && (
           <div className="space-y-2">
-            <p className="flex items-center gap-2 text-[13px]">
+            <p className="flex items-center gap-2 text-body-sm">
               Result: <Badge tone={test.data.ok ? 'green' : 'red'}>{test.data.ok ? 'OK' : 'Failed'}</Badge>
-              {test.data.queued && <span className="text-xs text-muted">Queued (fire and forget) — check your n8n executions.</span>}
-              {test.data.status !== undefined && <span className="font-mono text-xs text-muted">HTTP {test.data.status}</span>}
+              {test.data.queued && <span className="text-caption text-muted">Queued (fire and forget) — check your n8n executions.</span>}
+              {test.data.status !== undefined && <span className="font-mono text-caption text-muted">HTTP {test.data.status}</span>}
             </p>
-            {test.data.error && <p className="text-[13px] text-danger-text">{test.data.error}</p>}
+            {test.data.error && <p className="text-body-sm text-danger-text">{test.data.error}</p>}
             {test.data.response !== undefined && <CodeBlock className="max-h-64 overflow-auto">{pretty(test.data.response)}</CodeBlock>}
           </div>
         )}
@@ -723,7 +723,7 @@ function TagsTab({ canCreate, canDelete }: { canCreate: boolean; canDelete: bool
               <Input value={name} maxLength={60} placeholder="vip" onChange={(e) => setName(e.target.value)} />
             </Field>
             <fieldset>
-              <legend className="mb-1.5 text-[13px] font-medium text-fg-2">Colour</legend>
+              <legend className="mb-1.5 text-body-sm font-medium text-fg-2">Colour</legend>
               <div className="flex h-9 items-center gap-1.5">
                 {TAG_COLORS.map((c) => (
                   <button
@@ -755,12 +755,12 @@ function TagsTab({ canCreate, canDelete }: { canCreate: boolean; canDelete: bool
           <ul className="divide-y divide-border">
             {tags.data.map((t) => (
               <li key={t.id} className="flex items-center justify-between px-4 py-2.5">
-                <span className="flex items-center gap-2.5 text-[13px] text-fg">
+                <span className="flex items-center gap-2.5 text-body-sm text-fg">
                   <span className="size-3 rounded-full" style={{ background: t.color }} aria-hidden />
                   {t.name}
                 </span>
                 <span className="flex items-center gap-3">
-                  <span className="text-xs text-muted">{t.createdAt ? `created ${timeAgo(t.createdAt)}` : ''}</span>
+                  <span className="text-caption text-muted">{t.createdAt ? `created ${timeAgo(t.createdAt)}` : ''}</span>
                   {canDelete && (
                     <IconButton
                       label={`Delete tag ${t.name}`}
@@ -879,14 +879,14 @@ function FieldsTab({ isAdmin }: { isAdmin: boolean }) {
                 <tr key={f.id}>
                   <TD>
                     <p className="font-medium text-fg">{f.label}</p>
-                    <code className="font-mono text-xs text-muted">{f.key}</code>
+                    <code className="font-mono text-caption text-muted">{f.key}</code>
                   </TD>
                   <TD>
                     <Badge tone="slate">{humanize(f.type)}</Badge>
-                    {f.type === 'select' && <p className="mt-0.5 max-w-56 truncate text-xs text-muted">{f.options.join(', ')}</p>}
+                    {f.type === 'select' && <p className="mt-0.5 max-w-56 truncate text-caption text-muted">{f.options.join(', ')}</p>}
                   </TD>
                   <TD>{f.aiWritable ? <Badge tone="green">Yes</Badge> : <Badge tone="slate">Staff only</Badge>}</TD>
-                  <TD className="max-w-sm text-[13px] text-fg-2">{f.description || '—'}</TD>
+                  <TD className="max-w-sm text-body-sm text-fg-2">{f.description || '—'}</TD>
                   <TD className="text-right whitespace-nowrap">
                     {isAdmin && (
                       <>
@@ -954,7 +954,7 @@ function FieldDialog({ field, onClose }: { field?: CustomFieldDef; onClose: () =
     >
       <div className="space-y-4">
         {save.error ? <ErrorBanner error={save.error} details={save.error instanceof ApiError && save.error.code === 'validation_error' ? save.error.details : undefined} title={save.error instanceof ApiError && save.error.code === 'validation_error' ? save.error.message : undefined} /> : null}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Label" required>
             <Input
               value={form.label}
@@ -967,7 +967,7 @@ function FieldDialog({ field, onClose }: { field?: CustomFieldDef; onClose: () =
             />
           </Field>
           <Field label="Key" required hint={field ? 'The key cannot be changed.' : 'Used by the AI and in exports.'}>
-            <Input className="font-mono text-[13px]" value={form.key} disabled={Boolean(field)} maxLength={64} onChange={(e) => set('key', slugify(e.target.value))} />
+            <Input className="font-mono text-body-sm" value={form.key} disabled={Boolean(field)} maxLength={64} onChange={(e) => set('key', slugify(e.target.value))} />
           </Field>
           <Field label="Type">
             <Select value={form.type} onChange={(e) => set('type', e.target.value as CustomFieldType)}>

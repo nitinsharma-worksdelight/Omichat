@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Brain, CalendarDays, MessagesSquare, Plus, RotateCcw, Save, StickyNote, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, Brain, CalendarDays, MessagesSquare, Plus, RotateCcw, Save, Sparkles, StickyNote, Trash2, Users } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { EventRow } from '../../components/activity';
+import { PersonAvatar } from '../../components/avatar';
 import { useConfirm } from '../../components/feedback-context';
 import { AppointmentStatusBadge, ChannelBadge, ConversationStatusBadge, QualificationBadge, TagChip, TierBadge } from '../../components/status';
 import {
@@ -65,7 +66,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
     return (
       <div>
         <PageHeader title="Loading…" />
-        <SkeletonRows rows={8} className="px-8" />
+        <SkeletonRows rows={8} className="px-4 sm:px-8" />
       </div>
     );
   }
@@ -84,14 +85,17 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
     <div>
       <PageHeader
         title={
-          <span className="flex items-center gap-2">
-            <Link to="/contacts" className="text-muted hover:text-fg" aria-label="Back to leads">
+          <span className="flex items-center gap-3">
+            <Link to="/contacts" className="flex size-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg" aria-label="Back to leads">
               <ArrowLeft className="size-4" />
             </Link>
-            {name}
-            {c.leadTier && <TierBadge tier={c.leadTier} />}
-            <QualificationBadge status={c.qualificationStatus} />
-            {c.isTest && <Badge tone="blue">Test</Badge>}
+            <PersonAvatar name={c.name || c.email || c.phone} size="lg" className="size-11 text-body" />
+            <span className="truncate">{name}</span>
+            <span className="flex items-center gap-1.5 font-sans">
+              {c.leadTier && <TierBadge tier={c.leadTier} />}
+              <QualificationBadge status={c.qualificationStatus} />
+              {c.isTest && <Badge tone="blue">Test</Badge>}
+            </span>
           </span>
         }
         description={`Score ${c.leadScore} · ${c.lifecycleStage} · from ${c.firstTouch?.utmSource ?? c.sourceChannel ?? 'your team'} · first seen ${formatDate(c.createdAt)}${c.leadCapturedAt ? ` · lead since ${formatDate(c.leadCapturedAt)}` : ''}`}
@@ -112,7 +116,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         }
       />
       <DuplicateReviews contact={c} canEdit={canEdit} />
-      <div className="grid grid-cols-[minmax(360px,420px)_1fr] gap-6 px-8 py-6">
+      <div className="grid grid-cols-1 gap-6 px-4 py-6 sm:px-8 lg:grid-cols-[minmax(340px,420px)_1fr]">
         <div className="space-y-4">
           <ProfileCard contact={c} canEdit={canEdit} />
           <SourceCard contact={c} />
@@ -123,7 +127,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         </div>
         <Card className="min-w-0 self-start">
           <Tabs<Tab>
-            className="border-b border-border px-3"
+            className="border-b border-border px-4"
             value={tab}
             onChange={setTab}
             ariaLabel="Contact history"
@@ -136,7 +140,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
               { id: 'conversations', label: 'Conversations' },
             ]}
           />
-          <div className="p-4">
+          <div className="p-5">
             {tab === 'activity' && <ActivityTab contactId={c.id} />}
             {tab === 'notes' && <NotesTab contactId={c.id} canEdit={canEdit} />}
             {tab === 'tasks' && <TasksTab contactId={c.id} canEdit={canEdit} />}
@@ -180,16 +184,18 @@ function DuplicateReviews({ contact, canEdit }: { contact: Contact; canEdit: boo
   if (!reviews.data?.length) return null;
 
   return (
-    <div className="space-y-2 px-8 pt-6">
+    <div className="space-y-2 px-4 sm:px-8 pt-6">
       {reviews.data.map((r) => {
         const isClaimant = r.claimant.id === contact.id;
         const other = isClaimant ? r.existing : r.claimant;
         const what = r.field === 'phone' ? 'phone number' : 'email';
         const mixesTestData = r.claimant.isTest !== r.existing.isTest;
         return (
-          <div key={r.id} role="alert" className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning-soft px-4 py-3 text-[13px] text-fg">
-            <Users className="mt-0.5 size-4 shrink-0 text-warning-text" aria-hidden />
-            <div className="min-w-0 flex-1 space-y-1">
+          <div key={r.id} role="alert" className="flex flex-wrap items-start gap-3 rounded-xl border border-warning/35 bg-warning-soft px-4 py-3.5 text-body-sm text-fg">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning" aria-hidden>
+              <Users className="size-4" />
+            </span>
+            <div className="min-w-[12rem] flex-1 space-y-1">
               <p>
                 {isClaimant ? (
                   <>
@@ -347,7 +353,7 @@ function ProfileCard({ contact, canEdit }: { contact: Contact; canEdit: boolean 
         }}
       >
         {save.error ? <ErrorBanner error={save.error} details={save.error instanceof ApiError ? save.error.details : undefined} title={save.error instanceof ApiError && save.error.details.length ? save.error.message : undefined} /> : null}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="First name">
             <Input value={form.firstName} disabled={!canEdit} onChange={(e) => set('firstName', e.target.value)} />
           </Field>
@@ -358,7 +364,7 @@ function ProfileCard({ contact, canEdit }: { contact: Contact; canEdit: boolean 
         <Field label="Email">
           <Input type="email" value={form.email} disabled={!canEdit} onChange={(e) => set('email', e.target.value)} />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Phone">
             <Input type="tel" value={form.phone} disabled={!canEdit} onChange={(e) => set('phone', e.target.value)} />
           </Field>
@@ -377,7 +383,7 @@ function ProfileCard({ contact, canEdit }: { contact: Contact; canEdit: boolean 
             ))}
           </Select>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Lifecycle stage">
             <Select value={form.lifecycleStage} disabled={!canEdit} onChange={(e) => set('lifecycleStage', e.target.value)}>
               {!stages.includes(form.lifecycleStage) && <option value={form.lifecycleStage}>{form.lifecycleStage}</option>}
@@ -402,15 +408,15 @@ function ProfileCard({ contact, canEdit }: { contact: Contact; canEdit: boolean 
         </div>
         {(fields.data ?? []).length > 0 && (
           <div className="space-y-3 border-t border-border pt-3">
-            <p className="text-xs font-medium tracking-wide text-muted uppercase">Custom fields</p>
+            <p className="text-caption font-medium tracking-wide text-muted uppercase">Custom fields</p>
             {(fields.data ?? []).map((def) => (
               <CustomFieldInput key={def.id} def={def} value={form.customFields[def.key]} disabled={!canEdit} onChange={(v) => setCustom(def.key, v)} />
             ))}
           </div>
         )}
         {unknownKeys.length > 0 && (
-          <div className="space-y-1 border-t border-border pt-3 text-[13px]">
-            <p className="text-xs text-muted">Other stored fields</p>
+          <div className="space-y-1 border-t border-border pt-3 text-body-sm">
+            <p className="text-caption text-muted">Other stored fields</p>
             {unknownKeys.map((k) => (
               <p key={k}>
                 <span className="text-muted">{k}:</span> {displayValue(contact.customFields[k])}
@@ -492,7 +498,7 @@ function TagsCard({ contact, canEdit }: { contact: Contact; canEdit: boolean }) 
       <CardHeader title="Tags" />
       <div className="space-y-3 p-4">
         {contact.tags.length === 0 ? (
-          <p className="text-[13px] text-muted">No tags yet.</p>
+          <p className="text-body-sm text-muted">No tags yet.</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {contact.tags.map((t) => (
@@ -562,23 +568,23 @@ function QualificationCard({ contact, canEdit }: { contact: Contact; canEdit: bo
       />
       <div className="p-4">
         {answers.length === 0 ? (
-          <p className="text-[13px] text-muted">No answers yet. The assistant asks your qualification questions during the chat.</p>
+          <p className="text-body-sm text-muted">No answers yet. The assistant asks your qualification questions during the chat.</p>
         ) : (
           <dl className="space-y-2.5">
             {answers.map(([key, a]) => {
               const { question, asker, fits } = describe(key, a);
               return (
                 <div key={key}>
-                  <dt className="text-xs text-muted">
+                  <dt className="text-caption text-muted">
                     {question?.question ?? key}{' '}
                     <span className="text-faint">
                       · {timeAgo(a.answeredAt)}
                       {asker ? ` · asked by ${asker}` : ''}
                     </span>
                   </dt>
-                  <dd className={cx('text-[13px]', fits ? 'text-fg' : 'text-muted line-through')}>{displayValue(a.value)}</dd>
+                  <dd className={cx('text-body-sm', fits ? 'text-fg' : 'text-muted line-through')}>{displayValue(a.value)}</dd>
                   {!fits && (
-                    <p className="text-[11px] text-warning-text">
+                    <p className="text-label text-warning-text">
                       {question ? "Doesn't fit the current question any more: the assistant will ask again." : 'No assistant asks this question any more.'}
                     </p>
                   )}
@@ -636,15 +642,15 @@ function SourceCard({ contact }: { contact: Contact }) {
       <CardHeader title="Source" description={contact.sourceChannel ? `First channel: ${contact.sourceChannel}` : 'Added by your team'} />
       <div className="p-4">
         {!t ? (
-          <p className="text-[13px] text-muted">No website visit or campaign recorded.</p>
+          <p className="text-body-sm text-muted">No website visit or campaign recorded.</p>
         ) : (
           <dl className="space-y-2">
             {rows
               .filter(([, v]) => v)
               .map(([label, v]) => (
                 <div key={label}>
-                  <dt className="text-xs text-muted">{label}</dt>
-                  <dd className="text-[13px] break-all text-fg">{v}</dd>
+                  <dt className="text-caption text-muted">{label}</dt>
+                  <dd className="text-body-sm break-all text-fg">{v}</dd>
                 </div>
               ))}
           </dl>
@@ -721,17 +727,17 @@ function ConsentCard({ contact, canEdit }: { contact: Contact; canEdit: boolean 
         {history.data?.length ? (
           <ul className="space-y-2.5">
             {history.data.map((r) => (
-              <li key={r.id} className="text-[13px]">
+              <li key={r.id} className="text-body-sm">
                 <p className="text-fg">
                   {r.granted ? 'Opted in' : 'Declined or withdrew'}{' '}
                   <span className="text-muted">
                     · {consentSource(r.source)} · {formatDateTime(r.createdAt)}
                   </span>
                 </p>
-                {r.text && <p className="text-xs text-muted">Shown: “{r.text}”</p>}
-                {r.note && <p className="text-xs text-muted">Note: {r.note}</p>}
+                {r.text && <p className="text-caption text-muted">Shown: “{r.text}”</p>}
+                {r.note && <p className="text-caption text-muted">Note: {r.note}</p>}
                 {r.conversationId && (
-                  <Link to={`/conversations/${r.conversationId}`} className="text-xs text-accent-text hover:underline">
+                  <Link to={`/conversations/${r.conversationId}`} className="text-caption text-accent-text hover:underline">
                     See the conversation
                   </Link>
                 )}
@@ -739,7 +745,7 @@ function ConsentCard({ contact, canEdit }: { contact: Contact; canEdit: boolean 
             ))}
           </ul>
         ) : (
-          !history.isLoading && <p className="text-[13px] text-muted">No consent recorded.</p>
+          !history.isLoading && <p className="text-body-sm text-muted">No consent recorded.</p>
         )}
       </div>
     </Card>
@@ -758,22 +764,29 @@ function MemoryCard({ contact, canEdit }: { contact: Contact; canEdit: boolean }
   return (
     <Card>
       <CardHeader
-        title="What the AI remembers"
+        title={
+          <span className="flex items-center gap-2">
+            <span className="flex size-6 items-center justify-center rounded-md bg-ai-soft text-ai" aria-hidden>
+              <Sparkles className="size-3.5" />
+            </span>
+            What the AI remembers
+          </span>
+        }
         description="The assistant uses these in its conversations with this customer. The team's notes come first and count more than its own."
       />
       <div className="space-y-3 p-4">
         {contact.memory.length === 0 ? (
-          <p className="flex items-center gap-2 text-[13px] text-muted">
+          <p className="flex items-center gap-2 text-body-sm text-muted">
             <Brain className="size-4" aria-hidden /> Nothing remembered yet.
           </p>
         ) : (
           <ul className="space-y-2">
             {[...contact.memory].reverse().map((m) => (
-              <li key={m.id} className="flex items-start gap-2 text-[13px] text-fg">
+              <li key={m.id} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2 text-body-sm text-fg">
                 <div className="min-w-0 flex-1">
                   {m.text}
-                  <span className="block text-[11px] text-muted">
-                    {m.source === 'user' ? 'Noted by the team' : 'Noted by the AI'} · {timeAgo(m.createdAt)}
+                  <span className={cx('mt-0.5 block text-label', m.source === 'user' ? 'text-human-text' : 'text-ai-text')}>
+                    {m.source === 'user' ? 'Noted by the team' : 'Noted by the AI'} <span className="text-muted">· {timeAgo(m.createdAt)}</span>
                   </span>
                 </div>
                 {canEdit && (
@@ -869,13 +882,13 @@ function NotesTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
       ) : notes.error ? (
         <ErrorBanner error={notes.error} />
       ) : !notes.data?.length ? (
-        <p className="py-4 text-center text-[13px] text-muted">No notes yet.</p>
+        <p className="py-4 text-center text-body-sm text-muted">No notes yet.</p>
       ) : (
         <ul className="space-y-3">
           {notes.data.map((n) => (
-            <li key={n.id} className="rounded-lg border border-border px-3 py-2.5">
-              <p className="text-[13px] whitespace-pre-wrap text-fg">{n.body}</p>
-              <p className="mt-1 text-[11px] text-muted">
+            <li key={n.id} className="rounded-xl border border-border bg-surface px-3.5 py-3 shadow-card">
+              <p className="text-body-sm whitespace-pre-wrap text-fg">{n.body}</p>
+              <p className="mt-1 text-label text-muted">
                 {n.source === 'ai' ? 'AI' : 'Team'} · {formatDateTime(n.createdAt)}
               </p>
             </li>
@@ -937,26 +950,26 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
       ) : tasks.error ? (
         <ErrorBanner error={tasks.error} />
       ) : !tasks.data?.length ? (
-        <p className="py-4 text-center text-[13px] text-muted">No tasks for this contact.</p>
+        <p className="py-4 text-center text-body-sm text-muted">No tasks for this contact.</p>
       ) : (
         <ul className="divide-y divide-border">
           {tasks.data.map((t) => (
-            <li key={t.id} className="flex items-start gap-3 py-2.5">
+            <li key={t.id} className="flex items-start gap-3 py-3">
               <input
                 type="checkbox"
-                className="mt-0.5 size-4 accent-[var(--accent)]"
+                className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
                 checked={t.status === 'done'}
                 disabled={!canEdit}
                 aria-label={`Mark “${t.title}” as ${t.status === 'open' ? 'done' : 'open'}`}
                 onChange={() => toggle.mutate(t)}
               />
               <div className="min-w-0 flex-1">
-                <p className={cx('text-[13px]', t.status === 'done' ? 'text-muted line-through' : 'text-fg')}>{t.title}</p>
-                {t.description && <p className="text-xs text-muted">{t.description}</p>}
-                <p className="mt-0.5 flex gap-2 text-[11px] text-muted">
+                <p className={cx('text-body-sm', t.status === 'done' ? 'text-muted line-through' : 'text-fg')}>{t.title}</p>
+                {t.description && <p className="text-caption text-muted">{t.description}</p>}
+                <p className="mt-1.5 flex flex-wrap items-center gap-2 text-label text-muted">
                   {t.priority !== 'normal' && <Badge tone={t.priority === 'high' ? 'red' : 'slate'}>{t.priority}</Badge>}
+                  <Badge tone={t.createdBy === 'ai' ? 'ai' : 'human'}>{t.createdBy === 'ai' ? 'by AI' : 'by team'}</Badge>
                   {t.dueAt && <span>Due {formatDate(t.dueAt)}</span>}
-                  <span>{t.createdBy === 'ai' ? 'by AI' : 'by team'}</span>
                 </p>
               </div>
             </li>
@@ -978,7 +991,7 @@ function AppointmentsTab({ contactId }: { contactId: string }) {
         title="No appointments"
         description="Bookings made by the assistant or your team show up here."
         action={
-          <Link to="/appointments" className="text-[13px] text-accent-text hover:underline">
+          <Link to="/appointments" className="text-body-sm text-accent-text hover:underline">
             Book one from Appointments →
           </Link>
         }
@@ -987,13 +1000,13 @@ function AppointmentsTab({ contactId }: { contactId: string }) {
   return (
     <ul className="divide-y divide-border">
       {appts.data.map((a) => (
-        <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
+        <li key={a.id} className="flex items-center justify-between gap-3 py-3">
           <div>
-            <p className="text-[13px] font-medium text-fg">{a.title}</p>
-            <p className="text-xs text-muted">
+            <p className="text-body-sm font-medium text-fg">{a.title}</p>
+            <p className="text-caption text-muted">
               {a.label} ({a.timezone}) · booked by {a.createdBy === 'ai' ? 'AI' : a.createdBy === 'user' ? 'team' : 'contact'}
             </p>
-            {a.cancelReason && <p className="text-xs text-danger-text">{a.cancelReason}</p>}
+            {a.cancelReason && <p className="text-caption text-danger-text">{a.cancelReason}</p>}
           </div>
           <AppointmentStatusBadge status={a.status} />
         </li>
@@ -1011,11 +1024,12 @@ function ConversationsTab({ contactId }: { contactId: string }) {
     <ul className="divide-y divide-border">
       {convs.data.map((c) => (
         <li key={c.id}>
-          <Link to={`/conversations/${c.id}`} className="flex items-center justify-between gap-3 py-2.5 hover:bg-surface-2/60">
+          <Link to={`/conversations/${c.id}`} className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-surface-2/60">
             <div className="min-w-0">
-              <p className="truncate text-[13px] text-fg">{c.lastMessage?.content ?? 'No messages'}</p>
+              <p className="truncate text-body-sm text-fg">{c.lastMessage?.content ?? 'No messages'}</p>
               {c.summaryDetails?.intent ? (
-                <p className="mt-0.5 line-clamp-2 text-xs text-muted" title={c.summary ?? undefined}>
+                <p className="mt-0.5 line-clamp-2 text-caption text-muted" title={c.summary ?? undefined}>
+                  <Sparkles className="mr-1 inline size-3 align-[-1px] text-ai" aria-hidden />
                   <span className="text-fg-2">Wanted:</span> {c.summaryDetails.intent}
                   {c.summaryDetails.outcome && (
                     <>
@@ -1026,12 +1040,12 @@ function ConversationsTab({ contactId }: { contactId: string }) {
                 </p>
               ) : (
                 c.summary && (
-                  <p className="mt-0.5 line-clamp-2 text-xs text-muted" title={c.summary}>
+                  <p className="mt-0.5 line-clamp-2 text-caption text-muted" title={c.summary}>
                     {c.summary}
                   </p>
                 )
               )}
-              <p className="text-xs text-muted">
+              <p className="text-caption text-muted">
                 {c.messageCount} messages · {timeAgo(c.lastMessageAt ?? c.createdAt)}
               </p>
             </div>

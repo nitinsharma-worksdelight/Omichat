@@ -73,7 +73,7 @@ function Grid({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 | 3 })
 
 function Counter({ value, max }: { value: string; max: number }) {
   return (
-    <span className={cx('text-xs tabular-nums', value.length > max ? 'text-danger-text' : 'text-muted')}>
+    <span className={cx('text-caption tabular-nums', value.length > max ? 'text-danger-text' : 'text-muted')}>
       {value.length.toLocaleString()} / {max.toLocaleString()}
     </span>
   );
@@ -115,7 +115,7 @@ function SettingsCard({
           <h3 id={titleId} className="text-[15px] leading-5 font-semibold text-fg">
             {title}
           </h3>
-          {description && <p className="mt-1 text-[13px] leading-5 text-muted">{description}</p>}
+          {description && <p className="mt-1 text-body-sm leading-5 text-muted">{description}</p>}
         </div>
         {aside && <div className="flex shrink-0 items-center gap-2">{aside}</div>}
       </div>
@@ -148,7 +148,7 @@ function FeatureCard({
           <h3 id={titleId} className="text-[15px] leading-5 font-semibold text-fg">
             {title}
           </h3>
-          <p className="mt-1 text-[13px] leading-5 text-muted">
+          <p className="mt-1 text-body-sm leading-5 text-muted">
             <span className={cx('font-semibold', checked ? 'text-success-text' : 'text-fg-2')}>{checked ? 'On' : 'Off'}</span>
             {' · '}
             {summary}
@@ -178,7 +178,7 @@ function Choices<T extends string>({
   const name = useId();
   return (
     <fieldset>
-      <legend className="mb-2 text-[13px] font-medium text-fg-2">{legend}</legend>
+      <legend className="mb-2 text-body-sm font-medium text-fg-2">{legend}</legend>
       <div className={variant === 'pills' ? 'flex flex-wrap gap-2' : 'grid gap-2.5 @sm:grid-cols-3'}>
         {options.map((o) => {
           const checked = o.value === value;
@@ -187,15 +187,15 @@ function Choices<T extends string>({
               key={o.value}
               className={cx(
                 'cursor-pointer border transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent',
-                variant === 'pills' ? 'rounded-full px-3.5 py-1.5 text-[13px] font-medium' : 'rounded-xl px-3.5 py-2.5',
+                variant === 'pills' ? 'rounded-full px-3.5 py-1.5 text-body-sm font-medium' : 'rounded-xl px-3.5 py-2.5',
                 checked ? 'border-accent bg-accent-soft text-accent-text' : 'border-border-strong bg-surface text-fg-2 hover:border-accent/50 hover:text-fg',
               )}
             >
               <input type="radio" name={name} value={o.value} checked={checked} onChange={() => onChange(o.value)} className="sr-only" />
               {variant === 'cards' ? (
                 <>
-                  <span className="block text-[13px] font-semibold">{o.label}</span>
-                  {o.description && <span className={cx('block text-xs', checked ? 'text-accent-text' : 'text-muted')}>{o.description}</span>}
+                  <span className="block text-body-sm font-semibold">{o.label}</span>
+                  {o.description && <span className={cx('block text-caption', checked ? 'text-accent-text' : 'text-muted')}>{o.description}</span>}
                 </>
               ) : (
                 o.label
@@ -366,11 +366,11 @@ function TemplateMenu({ onApply }: { onApply: (template: PersonalityTemplate) =>
               }}
               className="flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left outline-none hover:bg-surface-2 focus:bg-accent-soft"
             >
-              <span className="text-[13px] font-semibold text-fg">{t.label}</span>
-              <span className="text-xs text-muted">{t.description}</span>
+              <span className="text-body-sm font-semibold text-fg">{t.label}</span>
+              <span className="text-caption text-muted">{t.description}</span>
             </button>
           ))}
-          <p className="mt-1 border-t border-border px-3 pt-2 pb-1 text-xs text-muted">
+          <p className="mt-1 border-t border-border px-3 pt-2 pb-1 text-caption text-muted">
             Fills the role, tone, reply length, personality and main goal. Nothing is saved until you press Save.
           </p>
         </div>
@@ -383,16 +383,16 @@ function TemplateMenu({ onApply }: { onApply: (template: PersonalityTemplate) =>
 function GreetingPreview({ greeting, chatName, assistantName }: { greeting: string; chatName: string; assistantName: string }) {
   return (
     <div aria-hidden className="rounded-xl bg-surface-2 p-4">
-      <p className="mb-3 text-[11px] font-semibold tracking-wider text-muted uppercase">Preview</p>
+      <p className="mb-3 text-label font-semibold tracking-wider text-muted uppercase">Preview</p>
       <div className="flex items-end gap-2">
         <span className="mb-5 flex size-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent-text">
           {initialsOf(chatName)}
         </span>
         <div className="min-w-0 space-y-1">
-          <p className="rounded-[18px] rounded-bl-md bg-surface px-3.5 py-2 text-sm leading-[21px] whitespace-pre-wrap text-fg [overflow-wrap:anywhere]">
-            {greeting.trim() ? greeting : <span className="text-faint">Your greeting shows here.</span>}
+          <p className="rounded-[18px] rounded-bl-md bg-surface px-3.5 py-2 text-body leading-[21px] whitespace-pre-wrap text-fg [overflow-wrap:anywhere]">
+            {greeting.trim() ? greeting : <span className="text-muted">Your greeting shows here.</span>}
           </p>
-          <p className="px-1 text-[11px] leading-4 text-muted">{assistantName} · Just now</p>
+          <p className="px-1 text-label leading-4 text-muted">{assistantName} · Just now</p>
         </div>
       </div>
     </div>
@@ -413,20 +413,20 @@ export function PersonaSection({ value, onChange, ctx, onApplyTemplate }: Sectio
   return (
     <>
       <section aria-label={`How ${ctx.assistantName} comes across`} className="flex flex-wrap items-center gap-4 rounded-[14px] border border-border bg-surface p-5">
-        <span aria-hidden className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-accent-soft text-2xl font-bold text-accent-text">
+        <span aria-hidden className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-ai-soft font-display text-2xl font-bold text-ai-text ring-1 ring-ai/30">
           {(name || '?').charAt(0).toUpperCase()}
         </span>
         <div className="min-w-0 flex-1 basis-56 space-y-2">
           <div>
-            <p className="truncate text-base font-semibold text-fg">{name || 'No name yet'}</p>
-            <p className="truncate text-[13px] text-muted">
+            <p className="truncate text-heading font-semibold text-fg">{name || 'No name yet'}</p>
+            <p className="truncate text-body-sm text-muted">
               {capitalize(value.role.trim() || 'assistant')}
               {company && ` at ${company}`}
             </p>
           </div>
           <ul aria-label="Voice" className="flex flex-wrap gap-1.5">
             {chips.map((c) => (
-              <li key={c} className="rounded-full bg-surface-2 px-2.5 text-xs leading-[22px] font-medium text-fg-2">
+              <li key={c} className="rounded-full bg-surface-2 px-2.5 text-caption leading-[22px] font-medium text-fg-2">
                 {c}
               </li>
             ))}
@@ -518,7 +518,7 @@ export function GoalsSection({ value, onChange, ctx }: SectionProps<Goals>) {
         </Field>
       </Setting>
       <Setting id="goals.secondary" className="space-y-2">
-        <p className="text-[13px] font-medium text-fg-2">More goals</p>
+        <p className="text-body-sm font-medium text-fg-2">More goals</p>
         {value.secondary.map((goal, i) => (
           <div key={i} className="flex items-center gap-2">
             <Input aria-label={`Goal ${i + 2}`} value={goal} maxLength={200} onChange={(e) => setOther(i, e.target.value)} />
@@ -530,9 +530,9 @@ export function GoalsSection({ value, onChange, ctx }: SectionProps<Goals>) {
         <Button size="sm" icon={<Plus className="size-3.5" />} disabled={value.secondary.length >= 5} onClick={() => onChange({ ...value, secondary: [...value.secondary, ''] })}>
           Add goal
         </Button>
-        <p className="text-xs text-muted">Up to 5, e.g. “Mention the new-patient offer when it fits.”</p>
+        <p className="text-caption text-muted">Up to 5, e.g. “Mention the new-patient offer when it fits.”</p>
       </Setting>
-      <p className="text-[13px] text-muted">
+      <p className="text-body-sm text-muted">
         Built-in goals are added for what you switch on: answering from your information, capturing details, qualifying, booking and handing off.
       </p>
     </SettingsCard>
@@ -552,7 +552,7 @@ export function InstructionsSection({ value, onChange }: { value: string; onChan
       <Textarea
         aria-label="Custom instructions"
         rows={18}
-        className="font-mono text-[13px]"
+        className="font-mono text-body-sm"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={'e.g. When someone asks about pricing, give the range and offer a free consultation.\nNever quote prices for custom work.'}
@@ -647,13 +647,13 @@ export function LeadCaptureSection({ value, onChange, ctx }: SectionProps<LeadCa
             {/* On a very narrow card the table scrolls sideways by itself rather than squeezing its menus. */}
             <div className="overflow-x-auto">
               <div className="min-w-[27rem]">
-                <div className="grid grid-cols-[minmax(7rem,1fr)_4.5rem_minmax(9rem,12rem)_2.25rem] items-center gap-3 border-b border-border px-4 py-2 text-xs font-medium text-muted">
+                <div className="grid grid-cols-[minmax(7rem,1fr)_4.5rem_minmax(9rem,12rem)_2.25rem] items-center gap-3 border-b border-border px-4 py-2 text-caption font-medium text-muted">
                   <span>Field</span>
                   <span>Required</span>
                   <span>When to ask</span>
                   <span className="sr-only">Remove</span>
                 </div>
-                {value.fields.length === 0 && <p className="px-4 py-6 text-center text-[13px] text-muted">No fields — add at least a name or email so leads can be followed up.</p>}
+                {value.fields.length === 0 && <p className="px-4 py-6 text-center text-body-sm text-muted">No fields — add at least a name or email so leads can be followed up.</p>}
                 {value.fields.map((f, i) => (
                   <div key={i} className="grid grid-cols-[minmax(7rem,1fr)_4.5rem_minmax(9rem,12rem)_2.25rem] items-center gap-3 border-b border-border px-4 py-2 last:border-b-0">
                     <Select aria-label="Field" value={f.field} onChange={(e) => setField(i, { field: e.target.value })}>
@@ -688,7 +688,7 @@ export function LeadCaptureSection({ value, onChange, ctx }: SectionProps<LeadCa
               >
                 Add field
               </Button>
-              <Link to="/automations?tab=fields" className="text-xs text-accent-text hover:underline">
+              <Link to="/automations?tab=fields" className="text-caption text-accent-text hover:underline">
                 Manage custom fields
               </Link>
             </div>
@@ -766,7 +766,7 @@ function coerceRuleValue(operator: RuleOperator, value: RuleValue, question: Qua
 
 function RuleValueEditor({ rule, question, onChange }: { rule: QualificationRule; question: QualificationQuestion | undefined; onChange: (v: RuleValue) => void }) {
   const op = rule.operator;
-  if (op === 'answered') return <span className="text-xs text-muted">—</span>;
+  if (op === 'answered') return <span className="text-caption text-muted">—</span>;
   const options = question?.options ?? [];
   if (op === 'in' || op === 'not_in') {
     const arr = Array.isArray(rule.value) ? rule.value : [];
@@ -806,7 +806,7 @@ function RuleValueEditor({ rule, question, onChange }: { rule: QualificationRule
 function OutcomeEditor({ title, value, onChange, ctx }: { title: string; value: QualificationOutcome; onChange: (v: QualificationOutcome) => void; ctx: EditorContext }) {
   return (
     <Card className="space-y-3 p-4">
-      <p className="text-[13px] font-semibold text-fg">{title}</p>
+      <p className="text-body-sm font-semibold text-fg">{title}</p>
       <Field label="Add tags">
         <ChipsInput value={value.tags} onChange={(tags) => onChange({ ...value, tags })} suggestions={ctx.tags.map((t) => t.name)} placeholder="Tag names" />
       </Field>
@@ -901,13 +901,13 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
             {value.questions.map((q, i) => (
               <Card key={i} className="space-y-3 p-4">
                 <div className="flex items-start gap-3">
-                  <span className="mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-muted">{i + 1}</span>
+                  <span className="mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-caption font-medium text-muted">{i + 1}</span>
                   <div className="grid min-w-0 flex-1 gap-3 @md:grid-cols-[1fr_180px]">
                     <Field label="Question">
                       <Input value={q.question} maxLength={300} placeholder="What's your budget?" onChange={(e) => setQuestion(i, { question: e.target.value })} />
                     </Field>
                     <Field label="Key" hint="Used in rules and exports.">
-                      <Input className="font-mono text-[13px]" value={q.key} maxLength={64} onChange={(e) => setQuestion(i, { key: slugify(e.target.value) })} />
+                      <Input className="font-mono text-body-sm" value={q.key} maxLength={64} onChange={(e) => setQuestion(i, { key: slugify(e.target.value) })} />
                     </Field>
                     <Field label="Answer type">
                       <Select
@@ -957,10 +957,10 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
                   </div>
                 </div>
                 <div className="pl-9">
-                  <Toggle size="sm" label={<span className="text-[13px] font-normal">Required to qualify</span>} checked={q.required} onChange={(required) => setQuestion(i, { required })} />
+                  <Toggle size="sm" label={<span className="text-body-sm font-normal">Required to qualify</span>} checked={q.required} onChange={(required) => setQuestion(i, { required })} />
                 </div>
                 {clashes(q).length > 0 && (
-                  <p className="pl-9 text-xs text-warning-text">
+                  <p className="pl-9 text-caption text-warning-text">
                     {clashes(q).join(', ')} also {clashes(q).length === 1 ? 'uses' : 'use'} the key “{q.key}” with a different answer type or options. A contact's answer
                     under this key is shared between them, and one that doesn't fit this question is asked again. Use a different key to keep them apart.
                   </p>
@@ -1000,7 +1000,7 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
               return (
                 <div key={i} className="space-y-2 px-4 py-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="w-8 shrink-0 text-xs font-medium text-muted">If</span>
+                    <span className="w-8 shrink-0 text-caption font-medium text-muted">If</span>
                     <Select
                       aria-label={`Rule ${i + 1} question`}
                       className="min-w-40 flex-1"
@@ -1042,10 +1042,10 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
                         <RuleValueEditor rule={r} question={question} onChange={(v) => setRule(i, { value: v })} />
                       </div>
                     )}
-                    <span className="text-xs text-muted">then</span>
+                    <span className="text-caption text-muted">then</span>
                     <NumberInput aria-label={`Rule ${i + 1} points`} className="w-20" value={r.points} step={1} onChange={(v) => setRule(i, { points: Math.round(v ?? 0) })} />
-                    <span className="text-xs text-muted">points</span>
-                    <Toggle size="sm" className="ml-2" label={<span className="text-xs font-normal text-fg-2">Disqualify</span>} checked={r.disqualify} onChange={(disqualify) => setRule(i, { disqualify })} />
+                    <span className="text-caption text-muted">points</span>
+                    <Toggle size="sm" className="ml-2" label={<span className="text-caption font-normal text-fg-2">Disqualify</span>} checked={r.disqualify} onChange={(disqualify) => setRule(i, { disqualify })} />
                   </div>
                 </div>
               );
@@ -1152,7 +1152,7 @@ export function BookingSection({ value, onChange, ctx }: SectionProps<Booking>) 
       <SettingsCard title="Before booking" description="What the assistant makes sure of first.">
         <Setting id="booking.requiredFields">
           <fieldset className="space-y-2">
-            <legend className="mb-1.5 text-[13px] font-medium text-fg-2">Details required before booking</legend>
+            <legend className="mb-1.5 text-body-sm font-medium text-fg-2">Details required before booking</legend>
             <div className="flex flex-wrap gap-x-6 gap-y-2">
               {BOOKING_FIELDS.map((f) => (
                 <Checkbox
@@ -1314,7 +1314,7 @@ export function StartersSection({
           {value.map((s, i) => (
             <Card key={s.id} role="group" aria-label={`Starter ${i + 1}`} className="space-y-3 p-4">
               <div className="flex items-start gap-3">
-                <span className="mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-muted">{i + 1}</span>
+                <span className="mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-caption font-medium text-muted">{i + 1}</span>
                 <div className="grid min-w-0 flex-1 gap-3 @lg:grid-cols-[1fr_230px]">
                   <Field label="Button text" error={labelError(s)}>
                     <Input value={s.label} maxLength={60} placeholder="Book an appointment" onChange={(e) => set(i, { label: e.target.value })} />
@@ -1350,16 +1350,16 @@ export function StartersSection({
                 </div>
               </div>
               <div className="pl-9">
-                <Toggle size="sm" label={<span className="text-[13px] font-normal">Show in the chat</span>} checked={s.enabled} onChange={(enabled) => set(i, { enabled })} />
+                <Toggle size="sm" label={<span className="text-body-sm font-normal">Show in the chat</span>} checked={s.enabled} onChange={(enabled) => set(i, { enabled })} />
               </div>
               {s.enabled && s.action === 'handoff' && !handoffEnabled && (
-                <p className="pl-9 text-xs text-warning-text">
+                <p className="pl-9 text-caption text-warning-text">
                   Human handoff is off (Handoff tab), so this starter can't be saved as shown. Turn handoff on, choose “Send the message”, or hide it.
                 </p>
               )}
             </Card>
           ))}
-          <p className="text-xs text-muted">
+          <p className="text-caption text-muted">
             {shown} of {value.length} shown in the chat (up to {MAX_STARTERS}). Three to five short options work best.
           </p>
         </div>
@@ -1421,7 +1421,7 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
                 label={
                   <span className="flex items-center gap-2">
                     {TOOL_LABELS[key]?.label ?? key}
-                    <code className="font-mono text-[11px] font-normal text-faint">{key}</code>
+                    <code className="font-mono text-label font-normal text-muted">{key}</code>
                   </span>
                 }
                 description={TOOL_LABELS[key]?.description}
@@ -1439,8 +1439,8 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
       >
         <Card className="divide-y divide-border">
           <div className="space-y-2 px-4 py-3">
-            <p className="text-[13px] font-medium text-fg">Lifecycle stages it may set</p>
-            <p className="text-xs text-muted">None ticked = the assistant never changes the stage.</p>
+            <p className="text-body-sm font-medium text-fg">Lifecycle stages it may set</p>
+            <p className="text-caption text-muted">None ticked = the assistant never changes the stage.</p>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
               {[...ctx.lifecycleStages, ...value.lifecycleStages.filter((s) => !ctx.lifecycleStages.includes(s))].map((stage) => (
                 <Checkbox
@@ -1453,8 +1453,8 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
             </div>
           </div>
           <div className="space-y-2 px-4 py-3">
-            <p className="text-[13px] font-medium text-fg">Team members it may make a contact's owner</p>
-            <p className="text-xs text-muted">None ticked = the assistant never assigns owners. It sees their names, never their emails; say in the instructions who looks after whom.</p>
+            <p className="text-body-sm font-medium text-fg">Team members it may make a contact's owner</p>
+            <p className="text-caption text-muted">None ticked = the assistant never assigns owners. It sees their names, never their emails; say in the instructions who looks after whom.</p>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
               {ctx.members.map((m) => (
                 <Checkbox
@@ -1529,7 +1529,7 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
               />
             ))}
           </div>
-          <p className="text-xs text-muted">Only matters for actions that are on. Workflows ask first per workflow, in Automations → Workflows.</p>
+          <p className="text-caption text-muted">Only matters for actions that are on. Workflows ask first per workflow, in Automations → Workflows.</p>
         </Card>
       </SettingsCard>
       <SettingsCard setting="actions.tags" title="Tags" description="Which tags the assistant may apply to contacts.">
@@ -1540,14 +1540,14 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
       </SettingsCard>
       <SettingsCard setting="actions.workflows" title="Workflows" description="n8n workflows the assistant may trigger (needs the “Trigger workflow” tool).">
         {ctx.workflows === null ? (
-          <p className="text-[13px] text-muted">Only admins can manage workflows.</p>
+          <p className="text-body-sm text-muted">Only admins can manage workflows.</p>
         ) : ctx.workflows.length === 0 ? (
           <EmptyBox>
             <EmptyState
               title="No workflows yet"
               description="Connect an n8n workflow to let the assistant update your CRM, send quotes and more."
               action={
-                <Link to="/automations?tab=workflows" className="text-[13px] font-medium text-accent-text hover:underline">
+                <Link to="/automations?tab=workflows" className="text-body-sm font-medium text-accent-text hover:underline">
                   Add a workflow →
                 </Link>
               }
@@ -1560,7 +1560,7 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
                 <Checkbox
                   label={
                     <span className="flex items-center gap-2">
-                      {w.name} <code className="font-mono text-[11px] text-faint">{w.key}</code>
+                      {w.name} <code className="font-mono text-label text-muted">{w.key}</code>
                       {!w.isActive && <Badge tone="slate">inactive</Badge>}
                     </span>
                   }
@@ -1573,7 +1573,7 @@ export function ActionsSection({ value, onChange, ctx }: SectionProps<Actions>) 
             {value.workflowKeys
               .filter((k) => !ctx.workflows!.some((w) => w.key === k))
               .map((k) => (
-                <div key={k} className="flex items-center justify-between px-4 py-3 text-[13px] text-danger-text">
+                <div key={k} className="flex items-center justify-between px-4 py-3 text-body-sm text-danger-text">
                   Unknown workflow “{k}”
                   <Button size="xs" variant="ghost" onClick={() => set('workflowKeys', value.workflowKeys.filter((x) => x !== k))}>
                     Remove
@@ -1612,12 +1612,12 @@ export function ModelSection({ value, onChange }: { value: ModelSettings; onChan
       title="AI model"
       description="The server configuration chooses the AI provider and model for every bot. Override them here only when this bot needs something different."
     >
-      <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-[13px] text-muted">
+      <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-body-sm text-muted">
         Server default:{' '}
-        <span className="font-mono text-[12.5px] text-fg">
+        <span className="font-mono text-caption text-fg">
           {server ? `${server.provider} · ${server.model} · ${serverEffort}` : ai.isLoading ? 'loading…' : 'unavailable'}
         </span>
-        {server && !server.pricing.model && <span className="block text-xs">No price is configured for this model, so its cost shows as $0.</span>}
+        {server && !server.pricing.model && <span className="block text-caption">No price is configured for this model, so its cost shows as $0.</span>}
       </p>
       <Grid>
         <Setting id="model.model">
@@ -1627,7 +1627,7 @@ export function ModelSection({ value, onChange }: { value: ModelSettings; onChan
             error={modelValid ? null : 'Letters, digits and . _ : / @ - only.'}
           >
             <Input
-              className="font-mono text-[13px]"
+              className="font-mono text-body-sm"
               placeholder={server ? `Server default (${server.model})` : 'Server default'}
               value={value.model}
               onChange={(e) => onChange({ ...value, model: e.target.value })}
@@ -1667,7 +1667,7 @@ export function KnowledgeSection({ value, onChange, ctx }: { value: string[]; on
             title="No knowledge bases"
             description="Create one and add FAQs, web pages or documents."
             action={
-              <Link to="/knowledge" className="text-[13px] font-medium text-accent-text hover:underline">
+              <Link to="/knowledge" className="text-body-sm font-medium text-accent-text hover:underline">
                 Go to Knowledge →
               </Link>
             }
@@ -1683,7 +1683,7 @@ export function KnowledgeSection({ value, onChange, ctx }: { value: string[]; on
                 checked={value.includes(kb.id)}
                 onChange={(e) => onChange(e.target.checked ? [...value, kb.id] : value.filter((id) => id !== kb.id))}
               />
-              <Link to={`/knowledge/${kb.id}`} className="shrink-0 text-xs text-accent-text hover:underline">
+              <Link to={`/knowledge/${kb.id}`} className="shrink-0 text-caption text-accent-text hover:underline">
                 {kb.documentCount} document{kb.documentCount === 1 ? '' : 's'}
               </Link>
             </div>
@@ -1691,7 +1691,7 @@ export function KnowledgeSection({ value, onChange, ctx }: { value: string[]; on
         </Card>
       )}
       {value.length === 0 && ctx.knowledgeBases.length > 0 && (
-        <p className="text-[13px] text-warning-text">No knowledge base selected — the assistant will only use the business info and instructions.</p>
+        <p className="text-body-sm text-warning-text">No knowledge base selected — the assistant will only use the business info and instructions.</p>
       )}
     </SettingsCard>
   );

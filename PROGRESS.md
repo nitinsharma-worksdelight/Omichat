@@ -39,6 +39,29 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 🧪 Implemented — verifying · ❌ Verification failed · ✅ Complete. Only a passing
 `npm run verify:phase -- <n> --complete` run can set ✅ Complete. The hook refuses to complete a deferred phase.
 
+## UI redesign track (U1–U8)
+
+A separate, dashboard-only track: a new visual design ("Calm Signal") with **no** changes to features, APIs, the
+backend, the database, routes, state or business logic. It is kept outside the hook's table above because the hook
+tracks numbered phases; U phases are updated here by hand. Plan:
+[`docs/IMPLEMENTATION_PLAN.md` → UI redesign track](docs/IMPLEMENTATION_PLAN.md#ui-redesign-track-u1u8).
+
+- **Design direction:** ✅ Approved (2026-10-02). Mockups: the "Omni AI — Calm Signal design direction" canvas
+  (shared visual system, Overview, Conversations, Leads, Bot editor; light and dark).
+- Each U phase is approved on its own before any code changes, and the next one never starts automatically.
+
+| Phase | Title | Status | Last verified |
+|---|---|---|---|
+| U1 | Foundations — tokens, fonts, themes, shared building blocks | ✅ Complete (2026-10-02) | 2026-10-02 |
+| U2 | App shell — grouped sidebar, rail, top bar, auth pages | ✅ Complete (2026-10-02) | 2026-10-02 |
+| U3 | Home — Overview, Analytics | ✅ Complete (2026-10-02) | 2026-10-02 |
+| U4 | Inbox — Conversations, Approvals | ✅ Complete (2026-10-02) | 2026-10-02 |
+| U5 | Customers — Leads, Lead detail, Deals | ✅ Complete (2026-10-02) | 2026-10-02 |
+| U6 | AI Studio — Bots, Bot editor, Test chat, Knowledge | ✅ Complete (2026-10-02) | 2026-10-02 |
+| U7 | Operations + Settings — Appointments, Calendars, Automations, Settings | ✅ Complete (2026-10-02) | 2026-10-02 |
+| U8 | Responsive + polish — no fixed min width, phone/tablet, contrast and dark-mode pass | ✅ Complete (2026-10-02) | 2026-10-02 |
+| U9 | Dark mode switch and menu order (on request) | ✅ Complete (2026-10-02) | 2026-10-02 |
+
 ## Completed work
 
 - **2026-09-26 — Full audit.** Stack, the five Phase 1 features, the LLM layer, architecture problems and the
@@ -803,6 +826,178 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
   - **Browser check** (your dev servers, last 30 days): median first reply 38 s, 83% handoff rate, 13 of 15 AI handoffs
     not answered yet, reasons led by "Customer asked for a person"; your three "Realtime check" chats from yesterday
     are in these figures. No sideways scrolling.
+- **2026-10-02 — F9 committed** (`f287473`, as asked before U1), separately from the UI redesign docs.
+- **2026-10-02 — U1 Foundations implemented and verified** (approved with self-hosted fonts). Design only; no
+  feature, API, server, database, route, state or logic changes.
+  - **Tokens (`index.css`):** Calm Signal values for light and dark under the existing names (`accent` is now
+    Lagoon), plus `ai*`, `human*`, `sidebar`, `input-bg`, `danger-fg`, `info`, and the shadows `card`, `raise`,
+    `pop`, `modal` (a hairline top highlight in dark). Named sizes `text-display` … `text-label` for later phases.
+  - **Fonts:** Instrument Sans, Bricolage Grotesque and JetBrains Mono, self-hosted (`@fontsource-variable`, OFL).
+    Only the Latin files load (checked in the browser).
+  - **Shared parts:** Button, Field (error icon), inputs, Toggle, ChipsInput, Card, CardHeader, Section, PageHeader
+    (display font), Badge (new `ai` and `human` tones), list-shaped SkeletonRows, EmptyState, ErrorBanner (Retry is a
+    button), sentence-case tables, Tabs, code blocks, Modal, Drawer, Popover, MenuItem, toasts. Same exports, props
+    and behaviour.
+  - **Status badges:** AI handling uses iris, Human uses apricot. TagChip falls back to `var(--muted)`.
+  - **Favicon:** the new mark.
+  - **Checks:** typecheck clean (all workspaces), dashboard build, 269/269 server tests. The diff touches only the
+    planned files. Browser: Overview, Conversations (thread open), Leads, Add contact modal and the Bot editor in
+    light and dark at 1440 px; Analytics, Deals, Knowledge, Appointments, Automations, Settings and Approvals in dark;
+    Overview at 1024 px; no console errors. Contrast: every text/fill pair is 4.5:1 or better in both themes (lowest
+    4.94); `faint` (placeholders only) is 3.6:1, up from 2.6:1.
+- **2026-10-02 — U2 App shell implemented and verified** (as approved). Design only; routes, links and logic unchanged.
+  - **Brand (`components/brand.tsx`, new):** `BrandMark` (the two-stroke ring) and `BrandLockup` (mark, "Omni", AI tag).
+  - **Sidebar:** the same 11 links grouped as Home, Inbox, Customers, AI Studio, Operations, with Settings pinned at
+    the bottom; 248 px (64 px collapsed, same `omni:main-menu-collapsed` setting); soft Lagoon active state; group
+    labels become dividers when collapsed; each group has an accessible name; the approvals count is unchanged.
+  - **Org switcher** in the sidebar head (same Popover, menu and `switchOrg`); a plain label with one organization.
+  - **Top bar:** a `Section › Page` breadcrumb with `aria-current`, the "AI paused" badge after it, the bell (count
+    now `danger-fg`, which fixes the U1 issue) and the account menu with an apricot initials avatar. The notifications
+    panel's rows now reach its edges (its `p-0` used to lose to the menu padding).
+  - **Login and signup:** brand lockup, display-font title, 16 px card. **First load:** the mark above the spinner.
+  - **Checks:** typecheck clean, dashboard build, 269/269 server tests; the diff for U2 is `Layout.tsx`, `brand.tsx`,
+    `AuthPages.tsx`, `App.tsx`. Browser (light and dark, 1440 and 1024 px): all 11 links go to the same URLs as before;
+    the active item and breadcrumb follow detail pages (a bot showed AI Studio › Bots); collapse survived a reload and
+    was set back; the notifications panel and the account menu open; log out, the login and signup screens, and
+    signing back in with the local demo account work; keyboard focus shows the Lagoon ring; no console errors.
+  - **Not checked:** the org menu with several organizations (the demo account has one); the code path is unchanged
+    apart from where it sits.
+- **2026-10-02 — U3 Home implemented and verified** (as approved; the greeting is the Overview title). Design only;
+  queries, refresh intervals, filters, URLs, links and the task checkbox behave as before.
+  - **Shared stat pieces (`components/stats.tsx`, new):** `IconTile`, `StatValue` (display-font figure) and
+    `DeltaPill`, used by both pages.
+  - **Overview:** "Good afternoon, Demo" with a date eyebrow (organization timezone); the six figures in one strip
+    with tones by meaning (AI bookings and cost in iris, Handoffs in apricot); the activity timeline with a
+    connector and an AI/Team legend; tasks with "Created by AI" / "Created by team" badges.
+  - **Activity rows (`components/activity.tsx`):** the node shows who acted (AI: iris rounded square; team: apricot
+    circle; visitor/system: neutral) and keeps the event's own success/warning/danger icon colour; AI actions use
+    iris. The contact page, the Conversations details timeline and the Test chat pick this up.
+  - **Analytics:** filters in one row, metric cards on `StatValue` with the change pill, the selected card in Lagoon,
+    a quieter chart with rounded bars. Performance bars by meaning (handoff reasons apricot, funnel Lagoon, the
+    assistant's actions iris), display-font figures, hints moved from `faint` to `muted`, and content padding under
+    the card headers (it touched the header's divider since U1).
+  - **Checks:** typecheck clean, dashboard build, 269/269 server tests; U3's files only. Browser: Overview and
+    Analytics in light and dark at 1440 and 1024 px; selecting a metric card (URL `metric=handoffs`, chart title
+    follows); the Custom period (date fields appear, URL as before) and the bot filter; the contact page activity and
+    the Conversations details timeline; with the API intercepted in the browser, the Overview's error banner with
+    Retry and both empty states; no console errors. No task was ticked.
+  - **Not checked:** the loading skeletons on screen (cached data hides them without a full reload, which drops the
+    intercept); the Test chat's "What the AI did" list (filling it needs a paid model reply). Both use the same
+    components that were checked.
+- **2026-10-02 — U4 Inbox implemented and verified** (as approved). Design only; every query, live update, filter,
+  action and shortcut behaves as before.
+  - **Avatars (`components/avatar.tsx`, new):** `PersonAvatar` (initials; apricot for the team; a dashed circle for
+    a nameless visitor; an icon when the name is only a phone number) and `AiAvatar` (iris rounded square, sparkle).
+  - **List:** avatars, "AI:" / "Team:" prefixes in iris / apricot, a Lagoon edge on the selected row; 320 px from
+    1280 px wide, 288 px below.
+  - **Thread:** the three voices — visitor (neutral, left), AI (iris, right), team (apricot, right) — with avatars;
+    system notes as a centred chip; typing dots and streaming in the AI style; sources as chips that truncate long
+    titles; Take over with an apricot hand, Resume AI with an iris sparkle; the summary bar with an iris AI tile; the
+    composer as one bordered box with the Lagoon focus ring; the details panel with a contact header.
+  - **Approvals:** the card as a 12 px amber card with an icon tile; the page as an 880 px column.
+  - **Checks:** typecheck clean, dashboard build, 269/269 server tests; U4's files only. Browser (light and dark,
+    1440 and 1024 px): AI, team and visitor messages with sources (Rahul's handoff chat); the summary expanding;
+    Details toggling; the "Needs a human" filter (only Rahul) and back; all four Approvals tabs' empty states; with a
+    sample request fed to the page in the browser only, the waiting card, its counts, and the Decline… form opening
+    and Cancel; the reply box's focus ring. Nothing was sent, assigned, taken over, closed, approved or declined.
+  - **Not checked:** a system message on screen (none in the demo data; the markup is a simple chip).
+- **2026-10-02 — U5 Customers implemented and verified** (as approved). Design only; a scan of the diff found no
+  changed handler, state, query or request line (only class names on two of them).
+  - **Leads:** avatars in the name cell, a Lagoon score bar, `muted` dashes, filters in one row with the checkboxes
+    at its end, tabular pager.
+  - **Lead detail:** a 44 px avatar in the header, the duplicate review as a 12 px amber card, an iris AI tile on
+    "What the AI remembers" (team and AI notes marked apricot / iris), "by AI" / "by team" badges on tasks, notes as
+    cards, hover rows for appointments and conversations (AI summaries marked with a sparkle), 20 px tab padding.
+  - **Deals:** 12 px columns with a count pill and tabular totals, dashed "No deals", cards with the contact's avatar,
+    tabular semibold values and a hover lift; the lost reason as a danger callout; Mark won with a green trophy.
+  - All ad-hoc text sizes in the three files moved to the named sizes (54 lines).
+  - **Checks:** typecheck clean, dashboard build, 269/269 server tests on the third run (the first two hit 30 s
+    timeouts — 3, then 1 — in `search-quality.test.ts` and others while the machine's load average was about 18; that
+    test passes alone in 8 s; no server code changed). Browser (light and dark, 1440 and 1024 px): the tier filter
+    (`?tier=hot`, only Hot rows) and back; Next / Previous; Nikhil Sharma's page with its duplicate review and every
+    history tab; the Profile form's Discard / Save appearing on an edit and clearing on revert (not saved); Deals with
+    Open, Won and Lost, the won deal's drawer, the pipeline editor, and "Create deal" from a conversation — each
+    opened and closed without saving; no console errors.
+- **2026-10-02 — U6 AI Studio, U7 Operations + Settings and U8 Responsive + polish implemented and verified**
+  (approved together). Design only; a scan of the three phases' page diffs found no changed handler, state, query
+  or request line except the new overlay close controls listed below.
+  - **U6:**
+    - named sizes across the bot pages and Knowledge (149 lines); `faint` text moved to `muted`
+    - the bot's own tile, the Bots cards and the persona tile in iris (the AI); the Test chat's AI tag in iris
+    - the Test chat otherwise keeps the website widget's look on purpose
+    - Bots cards with the AI avatar, a display-font name and a hover lift
+    - Knowledge: the list's active state, and retrieval results as cards with a small similarity bar
+  - **U7:**
+    - named sizes in Appointments, the Calendar editor, the Slot picker, Automations and Settings (107 lines); the
+      website-chat preview (`PreviewFace`, `WidgetPreview`) is unchanged
+    - the agenda's time in the display font, "Booked by AI / team" in iris / apricot, and uppercase day headings
+    - slots as 32 px chips
+  - **U8:**
+    - **Shell:** no fixed minimum width. Below 1024 px the menu is a slide-over from a top-bar button: it closes on
+      a link, Escape, the backdrop or "Close menu", is inert while closed, moves focus into itself and back to the
+      button. With no stored choice, 1024–1279 px starts with the icon rail.
+    - **Gutters:** 16 px below 640 px.
+    - **Grids collapse on phones:** form pairs, the contact page columns, Knowledge, Calendars, the channel dialog
+      and the Overview figures (2 → 3 → 6).
+    - **Wrapping:** `PageHeader` and the bot editor header wrap; the Deals board snaps by column.
+    - **Conversations:** one pane at a time below 1024 px with "Back to inbox"; the details panel is an overlay
+      below 1280 px with a close button and Escape (fixes the U4 follow-up).
+    - **Bot editor:** the settings menu is hidden below 768 px; the Test chat is an overlay below 1280 px with
+      "Close test chat" and Escape.
+    - The duplicate review's buttons wrap under the text on phones.
+  - **Consistency check:**
+    - **Raw hex colours left on purpose:** the website-chat preview; the widget's default brand colour `#4f46e5` (a
+      data default the widget uses); the brand mark; the tag colour palette (stored data).
+    - **Ad-hoc text sizes left on purpose:** 15 px card titles; 17–18 px bot names; 10–10.5 px micro labels
+      (Playground, avatars, nav group labels, chart axis); and the preview's own sizes.
+  - **Checks:** typecheck clean, dashboard build, 269/269 server tests.
+  - **Browser, at 375 px:**
+    - none of the 14 routes scrolls sideways (measured)
+    - the slide-over menu with focus in and out, Escape, and closing on a link
+    - the inbox list → thread → details overlay (backdrop closes it) → back
+    - the bot editor with the Test chat overlay, closed with Escape
+    - Overview, Leads, Lead detail (found and fixed the duplicate card squeeze), Deals and Analytics
+  - **Browser, at 768, 1024 and 1440 px:**
+    - 768 px: Lead detail stacks, with no overflow
+    - 1024 px: the default icon rail, checked by clearing the stored choice and then restoring it to "expanded"
+    - 1440 px: unchanged, with no menu button
+    - U6/U7 pages in light and dark: Bots, the bot editor overview and Identity, Knowledge, Appointments (agenda,
+      booking dialog with 88 slots opened and cancelled, calendar editor), all Automations tabs, all Settings tabs
+      and the Website chat dialog with its preview
+    - no console errors; nothing saved, booked or sent
+- **2026-10-02 — U9 Dark mode switch and menu order** (asked for: "light mode and dark mode toggle with an icon",
+  "AI Studio between Home and Inbox", no UI/UX issues).
+  - **Switch:** a "Dark mode" row with a sun/moon icon and a switch in the main menu, between Settings and Collapse
+    menu. It is an icon button in the collapsed rail and a full row in the phone menu (`role="switch"`, `aria-checked`).
+  - **Behaviour:**
+    - With no choice stored, the app follows the device setting, as before, and keeps following it when that
+      changes.
+    - A choice is stored in this browser (`omni:theme`) and overrides the device.
+  - **How the theme is applied:**
+    - The theme lives on `<html data-theme>`, set by a small script in `index.html` before the first paint (no flash
+      of the wrong theme); `color-scheme` is updated too, for native controls.
+    - The dark tokens moved from `@media (prefers-color-scheme: dark)` to `:root[data-theme="dark"]`.
+    - Tailwind's `dark:` variant now follows `data-theme` (`@custom-variant`), so the brand mark and the website-chat
+      preview follow the switch.
+    - New `components/theme.tsx` (`useTheme`, `ThemeToggle`).
+  - **Menu order:** Home, AI Studio, Inbox, Customers, Operations; Settings stays at the bottom. Same links.
+  - **Fixes found while checking:**
+    - Switch tracks when off are now `faint` instead of `border-strong`: the knob against the track went from about
+      1.5:1 to 3.6:1 in light mode.
+    - The knob uses the accent's text colour when on: from 2.2:1 to well over 3:1 on the light lagoon of dark mode.
+    - Both fixes apply to every `Toggle` in the app too.
+  - **Checks:** typecheck clean, dashboard build (the startup script ships in `dist/index.html`), 269/269 server
+    tests. Browser:
+    - with nothing stored and the device light, the app is light and the switch is off
+    - turning it on gives dark and stores the choice; it survived a reload with the device still light
+    - the website-chat preview followed it into dark
+    - the collapsed rail's icon switched it back to light
+    - in the phone menu, Space toggled it with the menu staying open
+    - the Settings switches in dark show a dark knob on lagoon
+    - afterwards the stored theme was removed (back to following the device) and the menu left expanded
+- **2026-10-02 — Full-width pages** (on request). Overview and Analytics (`mx-auto max-w-[1360px]`) and Approvals
+  (`mx-auto max-w-[880px]`) were capped and centred; their wrappers now match Bots (`px-4 sm:px-8 py-6`, keeping their
+  own `space-y-*`). Checked at 1920 px: all five pages start at the menu edge with no max width. Typecheck clean.
 
 ## Remaining issues
 
@@ -810,6 +1005,9 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 |---|---|---|
 | ~~Anonymous visitor merged into an existing contact on an unverified email/phone~~ | P0 | ✅ Fixed in Phase 1 |
 | A genuine returning customer isn't linked until staff merge them (accepted trade-off; verification codes could auto-approve later) | P3 | Not planned yet |
+| ~~Dark theme: the unread count on the bell (`Layout.tsx`) keeps `text-white` on the new light rose fill (about 2.6:1)~~ | P3 | ✅ Fixed in U2 (`danger-fg`, 6.8:1) |
+| ~~Conversations: with the details panel opened below 1280 px, the thread gets narrow (about 200 px at 1024 px)~~ | P3 | ✅ Fixed in U8 (the details open as an overlay below 1280 px) |
+| Several dashboard tabs open at once can stall API requests: each tab keeps live-stream connections to the API, and over HTTP/1.1 the browser allows six per host (found in the U4 browser check with four tabs; not caused by U4) | P2 | Not planned yet |
 | Dashboard duplicate-review banner not checked in a browser (skipped by decision; the API flow behind it is tested) | Test gap | Next time the dashboard is previewed |
 | README still says 71 tests (now 238) | Docs | Not planned |
 | The widget shows the browser's raw error ("Failed to fetch") when a message can't be sent over the network (found while testing starters; typed messages did this before) | P3 | Not planned |
@@ -2190,8 +2388,12 @@ Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned �
 | 2026-09-30 | F6: skip the paid mood re-check and mark F6 complete | User |
 | 2026-09-30 | Real-time notifications: publish IDs only (the dashboard refetches with its own access), org-wide on the org channel, personal on a per-member channel; one shared live connection; the 30 s poll stays as a fallback; plus a toast | User |
 | 2026-09-30 | Bot editor: grouped menu with an overview (concept A plus B), `?tab=` kept for links, Active / Paused pill, Booking essential only with a calendar; built in phases, layout first | User |
+| 2026-10-02 | UI redesign as a separate U1–U8 track (dashboard only, design only: no feature, API, backend, database, route, state or logic changes); each U phase approved separately | User |
+| 2026-10-02 | Calm Signal design direction approved (Lagoon actions, Iris = AI, Apricot = human team; Bricolage Grotesque / Instrument Sans / JetBrains Mono; six-section navigation) | User |
 
 ## Next phase
 
 **F7 (Phase 16) — Chat Widget**: explore, audit and plan when you say to start it (not started). After that: F8
 (Follow-ups). Phase 4 runs after them.
+
+**UI redesign track:** U1–U9 complete (2026-10-02; U6–U8 approved together) and committed. Plan: [`docs/IMPLEMENTATION_PLAN.md` → UI redesign track](docs/IMPLEMENTATION_PLAN.md#ui-redesign-track-u1u8).

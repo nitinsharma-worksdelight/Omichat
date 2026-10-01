@@ -97,7 +97,7 @@ export function KnowledgePage({ kbId }: { kbId: string | null }) {
           )
         }
       />
-      <div className="grid grid-cols-[240px_1fr] gap-6 px-8 py-6">
+      <div className="grid grid-cols-1 gap-6 px-4 py-6 sm:px-8 lg:grid-cols-[240px_1fr]">
         <nav aria-label="Knowledge bases" className="space-y-1">
           {kbs.isLoading ? (
             <SkeletonRows rows={3} className="p-0" />
@@ -109,18 +109,18 @@ export function KnowledgePage({ kbId }: { kbId: string | null }) {
                 key={k.id}
                 to={`/knowledge/${k.id}`}
                 aria-current={k.id === kbId ? 'page' : undefined}
-                className={cx('flex items-center justify-between gap-2 rounded-md px-3 py-2 text-[13px]', k.id === kbId ? 'bg-accent-soft font-medium text-accent-text' : 'text-fg-2 hover:bg-surface-2')}
+                className={cx('flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-body-sm transition-colors', k.id === kbId ? 'bg-accent-soft font-semibold text-accent-text' : 'font-medium text-fg-2 hover:bg-surface-2 hover:text-fg')}
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <BookOpen className="size-4 shrink-0" aria-hidden />
                   <span className="truncate">{k.name}</span>
                 </span>
-                <span className="text-xs text-muted">{k.documentCount}</span>
+                <span className="text-label text-muted tabular-nums">{k.documentCount}</span>
               </Link>
             ))
           )}
           {kbs.data?.length === 0 && (
-            <p className="px-3 py-2 text-[13px] text-muted">No knowledge bases yet.</p>
+            <p className="px-3 py-2 text-body-sm text-muted">No knowledge bases yet.</p>
           )}
         </nav>
         <div className="min-w-0 space-y-6">
@@ -285,7 +285,7 @@ function DocumentsCard({ kb, isAdmin, onDialog }: { kb: KnowledgeBase; isAdmin: 
                       <Icon className="mt-0.5 size-4 shrink-0 text-muted" aria-label={d.sourceType} />
                       <div className="min-w-0">
                         <p className="truncate font-medium text-fg">{d.title}</p>
-                        <p className="truncate text-xs text-muted">
+                        <p className="truncate text-caption text-muted">
                           {d.sourceType === 'url' && d.sourceUri ? (
                             <>
                               <a href={d.sourceUri} target="_blank" rel="noreferrer" className="hover:underline">
@@ -303,7 +303,7 @@ function DocumentsCard({ kb, isAdmin, onDialog }: { kb: KnowledgeBase; isAdmin: 
                           )}
                         </p>
                         {d.status === 'failed' && d.error && (
-                          <p className="mt-0.5 text-xs text-danger-text">
+                          <p className="mt-0.5 text-caption text-danger-text">
                             {d.chunkCount > 0 && d.lastIngestedAt
                               ? `${d.sourceType === 'url' ? 'Last fetch' : 'Last update'} failed (${d.error}). Still answering from the version from ${timeAgo(d.lastIngestedAt)}.`
                               : d.error}
@@ -384,13 +384,13 @@ function ChunksDrawer({ doc, onClose }: { doc: KbDocument | null; onClose: () =>
         <ol className="space-y-3">
           {chunks.data.map((c) => (
             <li key={c.id} className="rounded-lg border border-border p-3">
-              <p className="mb-1 flex items-center justify-between text-xs text-muted">
+              <p className="mb-1 flex items-center justify-between text-caption text-muted">
                 <span>
                   #{c.chunkIndex + 1} · <span className="font-medium text-fg-2">{c.title}</span>
                 </span>
                 <span>{c.tokenCount} tokens</span>
               </p>
-              <p className="text-[13px] whitespace-pre-wrap text-fg">{c.content}</p>
+              <p className="text-body-sm whitespace-pre-wrap text-fg">{c.content}</p>
             </li>
           ))}
         </ol>
@@ -501,14 +501,14 @@ function TextDocDialog({ kbId, doc, onClose }: { kbId: string; doc?: KbDocument;
       footer={<DialogFooter onClose={onClose} form="text-doc" label={doc ? 'Save & re-ingest' : 'Add'} loading={save.isPending} disabled={!title.trim() || !content.trim()} />}
     >
       <form id="text-doc" className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-        <div className="grid grid-cols-[1fr_200px] gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_200px]">
           <Field label="Title" required>
             <Input value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           </Field>
           <CategorySelect value={category} onChange={setCategory} />
         </div>
         <Field label="Content" required>
-          <Textarea rows={16} className="font-mono text-[13px]" value={content} onChange={(e) => setContent(e.target.value)} />
+          <Textarea rows={16} className="font-mono text-body-sm" value={content} onChange={(e) => setContent(e.target.value)} />
         </Field>
       </form>
     </Modal>
@@ -538,7 +538,7 @@ function FaqDocDialog({ kbId, doc, onClose }: { kbId: string; doc?: KbDocument; 
       footer={<DialogFooter onClose={onClose} form="faq-doc" label={doc ? 'Save & re-ingest' : valid.length ? `Add ${valid.length} FAQ${valid.length === 1 ? '' : 's'}` : 'Add FAQs'} loading={save.isPending} disabled={valid.length === 0} />}
     >
       <form id="faq-doc" className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-        <div className="grid grid-cols-[1fr_200px] gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_200px]">
           <Field label="Title">
             <Input value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           </Field>
@@ -625,7 +625,7 @@ function UrlDocDialog({ kbId, doc, onClose }: { kbId: string; doc?: KbDocument; 
         <Field label="URL" required={!doc} hint={doc ? 'To fetch a different address, add it as a new page.' : undefined}>
           <Input type="url" placeholder="https://example.com/pricing" value={url} disabled={Boolean(doc)} onChange={(e) => setUrl(e.target.value)} />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Title" hint={doc ? undefined : 'Optional — defaults to the page address.'}>
             <Input value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           </Field>
@@ -666,11 +666,11 @@ function UploadDialog({ kbId, onClose }: { kbId: string; onClose: () => void }) 
           <input
             type="file"
             accept=".pdf,.docx,.txt,.md,.markdown,.csv,.html,.htm,application/pdf,text/plain,text/markdown,text/csv,text/html,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            className="block w-full text-[13px] text-fg-2 file:mr-3 file:rounded-md file:border file:border-border-strong file:bg-surface file:px-3 file:py-1.5 file:text-[13px] file:font-medium file:text-fg hover:file:bg-surface-2"
+            className="block w-full text-body-sm text-fg-2 file:mr-3 file:rounded-md file:border file:border-border-strong file:bg-surface file:px-3 file:py-1.5 file:text-body-sm file:font-medium file:text-fg hover:file:bg-surface-2"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Title" hint="Optional — defaults to the file name.">
             <Input value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           </Field>
@@ -726,9 +726,9 @@ function RetrievalTester({ kbs, currentKbId }: { kbs: KnowledgeBase[]; currentKb
       </form>
       {result && (
         <div className="border-t border-border p-4">
-          <p className="mb-3 flex items-center gap-2 text-[13px] text-fg-2">
+          <p className="mb-3 flex items-center gap-2 text-body-sm text-fg-2">
             Grounding: <Badge tone={groundingTone}>{result.grounding}</Badge>
-            <span className="text-xs text-muted">
+            <span className="text-caption text-muted">
               {result.grounding === 'grounded'
                 ? 'Clearly relevant material found — the assistant will answer from it.'
                 : result.grounding === 'weak'
@@ -737,12 +737,12 @@ function RetrievalTester({ kbs, currentKbId }: { kbs: KnowledgeBase[]; currentKb
             </span>
           </p>
           {result.chunks.length === 0 ? (
-            <p className="text-[13px] text-muted">No passages found.</p>
+            <p className="text-body-sm text-muted">No passages found.</p>
           ) : (
             <ol className="space-y-2">
               {result.chunks.map((c, i) => (
-                <li key={c.id} className="rounded-lg border border-border p-3">
-                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <li key={c.id} className="rounded-xl border border-border bg-surface p-3.5">
+                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-caption">
                     <span className="font-medium text-fg">
                       {i + 1}. {c.title}
                       {c.url && (
@@ -752,11 +752,18 @@ function RetrievalTester({ kbs, currentKbId }: { kbs: KnowledgeBase[]; currentKb
                       )}
                     </span>
                     <span className="flex gap-2 text-muted tabular-nums">
-                      {typeof c.similarity === 'number' && <span>similarity {(c.similarity * 100).toFixed(1)}%</span>}
+                      {typeof c.similarity === 'number' && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-1 w-12 overflow-hidden rounded-full bg-surface-3" aria-hidden>
+                            <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(0, Math.min(100, c.similarity * 100))}%` }} />
+                          </span>
+                          similarity {(c.similarity * 100).toFixed(1)}%
+                        </span>
+                      )}
                       <span>score {c.score.toFixed(4)}</span>
                     </span>
                   </div>
-                  <p className="line-clamp-4 text-[13px] whitespace-pre-wrap text-fg-2">{c.content}</p>
+                  <p className="line-clamp-4 text-body-sm whitespace-pre-wrap text-fg-2">{c.content}</p>
                 </li>
               ))}
             </ol>

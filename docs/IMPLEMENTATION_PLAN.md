@@ -2863,6 +2863,618 @@ waits for the check-in.*
 
 ---
 
+## UI redesign track (U1–U8)
+
+*Proposed 2026-10-02. Design direction awaiting approval; no U phase is approved yet. Status lives in
+[`PROGRESS.md` → UI redesign track](../PROGRESS.md#ui-redesign-track-u1u8).*
+
+A new visual design for `apps/dashboard` only. Mockups: the "Omni AI — Calm Signal design direction" canvas
+(shared visual system plus Overview, Conversations, Leads and Bot editor, in light and dark).
+
+### Rules for every U phase
+
+- **Design only.** No changes to features, user flows, APIs, the server, the database, routes, state management or
+  business logic. `apps/server` and `apps/widget` are not touched.
+- **Files that never change:** `apps/dashboard/src/lib/*` (api, queries, mutations, router, types, sse, live, hooks,
+  format, slots) and `auth/AuthContext.tsx`.
+- **Inside components:** props, handlers, queries, mutations, conditions and copy that carries meaning stay as they
+  are. Only markup structure, class names and presentational wrappers change. ARIA roles, labels and keyboard
+  behaviour are kept or improved, never removed.
+- **Tokens only:** pages use semantic tokens (no raw hex, no ad-hoc `text-[Npx]` sizes).
+- Same flow as every phase: EXPLORE → AUDIT → PLAN → **ASK FOR APPROVAL** → IMPLEMENT → TEST → REVIEW → UPDATE
+  PROGRESS. The next U phase never starts automatically.
+
+### Design system ("Calm Signal")
+
+- **Colour:** warm stone/graphite neutrals; **Lagoon** teal is the only action colour (`#0B7A80` light /
+  `#3CC2BF` dark); **Iris** = AI (`#6B55D6` / `#A898FF`); **Apricot** = human team (`#C8622D` / `#F29A62`); Moss,
+  Amber and Rose for success, warning and danger. Each role has solid, soft and text shades in both themes.
+- **AI vs Human:** colour plus shape plus icon — AI uses a rounded-square avatar with a sparkle, people use circles
+  with initials; the visitor stays neutral.
+- **Type:** Bricolage Grotesque (titles, KPIs, wordmark), Instrument Sans (interface), JetBrains Mono (IDs, keys,
+  code). Tabular figures for numbers.
+- **Shape and space:** 4 px grid; radius 6 chips / 8 controls / 12 cards / 16 modals; border-first cards; dark mode
+  uses lighter surface steps and a hairline top highlight instead of shadows.
+- **Navigation:** the same 11 destinations grouped as Home, AI Studio, Inbox, Customers, Operations (order changed
+  in U9), with Settings and the Dark mode switch pinned at the bottom; collapse to a 64 px rail is kept.
+
+### Verification for every U phase
+
+- `npm run typecheck` and the dashboard build pass; the server test suite still passes (nothing there changes).
+- `git diff --stat` shows only the files the phase names.
+- Browser check of every touched page in the dev preview: light and dark, 1440 and 1024 px wide (plus 390 px in
+  U8), loading, empty and error states, keyboard focus.
+- Before/after screenshots attached to the phase's progress entry.
+- U phases are tracked by hand in `PROGRESS.md`; the `verify:phase` hook only knows numbered phases.
+
+### U1 — Foundations
+
+*Explored, audited and planned 2026-10-02. Approved 2026-10-02 with self-hosted fonts. Built and verified 2026-10-02 (see `PROGRESS.md`).*
+
+**Audit findings**
+
+- **Tokens are already central.** Pages use semantic classes (`text-accent-text` ×50, `bg-accent-soft` ×21,
+  `bg-accent` ×11, plus success / warning / danger / info). Changing the token *values* recolours the whole app
+  without touching any page.
+- **Hard-coded colours are rare:** the TagChip fallback `#64748b` (`status.tsx`), Button `danger` and the Toggle knob
+  (`ui.tsx`), the unread count in `Layout.tsx` (U2), and the widget preview in `SettingsPage.tsx`. The widget
+  preview copies the real widget's colours on purpose and stays as it is.
+- **Ad-hoc text sizes are everywhere in pages:** `text-[13px]` ×169, `text-[11px]` ×30, `text-[10px]` ×9, and
+  smaller ones. U1 defines named sizes; each page moves to them in its own phase.
+- **Mixed radii:** `rounded-lg` ×43, `rounded-md` ×24, `rounded` ×19, `rounded-xl` ×15. U1 sets them for the
+  shared parts only.
+- **Badge tone `indigo` means two things:** the AI status (`status.tsx`) and "All events" (Automations).
+- **No font is loaded.** The stack names Inter, but it only shows when Inter is installed locally.
+- **The theme follows the system** (`prefers-color-scheme`); there is no toggle. That stays: a toggle would be a new
+  feature.
+
+**Changes**
+
+1. **`index.css` — tokens.**
+   - Replace the values with Calm Signal for light and dark. Keep every existing token name (`bg`, `surface*`,
+     `border*`, `fg*`, `muted`, `faint`, `accent*`, `success*`, `warning*`, `danger*`, `info*`, `overlay`,
+     `ring`), so pages keep working unchanged. `accent` becomes Lagoon.
+   - Add `ai`, `ai-soft`, `ai-text`, `human`, `human-soft`, `human-text`, `sidebar`, `input-bg` and `danger-fg`
+     (text on a solid danger fill).
+   - Add shadow tokens: `card` (a hairline top highlight in dark), `raise` (hover and drag), `pop` (menus and
+     toasts), `modal` (dialogs and drawers).
+   - Info stays a separate dusk blue, so Test and Playground badges never look like actions.
+   - Every solid fill that carries text is checked to at least 4.5:1. The dark danger fill will be a slightly deeper
+     rose than the mockup's text shade.
+2. **`index.css` — type.**
+   - Families: `font-sans` Instrument Sans, `font-display` Bricolage Grotesque, `font-mono` JetBrains Mono.
+   - Named sizes (size/line height): `text-display` 28/34, `text-title` 22/28, `text-heading` 16/24,
+     `text-body` 14/20, `text-body-sm` 13/18, `text-caption` 12/16, `text-label` 11/16.
+   - The `.control` input class: 36 px tall, `input-bg`, a Lagoon border and soft ring on focus, an error state.
+3. **Fonts, self-hosted** (recommended): `@fontsource-variable/instrument-sans`,
+   `@fontsource-variable/bricolage-grotesque` and `@fontsource-variable/jetbrains-mono` (all OFL, imported from
+   `index.css`).
+   - No requests to Google, works offline, and the variable fonts give the 550 and 650 weights.
+   - Only the Latin subset files load, with `font-display: swap`.
+   - The alternative is a Google Fonts `<link>` (no dependencies, but a third-party request on every load).
+4. **`index.html`:** the favicon becomes the new mark (still an inline SVG). The title is unchanged.
+5. **`components/ui.tsx` — restyle only** (same exports, props and behaviour):
+   - **Button / IconButton:** 8 px radius, 550 weight, heights 28 / 32 / 36 as today. `danger` uses `danger-fg`
+     instead of `text-white`.
+   - **Field:** 13 px label, 12 px hint, and the error line gets an alert icon.
+   - **Input / Textarea / Select:** use the `.control` class from step 2.
+   - **Toggle and Checkbox:** Lagoon track and tick.
+   - **ChipsInput:** chips move to the new chip style.
+   - **Card:** 12 px radius and the `card` shadow.
+   - **CardHeader:** 16/24 title and a 12 px description.
+   - **Section:** new spacing.
+   - **PageHeader:** title in `font-display` 22/28; the bar stays sticky.
+   - **Badge:** 22 px tall, 6 px radius. New tones `ai` and `human`; `indigo` becomes an alias of the brand tone;
+     `slate` is neutral and `blue` is info.
+   - **Skeleton / SkeletonRows:** warm pulse; rows shaped like list rows (avatar plus two lines).
+   - **EmptyState:** a 48 px rounded-square icon tile, a 15 px title, a 13 px description.
+   - **ErrorBanner:** alert icon, title, and Retry as a small secondary button (same `onRetry`).
+   - **Table / TH / TD:** sentence-case 12 px headers on a `surface-2` band; rows about 48 px.
+   - **Tabs:** a 2 px Lagoon underline, a 600-weight selected label, and pill counts.
+   - **CodeBlock, JsonDisclosure, Kbd:** mono font on `surface-2`.
+6. **`components/status.tsx`:**
+   - `ai_active` uses the `ai` tone and `human_active` the `human` tone (labels unchanged).
+   - The TagChip fallback colour becomes `var(--muted)`.
+7. **`components/overlay.tsx`:**
+   - **Modal and Drawer:** 16 px radius, the `modal` shadow, 16 px titles, a tinted footer.
+   - **Popover:** 12 px radius, the `pop` shadow.
+   - **MenuItem:** 6 px radius.
+8. **`components/feedback.tsx`:** toasts get a 12 px radius and the `pop` shadow. Icons stay as they are.
+
+**Not in U1**
+
+- The sidebar and top bar (U2).
+- Moving pages to the named text sizes (each page's own phase).
+- New presentational pieces (Avatar, StatCard and the rest): each is added in the phase that first uses it, so
+  nothing ships unused.
+- The widget preview's colours.
+- A manual theme toggle.
+
+**Files:** `apps/dashboard/src/index.css`, `apps/dashboard/index.html`, `src/components/ui.tsx`,
+`src/components/status.tsx`, `src/components/overlay.tsx`, `src/components/feedback.tsx`,
+`apps/dashboard/package.json`, `package-lock.json`.
+
+**Risks**
+
+- **One change, every page.** The whole app changes look at once, while pages keep their own text sizes until
+  their phase. Remapping the tokens keeps them coherent in the meantime.
+- **Density.** Sentence-case table headers, taller rows and larger card titles change density everywhere. Every
+  page is checked.
+- **Font weight.** Three variable font files, Latin only, roughly 40–90 KB each, loaded with swap.
+
+**Verification**
+
+- `npm run typecheck`, `npm run build -w @omni/dashboard` and `npm test` (server suite unchanged) all pass.
+- `git diff --stat` shows only the files above.
+- In the `dashboard` preview, with the `api` preview on the seeded preview database: every page and each modal,
+  drawer and popover, in light and dark, at 1440 and 1024 px. Also the loading, empty and error states, keyboard
+  focus, and the contrast of solid fills and muted text.
+- Before/after screenshots of Overview, Conversations, Leads and the Bot editor go in the progress entry.
+
+### U2 — App shell
+
+*Explored, audited and planned 2026-10-02. Approved 2026-10-02. Built and verified 2026-10-02 (see `PROGRESS.md`).*
+
+**Audit findings**
+
+- **Everything lives in `Layout.tsx`.** `NAV`, the collapse setting (`omni:main-menu-collapsed`), the org switcher,
+  the notifications bell and the account menu are used nowhere else. Pages don't depend on the shell's sizes.
+- **The menu is flat:** 11 items in the order Overview, Analytics, Bots, Conversations, Leads, Deals, Approvals,
+  Knowledge, Appointments, Automations, Settings, 224 px wide (64 px collapsed).
+- **The org name and switcher sit in the top bar.** The "AI paused" badge sits next to them.
+- **The logo is a generic chat icon on an accent tile.** It appears in the sidebar and on the login and signup pages.
+- **Carried over from U1:** in dark mode the bell's unread count is `text-white` on the light rose fill (about 2.6:1).
+- `lib/format.ts` already has `initialsOf`; it can be imported without changing `lib`.
+
+**Changes**
+
+1. **Brand mark** (new `components/brand.tsx`): the approved two-stroke ring as an inline SVG (`BrandMark`, sized by
+   prop) and `BrandLockup` (mark plus "Omni" wordmark in the display font). Purely presentational.
+2. **Sidebar (`Layout.tsx`):**
+   - **Groups:** the same 11 links, grouped as Home (Overview, Analytics), Inbox (Conversations, Approvals),
+     Customers (Leads, Deals), AI Studio (Bots, Knowledge) and Operations (Appointments, Automations). Settings is
+     pinned at the bottom above "Collapse menu".
+   - **Same data, new order:** each item keeps its `to`, `segment`, `label` and `icon`. Only a group name is added
+     and the order changes.
+   - **Size and colour:** 248 px wide on the `sidebar` background; collapsed stays 64 px.
+   - **States:** active items get the soft Lagoon fill and Lagoon text at 600 weight; hover uses `surface-2`.
+   - **Group labels:** 10.5 px caps in `muted`. When collapsed they become thin dividers, and each group keeps an
+     accessible name (`role="group"`).
+   - **Approvals:** the waiting count keeps its amber badge, and the amber dot plus screen-reader text when
+     collapsed.
+3. **Org switcher moves to the sidebar head.**
+   - **Layout:** brand mark, organization name, and the product name with your role.
+   - **Behaviour:** the same Popover and menu items, and `switchOrg` as before. With one organization it is a plain
+     label, as today.
+   - **Collapsed:** only the mark shows, and it opens the same menu.
+4. **Top bar (56 px on the canvas colour):**
+   - **Left:** a breadcrumb `Section › Page`, derived from the route segment and the same grouping data. It is text
+     only, with `aria-current` on the last part. The "AI paused" badge sits after it, still linking to Settings.
+   - **Right:** the notifications bell and the account menu, both unchanged in behaviour.
+   - **Bell:** the unread count uses `danger-fg`, which fixes the U1 contrast issue.
+   - **Account button:** a circular initials avatar in the human (apricot) tones, plus your name. The menu content is
+     unchanged.
+   - **Notifications popover:** restyled rows (unread dot in Lagoon, 12 px radius).
+5. **Login and signup (`AuthPages.tsx`):** the brand lockup, a display-font title, the form on a 16 px-radius card
+   with the `card` shadow, and the canvas background. Same fields, validation, requests and dev demo hint.
+6. **App-level states (`App.tsx`):** the first-load screen shows the brand mark above the spinner. The account-error
+   and not-found screens use the restyled U1 parts. Routing and auth logic are untouched.
+
+**Not in U2**
+
+- The responsive slide-over menu and removing `min-w-[1024px]` (U8).
+- Page content.
+- A command palette or search: it would be a new feature.
+
+**Files:** `src/components/Layout.tsx`, `src/components/brand.tsx` (new), `src/auth/AuthPages.tsx`, `src/App.tsx`.
+
+**Risks**
+
+- **New menu order.** People used to the flat list will find items in a new order. Labels, icons and URLs are
+  unchanged.
+- **Narrower content area.** The sidebar grows from 224 to 248 px, which leaves 24 px less for content at 1024 px
+  (still within the current minimum width).
+
+**Verification**
+
+- `npm run typecheck`, the dashboard build and `npm test` pass.
+- `git diff --stat` shows only the files above.
+- **Browser, light and dark at 1440 and 1024 px:**
+  - every link goes to the same URL as before, and the active state follows the route, including detail pages
+    (a bot, a contact, a knowledge base)
+  - collapse and expand work, and the setting survives a reload
+  - the org menu opens from the expanded and collapsed sidebar
+  - the bell, the notifications popover and "Mark all as read" work
+  - the account menu's Settings and Log out work
+  - the login and signup screens (signed out) render and submit as before
+  - keyboard: Tab order and focus rings through the sidebar and top bar
+  - no console errors
+- **Contrast:** the bell count is checked in both themes.
+- Before/after screenshots go in the progress entry.
+
+### U3 — Home
+
+*Explored, audited and planned 2026-10-02. Approved 2026-10-02 (greeting as the Overview title). Built and verified 2026-10-02 (see `PROGRESS.md`).*
+
+**Audit findings**
+
+- **Overview** (`OverviewPage.tsx`):
+  - six `Stat` cards in a 3/6-column grid
+  - "Recent activity" (25 events, refreshed every 30 s) as a divided list
+  - "Open tasks" with a checkbox that completes the task
+  - 13 ad-hoc text sizes
+- **Activity rows** (`components/activity.tsx`):
+  - **Who acted:** every event shows a grey round icon. Who acted (`ai`, `user` for the team, `contact` for the
+    visitor, `system`) appears only as a word.
+  - **Shared:** `EventRow` is also used on the contact page, and `TimelineList`/`ToolRow` in the Conversations
+    details panel and the Test chat, so changes there show up on those pages too (consistently).
+  - **AI actions:** `ToolRow` (an AI action) uses the brand tint, not the AI colour.
+- **Analytics** (`AnalyticsPage.tsx`):
+  - period, bot and channel selects
+  - 7 selectable metric cards with the change against the previous period, plus AI cost for admins
+  - an SVG bar chart in the accent colour
+  - CSV buttons for admins
+- **Analytics performance** (`Performance.tsx`):
+  - Handoffs figures and reasons, Team table, Funnel, Lead sources and "What the assistant did", all as accent bars
+  - hints in `faint` (3.6:1) at 11 px
+- `Stat` (Overview) and `MetricCard` (Analytics) are two copies of the same idea.
+
+**Changes**
+
+1. **Shared stat pieces** (new `components/stats.tsx`, presentational only):
+   - **`IconTile`:** a 26 px rounded square in a tone (neutral, brand, success, ai, human).
+   - **`StatValue`:** a label row with the tile, the number in the display font (28 px, tabular figures), and a
+     footer slot.
+   - **`DeltaPill`:** the "↑ 12% vs previous period" pill in the success or danger soft colours.
+   - Overview and Analytics both use them, so the numbers look the same on both pages.
+2. **Overview** (`OverviewPage.tsx`):
+   - **Header:** the title becomes a greeting ("Good morning, Priya", using your first name and the time of day in
+     the organization's timezone). Above it sits a small date eyebrow. The description line and "See analytics →"
+     stay. The breadcrumb already says Overview.
+   - **Numbers:** the six figures become one strip: one card with hairline dividers, 6 across on wide screens and 3
+     across below 1280 px.
+   - **Icon tones by meaning:**
+     - Conversations: neutral
+     - Leads captured: brand
+     - Qualified: success
+     - AI bookings: ai
+     - AI cost: ai, with the budget meter turning amber above 70% and red above 90%, as today
+     - Handoffs: human
+   - **Recent activity:** a timeline with a hairline connector and an "AI / Team" legend in the card header.
+   - **Open tasks:**
+     - a styled 18 px checkbox (still the same input and mutation)
+     - "Created by AI" and "Created by team" as ai and human badges
+     - priority badges, and "Due …" in danger text when overdue
+   - Every value, query, refresh interval and link stays the same.
+3. **Activity rows** (`components/activity.tsx`):
+   - **`EventRow` node by who acted:**
+     - AI: rounded square in the ai tint
+     - team: circle in the human tint
+     - visitor and system: neutral circle
+   - The event's own success, warning or danger colour still tints the icon.
+   - **Connector:** an optional `connected` prop draws the timeline line (used only by Overview).
+   - **`ToolRow`:** the AI tint instead of the brand tint.
+   - Text moves to the named sizes. Links and labels are unchanged.
+4. **Analytics** (`AnalyticsPage.tsx`):
+   - **Filters:** the selects sit in one toolbar row. The selects themselves are unchanged.
+   - **Metric cards:** use `StatValue` and `DeltaPill`. The selected card gets a Lagoon border with a soft ring; it
+     is still a pressable button with `aria-pressed`. The AI cost card for admins matches.
+   - **Chart:** bars with rounded tops in the brand colour, quieter gridlines, axis labels in `muted`, and the same
+     data, title, tooltip text and accessible label.
+5. **Performance** (`Performance.tsx`):
+   - **`Figure` values:** in the display font.
+   - **Bar colours by meaning:**
+     - handoff reasons: human
+     - "What the assistant did": ai
+     - funnel: brand
+   - **Text:** hints move from `faint` to `muted` (contrast), and all text moves to the named sizes.
+   - Tables and CSV buttons are unchanged.
+
+**Not in U3:** new metrics or charts, chart interactivity beyond today's tooltips, and the Conversations and contact
+page layouts (U4, U5). Those pages only pick up the restyled activity rows.
+
+**Files:** `src/components/stats.tsx` (new), `src/pages/overview/OverviewPage.tsx`, `src/components/activity.tsx`,
+`src/pages/analytics/AnalyticsPage.tsx`, `src/pages/analytics/Performance.tsx`.
+
+**Decision for approval:** the Overview title becomes the greeting. The alternative is to keep "Overview" and put
+the greeting in the description.
+
+**Risks**
+
+- **Activity rows elsewhere.** The contact page's activity tab, the Conversations details timeline and the Test
+  chat's "What the AI did" pick up the new nodes. They are checked in the browser too.
+- **Greeting edge cases.** With no name set, the greeting falls back to "Good morning" alone.
+
+**Verification**
+
+- `npm run typecheck`, the dashboard build and `npm test` pass; `git diff --stat` shows only the files above.
+- **Browser, light and dark, 1440 and 1024 px:**
+  - **Overview:**
+    - numbers, budget meter, timeline, open tasks; the task checkbox is not clicked, so no data changes
+    - the loading, empty and error states, by blocking the API in the browser
+  - **Analytics:**
+    - every period preset including Custom, and the bot and channel filters (the URL updates as before)
+    - selecting each metric card changes the chart
+    - the CSV button is present for the admin account
+    - the performance cards
+  - **Pages that only pick up the new activity rows:** the contact page activity, the Conversations details
+    timeline, and the Test chat's "What the AI did"
+  - keyboard focus on the metric cards
+  - no console errors
+- Before/after screenshots go in the progress entry.
+
+### U4 — Inbox
+
+*Explored, audited and planned 2026-10-02. Approved 2026-10-02. Built and verified 2026-10-02 (see `PROGRESS.md`).*
+
+**Audit findings**
+
+- **Conversations** (`ConversationsPage.tsx`, 666 lines) has three panes:
+  - **List (288 px):** status, test, assignee and sort filters; infinite "Load more"; name, time, a two-line
+    preview with "AI:" / "Team:", and badges.
+  - **Thread:**
+    - **Header:** status, channel, Test and a live dot; the assignee select; Take over, Resume AI, Close,
+      Create deal and Details.
+    - **Body:** the summary bar (expandable, Refresh), pending approval cards, messages with live streaming, AI
+      activity and typing dots.
+    - **Composer:** ⌘/Ctrl+Enter to send.
+  - **Details panel (288 px):** contact facts, tags, the timeline.
+- **Messages contradict the agency colours:**
+  - A **team** reply is a solid accent (teal) bubble.
+  - An **AI** reply is the soft accent tint.
+  - **Labels** use amber and indigo badges.
+  - A **visitor** bubble is plain surface. Nobody has an avatar.
+- **Message senders:** a message has `senderType` (`contact`, `ai`, `human`, `system`) and `senderUserId`, but no
+  staff name, so team bubbles keep the label "Team".
+- **Approvals** (`ApprovalsPage.tsx` with `components/approvals.tsx`): tabs with a waiting count, and amber request
+  cards with Approve… / Decline… that expand into reason and message fields. The same card sits in the thread.
+- Faint text at 11 px for "Sources:", and about 25 ad-hoc text sizes.
+
+**Changes**
+
+1. **Avatars** (new `components/avatar.tsx`, presentational):
+   - **`PersonAvatar`:** a circle with initials from `initialsOf`, in neutral or human tones. Anonymous visitors
+     get a dashed circle with a person icon.
+   - **`AiAvatar`:** an iris rounded square with a sparkle.
+   - Sizes 24, 28 and 34 px.
+2. **List pane:**
+   - **Size and filters:** 320 px wide; compact 32 px filter selects in two rows, as today.
+   - **Rows:** avatar, name, time, and a one-line preview whose "AI:" / "Team:" prefix is coloured iris or apricot.
+     The badge row is unchanged: status (AI or Human), "Waiting too long", "waiting …", channel, assignee, tier,
+     Test.
+   - **Selected row:** a soft Lagoon tint with a 3 px Lagoon edge.
+   - Same links, filters, paging and empty states.
+3. **Thread header:**
+   - Name in 15 px semibold, the same badges and live dot, and the meta line in caption size.
+   - **Take over:** secondary, with an apricot hand. **Resume AI:** secondary, with an iris sparkle.
+   - **Close, Create deal and Details:** ghost buttons; Details shows its pressed state.
+   - The assignee select keeps its options and behaviour.
+4. **Summary bar:** an iris sparkle tile (the summary is AI-written) in place of the scroll icon. The same
+   collapsed headline, expand, mood, "N new" and Refresh/Summarize.
+5. **Messages** (`MessageBubble`):
+   - **Visitor:** on the left, a neutral avatar and a bordered surface bubble.
+   - **AI:** on the right, the iris avatar and an iris-tinted bubble with an iris border, labelled "AI".
+   - **Team:** on the right, an apricot avatar and an apricot-tinted bubble, labelled "Team".
+   - **System:** a centred chip between hairlines.
+   - **Body text** is 14 px. Streaming and the typing dots use the AI style. Sources become small chips, with
+     "Sources:" in `muted`.
+   - Same content, order, citations, times and live behaviour.
+6. **Composer:** one bordered box (textarea plus a footer row with the shortcut hint and Send) with the Lagoon focus
+   ring. The same textarea id, placeholder, length limit, shortcut and button. The closed-conversation note is
+   restyled.
+7. **Details panel:** 320 px; a contact header with avatar, name and "Open"; the same facts, tags and timeline.
+8. **Approvals:**
+   - **Card:** a 12 px radius amber card, a 16 px semibold summary, caption meta, and the same expandable
+     Approve… / Decline… flow (reason, message, Approve / Decline / Cancel).
+   - **Page:** cards in a 880 px column under the tabs, with the same tabs, counts and empty texts.
+
+**Not in U4:**
+- Showing staff names on team bubbles (it would need member data the bubble doesn't have).
+- New filters or keyboard shortcuts.
+- Phone layouts (U8).
+
+**Files:** `src/components/avatar.tsx` (new), `src/pages/conversations/ConversationsPage.tsx`,
+`src/components/approvals.tsx`, `src/pages/approvals/ApprovalsPage.tsx`.
+
+**Risks**
+
+- **Team bubble colour.** Team replies change from solid teal to soft apricot. That is the approved AI/Human
+  language, but a familiar look changes.
+- **Width at 1024 px.** The list and details grow from 288 to 320 px each. When the details panel is open at
+  1024–1359 px the thread gets narrower; the panel already starts closed below 1360 px, as today.
+
+**Verification**
+
+- `npm run typecheck`, the dashboard build and `npm test` pass; `git diff --stat` shows only the files above.
+- **Browser, light and dark, 1440 and 1024 px:**
+  - the list filters (status, include tests, assignee, sort) and Load more
+  - opening a conversation with AI, team and visitor messages, a handoff and citations
+  - the summary bar expanding
+  - the Details toggle
+  - the assignee select's options
+  - the Approvals tabs and empty states, and an approval card's Approve… / Decline… expanding and Cancel
+  - keyboard focus through the thread header and the composer
+  - no console errors
+- **Nothing is sent, assigned, taken over, closed, approved or declined:** those actions change real data, and an
+  AI reply would be a paid model call.
+- Before/after screenshots go in the progress entry.
+
+### U5 — Customers
+
+*Explored, audited and planned 2026-10-02. Approved 2026-10-02. Built and verified 2026-10-02 (see `PROGRESS.md`).*
+
+**Audit findings**
+
+- **Leads** (`ContactsPage.tsx`):
+  - search plus up to seven filter selects and two checkboxes, all in the URL
+  - a 10-column table, a pager and an "Add contact" modal
+  - the name cell has no avatar; the score is a bare number
+- **Lead detail** (`ContactDetailPage.tsx`, 1,047 lines):
+  - **Header:** back arrow, name, tier and qualification badges, a meta line, and Delete (admins, with a confirm).
+  - **Duplicate review banner:** Merge (with a confirm) and "Not the same person".
+  - **Left column (360–420 px):** Profile (editable, with a save state), Source, Tags, Qualification, Consent and
+    "What the AI remembers".
+  - **Right:** a tabbed history card with Activity, Notes, Tasks, Deals, Appointments and Conversations.
+- **Deals** (`DealsPage.tsx`):
+  - pipeline, status and owner selects
+  - kanban columns (288 px, faint tint) with per-stage counts and totals, and paged "Load more"
+  - deal cards that open the deal drawer
+  - the pipeline editor modal
+  - **Shared:** the `DealDrawer` is also opened from Conversations ("Create deal").
+- **Ad-hoc text sizes:** on 54 lines across the three files, and `faint` dashes in the table.
+
+**Changes**
+
+1. **Leads:**
+   - **Filters:** the search and filters stay in one wrapping row with the checkboxes at its end. Same controls,
+     same URL behaviour.
+   - **Name cell:** avatar (`PersonAvatar`), name, company, and the Test / "Possible duplicate" badges.
+   - **Score:** the number in tabular figures with a small Lagoon bar.
+   - **Other cells:** empty cells use `muted` dashes; tags, last activity and the pager are restyled.
+   - The table, its columns, links, paging, empty states and the Add contact modal are unchanged.
+2. **Lead detail:**
+   - **Header:** a 44 px avatar, the name in the display font, the same badges and meta line, and the same Delete
+     with its confirm.
+   - **Duplicate review:** a 12 px amber card with an icon tile. Same text, Merge with its confirm, and "Not the same
+     person".
+   - **Left cards:** consistent padding and named sizes. "What the AI remembers" gets an iris AI tile. All fields,
+     saves and buttons are unchanged.
+   - **History card:**
+     - same tabs, with 20 px padding
+     - notes as bordered cards
+     - tasks with "Created by AI" / "Created by team" badges where the task records it
+     - appointments and conversations as hover rows, with the conversation's AI summary marked by an iris sparkle
+3. **Deals:**
+   - **Filter row:** spacing tidied, same selects and "New pipeline".
+   - **Columns:**
+     - 288 px, 12 px radius, `surface-2` tint
+     - the stage name with a count pill, and the stage total in tabular figures
+     - "No deals" as a small empty state
+   - **Cards:**
+     - title, the contact with a small avatar, and the value in tabular semibold
+     - the same owner and age line
+     - hover lifts with the `raise` shadow
+     - clicking still opens the drawer
+   - **Drawer** (also used by Conversations): named sizes, the lost reason as a danger callout, and the Won / Lost
+     controls restyled with the same flow.
+   - **Pipeline editor:** named sizes, and the same reorder, add and remove controls.
+
+**Not in U5:**
+- Drag-and-drop on the board (it doesn't exist today).
+- New columns or filters.
+- Phone layouts (U8).
+
+**Files:** `src/pages/contacts/ContactsPage.tsx`, `src/pages/contacts/ContactDetailPage.tsx`,
+`src/pages/deals/DealsPage.tsx` (reuses `components/avatar.tsx` unchanged).
+
+**Risks**
+
+- **Size of the detail page.** `ContactDetailPage.tsx` is large and full of forms. Changes stay in class names and
+  presentational wrappers; no handler, state or query lines change, and the diff is reviewed for that.
+- **Shared drawer.** `DealDrawer` also opens from Conversations, so that path is checked too.
+
+**Verification**
+
+- `npm run typecheck`, the dashboard build and `npm test` pass; `git diff --stat` shows only the files above.
+- **Browser, light and dark, 1440 and 1024 px:**
+  - **Leads:** every filter (the URL updates as before) and the pager; the Add contact modal opened and cancelled.
+  - **Lead detail:** a lead with a duplicate review (Nikhil Sharma) and every history tab. The Profile form is
+    edited and reverted without saving.
+  - **Deals:**
+    - the board with each status, and the pipeline select
+    - opening a deal drawer and closing it without saving
+    - the pipeline editor opened and cancelled
+    - "Create deal" from a conversation, opened and closed
+  - keyboard focus and no console errors
+- **No data changes:** nothing is saved, merged, deleted, moved, won or lost.
+- Before/after screenshots go in the progress entry.
+
+### U6 — AI Studio
+
+*Audited and planned 2026-10-02; approved together with U7 and U8 ("Implement U6 U7 and U8"). Built and verified 2026-10-02 (see `PROGRESS.md`).*
+
+**Audit:**
+- **Bot editor:** redesigned before this track (grouped menu, overview, Test chat), so U6 is alignment, not a
+  rebuild.
+- **Ad-hoc text sizes:** on 137 lines across `BotsPage`, `BotEditorPage`, `editor`, `sections` and `Playground`,
+  plus 14 in `KnowledgePage`.
+- **`faint` text:** on code keys and the greeting placeholder.
+- **The bot's own picture** uses the brand tint, not the AI colour.
+- **Test chat:** it copies the website widget (business initials, "Powered by …"), like the Settings preview, so it
+  keeps that look.
+
+**Changes:**
+- **Text:** named sizes everywhere in these files; `faint` text becomes `muted`.
+- **AI colour for the bot itself:**
+  - the bot's tile in the editor header
+  - the bot cards on the Bots page
+  - the AI tag in the Test chat header
+  - the Test chat's typing dots
+- **Bots page:** cards get the AI avatar, a display-font name and a hover lift; one column on narrow screens.
+- **Knowledge:** list and table rows aligned with the shared parts.
+- **Same as before:** every field, save, menu, search, template, test-chat flow and knowledge action.
+
+**Files:** `src/pages/bots/{BotsPage,BotEditorPage,editor,sections,Playground}.tsx`,
+`src/pages/knowledge/KnowledgePage.tsx`.
+
+### U7 — Operations + Settings
+
+*Audited and planned 2026-10-02; approved with U6 and U8. Built and verified 2026-10-02.*
+
+**Audit:**
+- **Ad-hoc text sizes:** on 120 lines across Appointments, Calendar editor, Slot picker, Automations and Settings.
+- **Settings has 19 hex colours,** all in the website-chat preview, which copies the real widget on purpose.
+
+**Changes:**
+- **Text:** named sizes in all five files. The widget preview (`PreviewFace`, `WidgetPreview`) is left exactly as it
+  is.
+- **Appointments:** the agenda's time column in tabular figures; "booked by AI" in iris.
+- **Slot picker:** slots as chips with the brand selected state.
+- **Automations:** signing secrets and URLs in mono.
+- **Same as before:** every form, modal, drawer, save and delete.
+
+**Files:** `src/pages/appointments/{AppointmentsPage,CalendarEditor,SlotPicker}.tsx`,
+`src/pages/automations/AutomationsPage.tsx`, `src/pages/settings/SettingsPage.tsx`.
+
+### U8 — Responsive + polish
+
+*Planned 2026-10-02; approved with U6 and U7. Built and verified 2026-10-02.*
+
+- **Shell (`Layout.tsx`):**
+  - Remove `min-w-[1024px]`.
+  - **Below 1024 px:** the sidebar becomes a slide-over menu, opened from a menu button in the top bar. It closes
+    on a link, Escape or the backdrop.
+  - **1024–1279 px:** the icon rail is the default when no choice is stored. A stored choice still wins.
+- **Gutters:** page padding 16 px below 640 px and 32 px above, including `PageHeader` and the top bar.
+- **Grids collapse on narrow screens:**
+  - Overview figures go to 2 columns, then 3 at 640 px and 6 at 1280 px.
+  - The contact page columns stack below 1024 px.
+  - Bots, Knowledge, Appointments and Settings side columns stack.
+- **Conversations:**
+  - **Below 1024 px:** one pane at a time, the list or the open thread, with a "Back to inbox" button.
+  - **Below 1280 px:** the details panel opens as an overlay on the thread (fixes the U4 follow-up).
+- **Bot editor:**
+  - **Below 768 px:** the settings menu is hidden; the overview cards still reach every section.
+  - **Below 1280 px:** the Test chat opens as an overlay.
+- **Final consistency check:** no raw hex colours outside the widget preview and brand mark; no ad-hoc text sizes
+  left in pages, apart from documented exceptions.
+- **Verification:** every page at 390, 768, 1024 and 1440 px in light and dark; the slide-over menu with the
+  keyboard; no sideways page scroll.
+
+**Files:** `src/components/Layout.tsx`, `src/components/ui.tsx` (`PageHeader` gutters) and small layout classes in
+the page files above.
+
+### U9 — Dark mode switch and menu order
+
+*Asked for and built 2026-10-02 (see `PROGRESS.md`).* A "Dark mode" switch with an icon in the main menu (follows the
+device until someone chooses; the choice is kept in this browser and applied before the first paint), and AI Studio
+moved between Home and Inbox.
+
+**Files:** `src/components/theme.tsx` (new), `src/components/Layout.tsx`, `src/index.css`, `index.html`,
+`src/components/ui.tsx` (switch contrast).
+
+---
+
 ## Verification and the progress hook
 
 Built as the first implementation step of Phase 1 (after approval).

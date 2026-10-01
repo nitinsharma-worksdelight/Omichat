@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useAuth } from './auth/AuthContext';
 import { LoginPage, SignupPage } from './auth/AuthPages';
+import { BrandMark } from './components/brand';
 import { Layout } from './components/Layout';
 import { Button, EmptyState, ErrorBanner, Spinner } from './components/ui';
 import { LiveStreamProvider } from './lib/live';
@@ -36,7 +37,8 @@ export function App() {
 
   if (meLoading || (!me && !meError)) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-bg">
+        <BrandMark size={40} />
         <Spinner />
       </div>
     );

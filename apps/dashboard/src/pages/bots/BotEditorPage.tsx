@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, Eye, PanelRightClose, PanelRightOpen, Save } from 'lucide-react';
+import { ArrowLeft, Check, Eye, PanelRightClose, PanelRightOpen, Save, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useConfirm, useToast } from '../../components/feedback-context';
@@ -85,6 +85,15 @@ export function BotEditorPage({ botId }: { botId: string }) {
   const [saveError, setSaveError] = useState<unknown>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [testChatOpen, setTestChatOpen] = useState(() => window.innerWidth >= 1280);
+  // On narrow screens the test chat is an overlay: Escape closes it.
+  useEffect(() => {
+    if (!testChatOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !window.matchMedia('(min-width: 1280px)').matches) setTestChatOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [testChatOpen]);
   const [searchOpen, setSearchOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -197,7 +206,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
     return (
       <div>
         <PageHeader title="Loading bot…" />
-        <SkeletonRows rows={8} className="px-8" />
+        <SkeletonRows rows={8} className="px-4 sm:px-8" />
       </div>
     );
   }
@@ -253,7 +262,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-5">
+      <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-surface px-4 py-3 sm:px-5">
         <Link
           to="/bots"
           aria-label="Back to bots"
@@ -261,7 +270,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
         >
           <ArrowLeft className="size-4" aria-hidden />
         </Link>
-        <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-[15px] font-bold text-accent-text">
+        <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-ai-soft font-display text-[17px] font-bold text-ai-text ring-1 ring-ai/30">
           {(persona.assistantName.trim() || draft.name.trim() || '?').charAt(0).toUpperCase()}
         </span>
         <div className="min-w-0">
@@ -274,11 +283,11 @@ export function BotEditorPage({ botId }: { botId: string }) {
               value={draft.name}
               maxLength={120}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              className="-ml-1 w-[20ch] max-w-[300px] min-w-[6ch] rounded-md bg-transparent px-1 text-base font-semibold text-fg field-sizing-content hover:bg-surface-2 focus:bg-surface focus:shadow-[0_0_0_3px_var(--ring)] focus:outline-none supports-[field-sizing:content]:w-auto"
+              className="-ml-1 w-[20ch] max-w-[300px] min-w-[6ch] rounded-md bg-transparent px-1 font-display text-[18px] leading-6 font-semibold tracking-[-0.02em] text-fg field-sizing-content hover:bg-surface-2 focus:bg-surface focus:shadow-[0_0_0_3px_var(--ring)] focus:outline-none supports-[field-sizing:content]:w-auto"
             />
             <Badge tone="slate">v{bot.data?.version}</Badge>
           </div>
-          <p className="truncate text-xs text-muted">
+          <p className="truncate text-caption text-muted">
             {persona.assistantName}
             {(persona.companyName || ctx.organizationName) && ` · ${persona.companyName || ctx.organizationName}`}
           </p>
@@ -290,7 +299,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
           onClick={() => setDraft({ ...draft, isActive: !draft.isActive })}
           title={draft.isActive ? 'Replying to visitors. Click to pause, then save.' : "Paused: it doesn't reply. Click to turn it on, then save."}
           className={cx(
-            'ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold transition-colors',
+            'ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-caption font-semibold transition-colors',
             draft.isActive ? 'border-success/30 bg-success-soft text-success-text hover:border-success/50' : 'border-border bg-surface-2 text-muted hover:text-fg-2',
           )}
         >
@@ -298,7 +307,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
           {draft.isActive ? 'Active' : 'Paused'}
         </button>
         <div className="flex-1" />
-        <p aria-live="polite" className="hidden items-center gap-1.5 text-[13px] whitespace-nowrap text-muted xl:flex">
+        <p aria-live="polite" className="hidden items-center gap-1.5 text-body-sm whitespace-nowrap text-muted xl:flex">
           {saving ? (
             'Saving…'
           ) : dirty ? (
@@ -354,7 +363,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
         />
         <div className="relative min-w-0 flex-1">
           <div ref={contentRef} className="h-full overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-4 px-6 pt-6 pb-28 xl:px-8">
+            <div className="mx-auto max-w-3xl space-y-4 px-4 pt-6 pb-28 sm:px-6 xl:px-8">
               {saveError ? (
                 details.length ? (
                   <SaveErrors details={details} view={view} onOpen={setView} />
@@ -393,11 +402,11 @@ export function BotEditorPage({ botId }: { botId: string }) {
                 />
               )}
               {view === 'knowledge' && <KnowledgeSection value={draft.knowledgeBaseIds} onChange={(v) => setDraft({ ...draft, knowledgeBaseIds: v })} ctx={ctx} />}
-              {!isAdmin && <p className="text-[13px] text-muted">You have read-only access. Ask an admin to change this bot.</p>}
+              {!isAdmin && <p className="text-body-sm text-muted">You have read-only access. Ask an admin to change this bot.</p>}
             </div>
           </div>
           {dirty && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-6 xl:px-8">
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-4 sm:px-6 xl:px-8">
               <SaveBar
                 changes={changedNames}
                 saving={saving}
@@ -411,10 +420,24 @@ export function BotEditorPage({ botId }: { botId: string }) {
             </div>
           )}
         </div>
+        {testChatOpen && <div className="fixed inset-0 z-30 bg-overlay xl:hidden" aria-hidden onClick={() => setTestChatOpen(false)} />}
         {testChatOpen && (
-          <aside className="w-[380px] shrink-0 border-l border-border" aria-label="Test chat">
-            {/* Named like the website chat, from the saved bot: that's the version the test chat talks to. */}
-            <Playground botId={botId} dirty={dirty} title={bot.data?.config.persona.companyName || ctx.organizationName} />
+          // Below 1280 px the test chat opens over the settings instead of squeezing them.
+          <aside
+            className="fixed inset-y-0 right-0 z-40 w-[min(380px,100vw)] shrink-0 border-l border-border bg-surface shadow-modal xl:static xl:z-auto xl:w-[380px] xl:shadow-none"
+            aria-label="Test chat"
+          >
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="flex shrink-0 justify-end border-b border-border px-3 py-1.5 xl:hidden">
+                <Button size="xs" variant="ghost" icon={<X className="size-3.5" aria-hidden />} onClick={() => setTestChatOpen(false)}>
+                  Close test chat
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1">
+                {/* Named like the website chat, from the saved bot: that's the version the test chat talks to. */}
+                <Playground botId={botId} dirty={dirty} title={bot.data?.config.persona.companyName || ctx.organizationName} />
+              </div>
+            </div>
           </aside>
         )}
       </div>
@@ -451,7 +474,7 @@ function PromptPreviewDrawer({ botId, open, onClose, dirty }: { botId: string; o
       width="max-w-3xl"
       footer={<Button onClick={onClose}>Close</Button>}
     >
-      {dirty && <p className="mb-3 rounded-md bg-warning-soft px-3 py-2 text-[13px] text-warning-text">You have unsaved changes. This preview shows the saved version.</p>}
+      {dirty && <p className="mb-3 rounded-md bg-warning-soft px-3 py-2 text-body-sm text-warning-text">You have unsaved changes. This preview shows the saved version.</p>}
       {preview.isLoading ? (
         <div className="flex justify-center py-12">
           <Spinner />
@@ -462,7 +485,7 @@ function PromptPreviewDrawer({ botId, open, onClose, dirty }: { botId: string; o
         <div className="space-y-6">
           <section className="space-y-2">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-fg">
+              <h3 className="text-body font-semibold text-fg">
                 System prompt{' '}
                 <span className="font-normal text-muted">
                   · {formatNumber(preview.data.system.length)} characters (~{formatNumber(Math.round(preview.data.system.length / 4))} tokens)
@@ -474,7 +497,7 @@ function PromptPreviewDrawer({ botId, open, onClose, dirty }: { botId: string; o
           </section>
           <section className="space-y-2">
             <div className="flex items-center justify-between gap-4">
-              <h3 className="text-sm font-semibold text-fg">
+              <h3 className="text-body font-semibold text-fg">
                 Tools <span className="font-normal text-muted">· {preview.data.tools.length}</span>
               </h3>
               <Input className="max-w-56" placeholder="Filter tools" aria-label="Filter tools" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -482,14 +505,14 @@ function PromptPreviewDrawer({ botId, open, onClose, dirty }: { botId: string; o
             <Card className="divide-y divide-border">
               {tools.map((t) => (
                 <div key={t.name} className="space-y-1.5 px-4 py-3">
-                  <p className="text-[13px] font-medium text-fg">
-                    {TOOL_LABELS[t.name]?.label ?? t.name} <code className="ml-1 font-mono text-xs text-muted">{t.name}</code>
+                  <p className="text-body-sm font-medium text-fg">
+                    {TOOL_LABELS[t.name]?.label ?? t.name} <code className="ml-1 font-mono text-caption text-muted">{t.name}</code>
                   </p>
-                  <p className="text-xs whitespace-pre-wrap text-muted">{t.description}</p>
+                  <p className="text-caption whitespace-pre-wrap text-muted">{t.description}</p>
                   <JsonDisclosure label="Input schema" value={t.inputSchema} />
                 </div>
               ))}
-              {tools.length === 0 && <p className="px-4 py-6 text-center text-[13px] text-muted">No tools match.</p>}
+              {tools.length === 0 && <p className="px-4 py-6 text-center text-body-sm text-muted">No tools match.</p>}
             </Card>
           </section>
         </div>

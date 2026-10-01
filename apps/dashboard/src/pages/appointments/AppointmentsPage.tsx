@@ -73,7 +73,7 @@ export function AppointmentsPage({ view, calendarId }: { view: 'agenda' | 'calen
           ]}
         />
       </PageHeader>
-      <div className="px-8 py-6">{view === 'agenda' ? <Agenda /> : <Calendars calendarId={calendarId} />}</div>
+      <div className="px-4 py-6 sm:px-8">{view === 'agenda' ? <Agenda /> : <Calendars calendarId={calendarId} />}</div>
       {booking && <BookDialog onClose={() => setBooking(false)} />}
       {creatingCalendar && <NewCalendarDialog onClose={() => setCreatingCalendar(false)} />}
     </div>
@@ -134,7 +134,7 @@ function Agenda() {
           <option value="no_show">No-show</option>
           <option value="cancelled">Cancelled</option>
         </Select>
-        <span className="text-[13px] text-muted">From today onwards</span>
+        <span className="text-body-sm text-muted">From today onwards</span>
       </div>
       {appts.isLoading ? (
         <Card>
@@ -153,34 +153,34 @@ function Agenda() {
       ) : (
         groups.map(([day, list]) => (
           <section key={day} aria-label={formatDayHeading(day)}>
-            <h2 className="mb-2 text-[13px] font-semibold text-fg-2">
+            <h2 className="mb-2.5 text-label font-semibold tracking-[0.06em] text-muted uppercase">
               {day === isoDay(new Date()) ? 'Today · ' : ''}
               {formatDayHeading(day)}
             </h2>
             <Card className="divide-y divide-border">
               {list.map((a) => (
-                <div key={a.id} className={cx('flex items-center gap-4 px-4 py-3', a.status === 'cancelled' && 'opacity-60')}>
-                  <div className="w-20 shrink-0">
-                    <p className="text-sm font-semibold text-fg tabular-nums">{formatLocalTime(a.localStart)}</p>
-                    <p className="truncate text-[11px] text-muted" title={a.timezone}>
+                <div key={a.id} className={cx('flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 sm:flex-nowrap', a.status === 'cancelled' && 'opacity-60')}>
+                  <div className="w-20 shrink-0 border-r border-border pr-3">
+                    <p className="font-display text-heading font-semibold text-fg tabular-nums">{formatLocalTime(a.localStart)}</p>
+                    <p className="truncate text-label text-muted" title={a.timezone}>
                       {a.timezone.split('/').pop()?.replace(/_/g, ' ')}
                     </p>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-2 text-[13px] font-medium text-fg">
+                    <p className="flex items-center gap-2 text-body-sm font-medium text-fg">
                       {a.title}
                       <AppointmentStatusBadge status={a.status} />
-                      <Badge tone={a.createdBy === 'ai' ? 'indigo' : 'slate'}>{a.createdBy === 'ai' ? 'Booked by AI' : a.createdBy === 'user' ? 'Booked by team' : 'Booked by contact'}</Badge>
+                      <Badge tone={a.createdBy === 'ai' ? 'ai' : a.createdBy === 'user' ? 'human' : 'slate'}>{a.createdBy === 'ai' ? 'Booked by AI' : a.createdBy === 'user' ? 'Booked by team' : 'Booked by contact'}</Badge>
                     </p>
-                    <p className="truncate text-xs text-muted">
+                    <p className="truncate text-caption text-muted">
                       <Link to={`/contacts/${a.contactId}`} className="text-accent-text hover:underline">
                         {a.contact?.name || a.contact?.email || a.contact?.phone || 'Contact'}
                       </Link>
                       {a.contact?.email && ` · ${a.contact.email}`}
                       {a.contact?.phone && ` · ${a.contact.phone}`} · {calendarName(a.calendarId)}
                     </p>
-                    {a.notes && <p className="mt-0.5 truncate text-xs text-fg-2">{a.notes}</p>}
-                    {a.cancelReason && <p className="mt-0.5 text-xs text-danger-text">Cancelled: {a.cancelReason}</p>}
+                    {a.notes && <p className="mt-0.5 truncate text-caption text-fg-2">{a.notes}</p>}
+                    {a.cancelReason && <p className="mt-0.5 text-caption text-danger-text">Cancelled: {a.cancelReason}</p>}
                   </div>
                   <Button size="xs" variant="ghost" icon={<Mail className="size-3" />} onClick={() => setEmailsOf(a)} aria-label={`Emails to the customer about ${a.title}`}>
                     Emails
@@ -354,7 +354,7 @@ function EmailsDrawer({ appointment, canAct, onClose }: { appointment: Appointme
           {emails.data.map((e) => {
             const status = emailStatus(e);
             return (
-              <li key={e.id} className="rounded-lg border border-border p-3 text-[13px]">
+              <li key={e.id} className="rounded-xl border border-border p-3.5 text-body-sm">
                 <p className="flex items-center justify-between gap-2">
                   <span className="font-medium text-fg">
                     {EMAIL_KIND[e.kind]}
@@ -362,7 +362,7 @@ function EmailsDrawer({ appointment, canAct, onClose }: { appointment: Appointme
                   </span>
                   <Badge tone={status.tone}>{status.label}</Badge>
                 </p>
-                <p className="mt-1 text-xs text-muted">
+                <p className="mt-1 text-caption text-muted">
                   {e.status === 'sent' && e.sentAt
                     ? `${formatDateTime(e.sentAt)} to ${e.recipient}`
                     : e.status === 'pending' || e.status === 'sending'
@@ -371,7 +371,7 @@ function EmailsDrawer({ appointment, canAct, onClose }: { appointment: Appointme
                         ? EMAIL_REASON[e.reason] ?? e.reason
                         : ''}
                 </p>
-                {e.error && <p className="mt-1 text-xs text-danger-text">{e.error}</p>}
+                {e.error && <p className="mt-1 text-caption text-danger-text">{e.error}</p>}
               </li>
             );
           })}
@@ -443,7 +443,7 @@ function BookDialog({ onClose }: { onClose: () => void }) {
           <EmptyState title="No active calendars" description="Create a calendar first, under Appointments → Calendars." />
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Calendar">
                 <Select
                   value={calendarId}
@@ -467,7 +467,7 @@ function BookDialog({ onClose }: { onClose: () => void }) {
               {contact ? (
                 <Field label="Contact">
                   <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                    <span className="text-[13px] text-fg">
+                    <span className="text-body-sm text-fg">
                       <span className="font-medium">{contact.name || 'Unnamed'}</span>
                       <span className="text-muted"> · {[contact.email, contact.phone].filter(Boolean).join(' · ') || 'no contact details'}</span>
                     </span>
@@ -491,12 +491,12 @@ function BookDialog({ onClose }: { onClose: () => void }) {
                       <Spinner />
                     </div>
                   ) : !results.data?.items.length ? (
-                    <p className="p-3 text-[13px] text-muted">No contacts match “{debounced}”.</p>
+                    <p className="p-3 text-body-sm text-muted">No contacts match “{debounced}”.</p>
                   ) : (
                     <ul role="listbox" aria-label="Matching contacts" className="max-h-48 overflow-y-auto">
                       {results.data.items.map((c) => (
                         <li key={c.id}>
-                          <button type="button" role="option" aria-selected={false} className="w-full px-3 py-2 text-left text-[13px] hover:bg-surface-2" onClick={() => setContact(c)}>
+                          <button type="button" role="option" aria-selected={false} className="w-full px-3 py-2 text-left text-body-sm hover:bg-surface-2" onClick={() => setContact(c)}>
                             <span className="font-medium text-fg">{c.name || 'Unnamed'}</span>
                             <span className="text-muted"> · {[c.email, c.phone].filter(Boolean).join(' · ') || 'no details'}</span>
                           </button>
@@ -509,7 +509,7 @@ function BookDialog({ onClose }: { onClose: () => void }) {
             </div>
             {calendarId && (
               <div>
-                <p className="mb-2 text-[13px] font-medium text-fg-2">Time</p>
+                <p className="mb-2 text-body-sm font-medium text-fg-2">Time</p>
                 <SlotPicker key={calendarId} calendarId={calendarId} value={slot?.local ?? null} onChange={setSlot} />
               </div>
             )}
@@ -551,20 +551,20 @@ function Calendars({ calendarId }: { calendarId: string | null }) {
     );
   }
   return (
-    <div className="grid grid-cols-[240px_1fr] gap-6">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr]">
       <nav aria-label="Calendars" className="space-y-1">
         {calendars.data.map((c) => (
           <Link
             key={c.id}
             to={`/appointments/calendars/${c.id}`}
             aria-current={c.id === calendarId ? 'page' : undefined}
-            className={cx('block rounded-md px-3 py-2 text-[13px]', c.id === calendarId ? 'bg-accent-soft text-accent-text' : 'text-fg-2 hover:bg-surface-2')}
+            className={cx('block rounded-lg px-3 py-2 text-body-sm transition-colors', c.id === calendarId ? 'bg-accent-soft text-accent-text' : 'text-fg-2 hover:bg-surface-2 hover:text-fg')}
           >
             <span className="flex items-center justify-between gap-2 font-medium">
               <span className="truncate">{c.name}</span>
               {!c.isActive && <Badge tone="slate">paused</Badge>}
             </span>
-            <span className="block truncate text-xs text-muted">{c.timezone}</span>
+            <span className="block truncate text-caption text-muted">{c.timezone}</span>
           </Link>
         ))}
       </nav>
@@ -573,7 +573,7 @@ function Calendars({ calendarId }: { calendarId: string | null }) {
           roleAtLeast(role, 'admin') ? (
             <CalendarEditor key={`${selected.id}`} calendar={selected} />
           ) : (
-            <Card className="p-4 text-[13px] text-muted">Only admins can edit calendars.</Card>
+            <Card className="p-4 text-body-sm text-muted">Only admins can edit calendars.</Card>
           )
         ) : null}
       </div>

@@ -1,11 +1,11 @@
 import type { AppointmentStatus, ConversationStatus, DocumentStatus, LeadTier, QualificationStatus } from '../lib/types';
 import { Badge, type Tone } from './ui';
 
-/** Status colours: green = ready/qualified/booked · amber = pending/warm/human · red = failed/hot · slate = neutral. */
+/** Status colours: green = ready/qualified/booked · amber = pending/warm · red = failed/hot · slate = neutral · ai/human = who is handling it. */
 
 const conversationStatus: Record<ConversationStatus, { label: string; tone: Tone }> = {
-  ai_active: { label: 'AI', tone: 'indigo' },
-  human_active: { label: 'Human', tone: 'amber' },
+  ai_active: { label: 'AI', tone: 'ai' },
+  human_active: { label: 'Human', tone: 'human' },
   closed: { label: 'Closed', tone: 'slate' },
 };
 
@@ -72,8 +72,8 @@ export function ChannelBadge({ channel }: { channel: string }) {
 
 export function TagChip({ name, color, onRemove }: { name: string; color?: string; onRemove?: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-1.5 py-0.5 text-xs whitespace-nowrap text-fg-2">
-      <span className="size-2 rounded-full" style={{ background: color || '#64748b' }} aria-hidden />
+    <span className="inline-flex h-5.5 items-center gap-1.5 rounded-md border border-border bg-surface px-2 text-caption whitespace-nowrap text-fg-2">
+      <span className="size-2 rounded-full" style={{ background: color || 'var(--muted)' }} aria-hidden />
       {name}
       {onRemove && (
         <button type="button" onClick={onRemove} className="-mr-0.5 rounded px-0.5 text-muted hover:bg-surface-2 hover:text-fg" aria-label={`Remove tag ${name}`}>

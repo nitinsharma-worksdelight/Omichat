@@ -51,7 +51,7 @@ function MenuButton({
       aria-current={selected ? 'page' : undefined}
       onClick={onClick}
       className={cx(
-        'flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] transition-colors',
+        'flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-body-sm transition-colors',
         selected ? 'bg-accent-soft font-semibold text-accent-text' : 'font-medium text-fg-2 hover:bg-surface-2 hover:text-fg',
       )}
     >
@@ -62,7 +62,7 @@ function MenuButton({
       {status && (
         <span
           className={cx(
-            'shrink-0 rounded-full px-1.5 text-[11px] leading-[18px] font-semibold',
+            'shrink-0 rounded-full px-1.5 text-label leading-[18px] font-semibold',
             status.tone === 'on' ? 'bg-success-soft text-success-text' : status.tone === 'off' ? 'bg-surface-2 text-muted' : 'bg-surface-2 text-fg-2',
           )}
         >
@@ -106,12 +106,12 @@ export function SettingsMenu({
   errors: ReadonlySet<SectionId>;
 }) {
   return (
-    <nav aria-label="Bot settings" className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-3 py-4 xl:w-64">
+    <nav aria-label="Bot settings" className="hidden w-56 shrink-0 flex-col overflow-y-auto border-r border-border bg-sidebar px-3 py-4 md:flex xl:w-64">
       <button
         type="button"
         onClick={onSearch}
         aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
-        className="mb-3 flex h-9 w-full shrink-0 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-left text-[13px] text-muted transition-colors hover:border-border-strong hover:text-fg-2"
+        className="mb-3 flex h-9 w-full shrink-0 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-left text-body-sm text-muted transition-colors hover:border-border-strong hover:text-fg-2"
       >
         <Search className="size-3.5 shrink-0" aria-hidden />
         <span className="flex-1">Search settings</span>
@@ -127,7 +127,7 @@ export function SettingsMenu({
       />
       {SECTION_GROUPS.map((group) => (
         <div key={group.id} role="group" aria-labelledby={`settings-group-${group.id}`} className="mt-4 flex flex-col gap-0.5">
-          <p id={`settings-group-${group.id}`} className="truncate px-2.5 pb-1 text-[11px] font-semibold tracking-wide text-muted uppercase">
+          <p id={`settings-group-${group.id}`} className="truncate px-2.5 pb-1 text-label font-semibold tracking-wide text-muted uppercase">
             {group.label(assistantName)}
           </p>
           {group.sections.map((s) => (
@@ -168,7 +168,7 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
           className={cx('transition-[stroke-dasharray] duration-300 motion-reduce:transition-none', done === total ? 'stroke-success' : 'stroke-accent')}
         />
       </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-fg tabular-nums">
+      <span className="absolute inset-0 flex items-center justify-center text-body font-bold text-fg tabular-nums">
         {done}/{total}
       </span>
     </div>
@@ -193,12 +193,12 @@ function EssentialCard({ item, onOpen }: { item: Essential; onOpen: (section: Se
         )}
       </div>
       <div className="space-y-1">
-        <h4 className="text-sm font-semibold text-fg">{item.title}</h4>
-        <p className="text-[13px] leading-5 text-muted">{item.summary}</p>
+        <h4 className="text-body font-semibold text-fg">{item.title}</h4>
+        <p className="text-body-sm leading-5 text-muted">{item.summary}</p>
       </div>
       <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1">
         {item.done ? (
-          <button type="button" onClick={() => onOpen(item.section)} aria-label={`Edit ${item.title}`} className="text-[13px] font-semibold text-accent-text hover:underline">
+          <button type="button" onClick={() => onOpen(item.section)} aria-label={`Edit ${item.title}`} className="text-body-sm font-semibold text-accent-text hover:underline">
             Edit
           </button>
         ) : (
@@ -207,7 +207,7 @@ function EssentialCard({ item, onOpen }: { item: Essential; onOpen: (section: Se
           </Button>
         )}
         {item.also && (
-          <button type="button" onClick={() => onOpen(item.also!.section)} className="text-[13px] font-medium text-muted hover:text-fg hover:underline">
+          <button type="button" onClick={() => onOpen(item.also!.section)} className="text-body-sm font-medium text-muted hover:text-fg hover:underline">
             {item.also.label}
           </button>
         )}
@@ -242,7 +242,7 @@ export function EditorOverview({
           <h2 id="overview-title" className="text-xl font-semibold tracking-tight text-fg">
             {title}
           </h2>
-          <p className="text-sm leading-6 text-fg-2">
+          <p className="text-body leading-6 text-fg-2">
             {next
               ? `${done} of ${list.length} essentials are set up. ${next.nextStep}`
               : 'Everything essential is set up. Fine-tune anything below, or try a test chat.'}
@@ -268,10 +268,10 @@ export function EditorOverview({
 
       <section aria-labelledby="essentials-title" className="space-y-3">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <h3 id="essentials-title" className="text-sm font-semibold text-fg">
+          <h3 id="essentials-title" className="text-body font-semibold text-fg">
             Essentials
           </h3>
-          <p className="text-[13px] text-muted">The parts that shape every chat.</p>
+          <p className="text-body-sm text-muted">The parts that shape every chat.</p>
         </div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
           {list.map((item) => (
@@ -282,10 +282,10 @@ export function EditorOverview({
 
       <section aria-labelledby="more-title" className="space-y-3">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <h3 id="more-title" className="text-sm font-semibold text-fg">
+          <h3 id="more-title" className="text-body font-semibold text-fg">
             More settings
           </h3>
-          <p className="text-[13px] text-muted">Fine-tune {name} when you need to.</p>
+          <p className="text-body-sm text-muted">Fine-tune {name} when you need to.</p>
         </div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-2">
           {moreSettings(draft, ctx).map((row) => {
@@ -302,8 +302,8 @@ export function EditorOverview({
                   <Icon className="size-4" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-semibold text-fg">{info.label}</span>
-                  <span className="block truncate text-xs text-muted">{row.summary}</span>
+                  <span className="block text-body-sm font-semibold text-fg">{info.label}</span>
+                  <span className="block truncate text-caption text-muted">{row.summary}</span>
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-faint" aria-hidden />
               </button>
@@ -323,9 +323,9 @@ export function SectionHeader({ section, assistantName }: { section: SectionId; 
   const info = sectionInfo(section);
   return (
     <div className="space-y-1 pb-1">
-      {group && <p className="text-xs font-semibold tracking-wider text-muted uppercase">{group.label(assistantName)}</p>}
-      <h2 className="text-[22px] leading-7 font-semibold tracking-tight text-fg">{info.label}</h2>
-      <p className="text-sm leading-6 text-muted">{info.description(assistantName)}</p>
+      {group && <p className="text-caption font-semibold tracking-wider text-muted uppercase">{group.label(assistantName)}</p>}
+      <h2 className="font-display text-title font-semibold tracking-[-0.02em] text-fg">{info.label}</h2>
+      <p className="text-body leading-6 text-muted">{info.description(assistantName)}</p>
     </div>
   );
 }
@@ -430,8 +430,8 @@ function SearchDialog({ onClose, onSelect, assistantName }: SettingsSearchProps)
                   <Icon className="size-4" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-fg">{r.label}</span>
-                  <span className="block truncate text-xs text-muted">
+                  <span className="block truncate text-body font-medium text-fg">{r.label}</span>
+                  <span className="block truncate text-caption text-muted">
                     {r.where}
                     {r.matched ? ` · matches “${r.matched}”` : ''}
                   </span>
@@ -439,9 +439,9 @@ function SearchDialog({ onClose, onSelect, assistantName }: SettingsSearchProps)
               </li>
             );
           })}
-          {!results.length && <li className="px-3 py-8 text-center text-[13px] text-muted">No settings match “{query.trim()}”.</li>}
+          {!results.length && <li className="px-3 py-8 text-center text-body-sm text-muted">No settings match “{query.trim()}”.</li>}
         </ul>
-        <div className="flex items-center gap-4 border-t border-border bg-bg px-4 py-2 text-xs text-muted">
+        <div className="flex items-center gap-4 border-t border-border bg-bg px-4 py-2 text-caption text-muted">
           <span className="flex items-center gap-1.5">
             <Kbd>↑↓</Kbd>Move
           </span>
@@ -482,8 +482,8 @@ export function SaveBar({
     >
       <span className="size-2.5 shrink-0 rounded-full bg-warning" aria-hidden />
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold text-fg">{changes.length === 1 ? '1 unsaved change' : `${changes.length} unsaved changes`}</p>
-        <p className="truncate text-xs text-muted">{changes.join(' · ')}</p>
+        <p className="text-body-sm font-semibold text-fg">{changes.length === 1 ? '1 unsaved change' : `${changes.length} unsaved changes`}</p>
+        <p className="truncate text-caption text-muted">{changes.join(' · ')}</p>
       </div>
       <Button size="sm" icon={<Undo2 className="size-3.5" aria-hidden />} disabled={saving} onClick={onDiscard}>
         Discard
@@ -513,7 +513,7 @@ function pathHint(path: string): string {
 export function SaveErrors({ details, view, onOpen }: { details: ErrorDetail[]; view: EditorView; onOpen: (section: SectionId) => void }) {
   return (
     <div role="alert" className="space-y-2 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3">
-      <p className="flex items-center gap-2 text-sm font-semibold text-danger-text">
+      <p className="flex items-center gap-2 text-body font-semibold text-danger-text">
         <CircleAlert className="size-4 shrink-0" aria-hidden />
         Not saved yet: {details.length === 1 ? '1 thing to fix' : `${details.length} things to fix`}
       </p>
@@ -522,11 +522,11 @@ export function SaveErrors({ details, view, onOpen }: { details: ErrorDetail[]; 
           const section = sectionOfError(d);
           const hint = pathHint(d.path);
           return (
-            <li key={i} className="flex items-start gap-3 text-[13px] leading-5 text-fg-2">
+            <li key={i} className="flex items-start gap-3 text-body-sm leading-5 text-fg-2">
               <span className="min-w-0 flex-1">
                 {section && <span className="font-semibold text-fg">{sectionInfo(section).label} · </span>}
                 {errorText(d)}
-                {hint && <span className="ml-1.5 font-mono text-xs text-muted">{hint}</span>}
+                {hint && <span className="ml-1.5 font-mono text-caption text-muted">{hint}</span>}
               </span>
               {section && section !== view && (
                 <button type="button" onClick={() => onOpen(section)} className="shrink-0 font-semibold text-danger-text hover:underline">

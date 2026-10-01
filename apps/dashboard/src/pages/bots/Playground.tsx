@@ -226,12 +226,12 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
     <div className="flex h-full min-h-0 flex-col bg-surface-2">
       <div className="flex items-center justify-between gap-2 border-b border-border bg-surface px-4 py-2.5">
         <div className="min-w-0">
-          <p className="flex items-center gap-2 text-[13px] font-semibold text-fg">
+          <p className="flex items-center gap-2 text-body-sm font-semibold text-fg">
             Test chat
             {status && <ConversationStatusBadge status={status} />}
             {streamUrl && <span className={cx('size-1.5 rounded-full', connected ? 'bg-success' : 'bg-faint')} title={connected ? 'Live' : 'Connecting…'} />}
           </p>
-          <p className="truncate text-xs text-muted">{dirty ? 'Uses the saved version — save to test your changes.' : 'Test chats are marked as test data.'}</p>
+          <p className="truncate text-caption text-muted">{dirty ? 'Uses the saved version — save to test your changes.' : 'Test chats are marked as test data.'}</p>
         </div>
         <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => void start()}>
           Reset
@@ -246,13 +246,13 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
         >
           <div className="flex items-center gap-3 border-b border-border px-4 py-3">
             <span className="relative shrink-0">
-              <ChatFace name={chatName} className="size-9 text-xs" />
+              <ChatFace name={chatName} className="size-9 text-caption" />
               <span aria-hidden className="absolute -right-px -bottom-px size-3 rounded-full border-2 border-surface bg-success" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm leading-5 font-semibold text-fg">{chatName || 'Test chat'}</p>
-              <p className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-fg-2">
-                <span className="shrink-0 rounded-full bg-accent-soft px-1.5 text-[10px] leading-4 font-bold tracking-wider text-accent-text">AI</span>
+              <p className="truncate text-body leading-5 font-semibold text-fg">{chatName || 'Test chat'}</p>
+              <p className="flex min-w-0 items-center gap-1.5 text-caption leading-4 text-fg-2">
+                <span className="shrink-0 rounded-full bg-ai-soft px-1.5 text-[10px] leading-4 font-bold tracking-wider text-ai-text">AI</span>
                 <span className="truncate">{botName ? `${botName} · usually replies instantly` : 'Usually replies instantly'}</span>
               </p>
             </div>
@@ -276,7 +276,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
                         type="button"
                         disabled={sending}
                         onClick={() => void sendStarter(s)}
-                        className="max-w-full rounded-[18px] border border-accent/35 bg-surface px-3.5 py-1.5 text-right text-[13px] leading-5 font-medium text-accent-text [overflow-wrap:anywhere] transition-colors hover:border-accent hover:bg-accent-soft disabled:cursor-default disabled:opacity-55 disabled:hover:border-accent/35 disabled:hover:bg-surface"
+                        className="max-w-full rounded-[18px] border border-accent/35 bg-surface px-3.5 py-1.5 text-right text-body-sm leading-5 font-medium text-accent-text [overflow-wrap:anywhere] transition-colors hover:border-accent hover:bg-accent-soft disabled:cursor-default disabled:opacity-55 disabled:hover:border-accent/35 disabled:hover:bg-surface"
                       >
                         {s.label}
                       </button>
@@ -297,16 +297,16 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
                         <span className="typing-dot size-1.5 rounded-full bg-muted" />
                       </span>
                     )}
-                    {activity ? <span className="min-w-0 truncate text-xs text-muted">{activity}</span> : <span className="sr-only">{botName} is typing</span>}
+                    {activity ? <span className="min-w-0 truncate text-caption text-muted">{activity}</span> : <span className="sr-only">{botName} is typing</span>}
                   </div>
                 )}
                 {status === 'human_active' && (
                   <div className="space-y-1 py-1 text-center">
-                    <p className="flex items-center gap-2.5 text-xs font-medium text-fg-2 before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
+                    <p className="flex items-center gap-2.5 text-caption font-medium text-fg-2 before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
                       <UserRound className="size-3.5 shrink-0" aria-hidden />
                       Handed to a human
                     </p>
-                    <p className="text-xs text-muted">The AI won't reply until the conversation is resumed.</p>
+                    <p className="text-caption text-muted">The AI won't reply until the conversation is resumed.</p>
                   </div>
                 )}
               </>
@@ -321,7 +321,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
               <textarea
                 id="playground-input"
                 rows={1}
-                className="max-h-32 min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 text-fg field-sizing-content outline-none placeholder:text-faint disabled:cursor-not-allowed"
+                className="max-h-32 min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-body leading-5 text-fg field-sizing-content outline-none placeholder:text-faint disabled:cursor-not-allowed"
                 placeholder={session ? 'Write a message…' : 'Starting…'}
                 value={input}
                 disabled={!session}
@@ -359,8 +359,8 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
               debugOpen ? 'rounded-t-[11px]' : 'rounded-[11px]',
             )}
           >
-            <span className="shrink-0 text-[13px] font-semibold text-fg">What the AI did</span>
-            <span className="min-w-0 flex-1 truncate text-right text-xs text-muted">
+            <span className="shrink-0 text-body-sm font-semibold text-fg">What the AI did</span>
+            <span className="min-w-0 flex-1 truncate text-right text-caption text-muted">
               {!conversationId
                 ? 'Send a message to see it'
                 : timeline.data && `${plural(timeline.data.tools.length, 'tool call')} · ${plural(timeline.data.events.length, 'event')}`}
@@ -370,13 +370,13 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
           {debugOpen && (
             <div id={debugId} className="min-h-0 flex-1 overflow-y-auto border-t border-border px-3.5 pt-2 pb-3">
               {!conversationId ? (
-                <p className="py-3 text-center text-xs text-muted">Send a message to see tool calls, captured details and events here.</p>
+                <p className="py-3 text-center text-caption text-muted">Send a message to see tool calls, captured details and events here.</p>
               ) : timeline.isLoading ? (
                 <Spinner />
               ) : (
                 <>
                   <TimelineList timeline={timeline.data} newestFirst emptyText="No tool calls yet." />
-                  <Link to={`/conversations/${conversationId}`} className="mt-2 inline-block text-xs text-accent-text hover:underline">
+                  <Link to={`/conversations/${conversationId}`} className="mt-2 inline-block text-caption text-accent-text hover:underline">
                     Open in Conversations →
                   </Link>
                 </>
@@ -437,10 +437,10 @@ function ChatRow({
         </span>
       )}
       <div className={cx('flex max-w-[85%] min-w-0 flex-col gap-1', mine ? 'items-end' : 'items-start')}>
-        {role === 'agent' && <span className="px-1 text-xs font-semibold text-fg-2">Team member</span>}
+        {role === 'agent' && <span className="px-1 text-caption font-semibold text-fg-2">Team member</span>}
         <div
           className={cx(
-            'max-w-full rounded-[18px] px-3.5 py-2 text-sm leading-[21px] whitespace-pre-wrap [overflow-wrap:anywhere]',
+            'max-w-full rounded-[18px] px-3.5 py-2 text-body leading-[21px] whitespace-pre-wrap [overflow-wrap:anywhere]',
             mine ? 'rounded-br-md bg-accent text-accent-fg' : 'rounded-bl-md text-fg',
             role === 'assistant' && 'bg-surface-2',
             role === 'agent' && 'border border-border bg-surface',
@@ -458,7 +458,7 @@ function ChatRow({
                 target="_blank"
                 rel="noopener noreferrer"
                 title={s.title || s.url}
-                className="inline-flex h-6 max-w-full items-center gap-1 rounded-full border border-border bg-surface px-2.5 text-xs font-medium text-fg-2 hover:border-border-strong hover:text-fg"
+                className="inline-flex h-6 max-w-full items-center gap-1 rounded-full border border-border bg-surface px-2.5 text-caption font-medium text-fg-2 hover:border-border-strong hover:text-fg"
               >
                 <FileText className="size-3 shrink-0" aria-hidden />
                 <span className="truncate">{s.title.split(' › ').pop() || s.url}</span>
@@ -466,7 +466,7 @@ function ChatRow({
             ))}
           </div>
         )}
-        {meta && <span className="px-1 text-[11px] leading-4 text-muted">{meta}</span>}
+        {meta && <span className="px-1 text-label leading-4 text-muted">{meta}</span>}
       </div>
     </div>
   );

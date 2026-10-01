@@ -1,88 +1,125 @@
 @import "tailwindcss";
+@import "@fontsource-variable/instrument-sans";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* Dark mode follows the html element's data-theme (set before the first paint, see index.html), not only the device. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /*
- * Design tokens. Components use Tailwind utilities that point at these variables
+ * Design tokens ("Calm Signal"). Components use Tailwind utilities that point at these variables
  * (bg-surface, text-muted, border-border, bg-accent, …) so the dark theme is a token swap.
+ * accent = Lagoon, the only action colour. ai (Iris) and human (Apricot) mark who is acting, nothing else.
  */
 :root {
   color-scheme: light;
-  --bg: #f8fafc;
+  --bg: #f6f5f2;
+  --sidebar: #fbfaf8;
   --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --surface-3: #e2e8f0;
-  --border: #e2e8f0;
-  --border-strong: #cbd5e1;
-  --fg: #0f172a;
-  --fg-2: #334155;
-  --muted: #64748b;
-  --faint: #94a3b8;
+  --surface-2: #f1f0ec;
+  --surface-3: #e7e5df;
+  --input-bg: #ffffff;
+  --border: #e5e3dc;
+  --border-strong: #d2cfc6;
+  --fg: #1a1917;
+  --fg-2: #3d3b37;
+  --muted: #66635c;
+  --faint: #8a867d;
 
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #eef2ff;
-  --accent-text: #4338ca;
+  --accent: #0b7a80;
+  --accent-hover: #08656a;
+  --accent-soft: #e3f2f1;
+  --accent-text: #08656a;
   --accent-fg: #ffffff;
-  --ring: rgb(99 102 241 / 0.35);
+  --ring: rgb(11 122 128 / 0.25);
 
-  --success: #16a34a;
-  --success-soft: #f0fdf4;
-  --success-text: #15803d;
-  --warning: #d97706;
-  --warning-soft: #fffbeb;
-  --warning-text: #b45309;
-  --danger: #dc2626;
-  --danger-soft: #fef2f2;
-  --danger-text: #b91c1c;
-  --info-soft: #eff6ff;
-  --info-text: #1d4ed8;
+  --ai: #6b55d6;
+  --ai-soft: #efecfc;
+  --ai-text: #5340bd;
+  --human: #c8622d;
+  --human-soft: #fbede4;
+  --human-text: #a54e20;
 
-  --overlay: rgb(15 23 42 / 0.4);
-  --shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px rgb(15 23 42 / 0.08);
+  --success: #2e7d43;
+  --success-soft: #e6f3e9;
+  --success-text: #256a38;
+  --warning: #b07a12;
+  --warning-soft: #fbf1dc;
+  --warning-text: #855a07;
+  --danger: #c93b3b;
+  --danger-soft: #fbe9e8;
+  --danger-text: #a92f2f;
+  --danger-fg: #ffffff;
+  --info: #4a6ba8;
+  --info-soft: #e9eef7;
+  --info-text: #3a5a94;
+
+  --overlay: rgb(26 25 23 / 0.42);
+  --shadow-card: 0 1px 2px rgb(26 25 23 / 0.04);
+  --shadow-raise: 0 2px 8px rgb(26 25 23 / 0.07), 0 1px 2px rgb(26 25 23 / 0.05);
+  --shadow: 0 6px 20px rgb(26 25 23 / 0.08), 0 1px 3px rgb(26 25 23 / 0.06);
+  --shadow-modal: 0 24px 56px rgb(26 25 23 / 0.16), 0 2px 6px rgb(26 25 23 / 0.06);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --bg: #0b1120;
-    --surface: #0f172a;
-    --surface-2: #172033;
-    --surface-3: #243049;
-    --border: #1f2a3d;
-    --border-strong: #334155;
-    --fg: #e2e8f0;
-    --fg-2: #cbd5e1;
-    --muted: #94a3b8;
-    --faint: #64748b;
+/* The device's setting is the default; the menu's "Dark mode" switch can override it. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0e10;
+  --sidebar: #101215;
+  --surface: #15171a;
+  --surface-2: #1b1e22;
+  --surface-3: #252930;
+  --input-bg: #1b1e22;
+  --border: #25292f;
+  --border-strong: #343a42;
+  --fg: #ecedee;
+  --fg-2: #c5c8cd;
+  --muted: #8f959d;
+  --faint: #6b717a;
 
-    --accent: #6366f1;
-    --accent-hover: #818cf8;
-    --accent-soft: rgb(99 102 241 / 0.16);
-    --accent-text: #a5b4fc;
-    --accent-fg: #ffffff;
-    --ring: rgb(129 140 248 / 0.45);
+  --accent: #3cc2bf;
+  --accent-hover: #62d4d1;
+  --accent-soft: rgb(60 194 191 / 0.13);
+  --accent-text: #72dad7;
+  --accent-fg: #062221;
+  --ring: rgb(60 194 191 / 0.32);
 
-    --success: #22c55e;
-    --success-soft: rgb(34 197 94 / 0.14);
-    --success-text: #86efac;
-    --warning: #f59e0b;
-    --warning-soft: rgb(245 158 11 / 0.14);
-    --warning-text: #fcd34d;
-    --danger: #ef4444;
-    --danger-soft: rgb(239 68 68 / 0.14);
-    --danger-text: #fca5a5;
-    --info-soft: rgb(59 130 246 / 0.14);
-    --info-text: #93c5fd;
+  --ai: #a898ff;
+  --ai-soft: rgb(168 152 255 / 0.13);
+  --ai-text: #c0b5ff;
+  --human: #f29a62;
+  --human-soft: rgb(242 154 98 / 0.13);
+  --human-text: #f7b88e;
 
-    --overlay: rgb(2 6 23 / 0.6);
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
-  }
+  --success: #5cc27a;
+  --success-soft: rgb(92 194 122 / 0.13);
+  --success-text: #8ad9a0;
+  --warning: #e8b04b;
+  --warning-soft: rgb(232 176 75 / 0.13);
+  --warning-text: #f0c877;
+  --danger: #f07a7a;
+  --danger-soft: rgb(240 122 122 / 0.13);
+  --danger-text: #f6a0a0;
+  --danger-fg: #2a0807;
+  --info: #8fa9d9;
+  --info-soft: rgb(143 169 217 / 0.13);
+  --info-text: #a9bfe6;
+
+  --overlay: rgb(0 0 0 / 0.6);
+  /* Dark surfaces lift with a lighter step and a hairline top highlight instead of a shadow. */
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.035);
+  --shadow-raise: 0 4px 14px rgb(0 0 0 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.045);
+  --shadow: 0 10px 28px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --shadow-modal: 0 28px 64px rgb(0 0 0 / 0.6), inset 0 1px 0 rgb(255 255 255 / 0.06);
 }
 
 @theme inline {
   --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-input-bg: var(--input-bg);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-fg: var(--fg);
@@ -94,6 +131,12 @@
   --color-accent-soft: var(--accent-soft);
   --color-accent-text: var(--accent-text);
   --color-accent-fg: var(--accent-fg);
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+  --color-ai-text: var(--ai-text);
+  --color-human: var(--human);
+  --color-human-soft: var(--human-soft);
+  --color-human-text: var(--human-text);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-success-text: var(--success-text);
@@ -103,12 +146,36 @@
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-danger-text: var(--danger-text);
+  --color-danger-fg: var(--danger-fg);
+  --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --color-info-text: var(--info-text);
   --color-overlay: var(--overlay);
+  --shadow-card: var(--shadow-card);
+  --shadow-raise: var(--shadow-raise);
   --shadow-pop: var(--shadow);
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --shadow-modal: var(--shadow-modal);
+  --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Named type sizes (size / line height). Pages move to these from ad-hoc text-[Npx] sizes in their own phase. */
+@theme {
+  --text-display: 28px;
+  --text-display--line-height: 34px;
+  --text-title: 22px;
+  --text-title--line-height: 28px;
+  --text-heading: 16px;
+  --text-heading--line-height: 24px;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 18px;
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+  --text-label: 11px;
+  --text-label--line-height: 16px;
 }
 
 @layer base {
@@ -159,7 +226,7 @@
     width: 100%;
     border-radius: 0.5rem;
     border: 1px solid var(--border-strong);
-    background: var(--surface);
+    background: var(--input-bg);
     color: var(--fg);
     padding: 0.4375rem 0.75rem;
     font-size: 14px;
@@ -168,6 +235,9 @@
   }
   .control::placeholder {
     color: var(--faint);
+  }
+  .control:hover:not(:disabled):not(:focus) {
+    border-color: color-mix(in srgb, var(--border-strong) 60%, var(--muted));
   }
   .control:focus {
     border-color: var(--accent);
@@ -183,7 +253,7 @@
     border-color: var(--danger);
   }
   .control[aria-invalid="true"]:focus {
-    box-shadow: 0 0 0 3px rgb(220 38 38 / 0.2);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
   }
 
   .prose-pre {

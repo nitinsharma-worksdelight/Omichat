@@ -65,15 +65,15 @@ export function RangesEditor({ ranges, onChange, label }: { ranges: TimeRange[];
           <input
             type="time"
             aria-label={`${label} range ${i + 1} start`}
-            className="rounded bg-transparent px-1 py-0.5 text-[13px] tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+            className="rounded bg-transparent px-1 py-0.5 text-body-sm tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
             value={r.start}
             onChange={(e) => onChange(ranges.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)))}
           />
-          <span className="text-xs text-muted">–</span>
+          <span className="text-caption text-muted">–</span>
           <input
             type="time"
             aria-label={`${label} range ${i + 1} end`}
-            className="rounded bg-transparent px-1 py-0.5 text-[13px] tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+            className="rounded bg-transparent px-1 py-0.5 text-body-sm tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
             value={r.end}
             onChange={(e) => onChange(ranges.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)))}
           />
@@ -161,7 +161,7 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
         />
         <div className="space-y-6 p-4">
           {save.error ? <ErrorBanner error={save.error} title={save.error instanceof ApiError && save.error.details.length ? save.error.message : undefined} details={save.error instanceof ApiError ? save.error.details : undefined} /> : null}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required>
               <Input value={form.name} maxLength={120} onChange={(e) => set('name', e.target.value)} />
             </Field>
@@ -182,8 +182,8 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
           <Toggle label="Accepting bookings" description="Turn off to pause all new bookings on this calendar." checked={form.isActive} onChange={(v) => set('isActive', v)} />
 
           <fieldset>
-            <legend className="mb-3 text-sm font-semibold text-fg">Slots</legend>
-            <div className="grid grid-cols-3 gap-4">
+            <legend className="mb-3 text-body font-semibold text-fg">Slots</legend>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Appointment length (min)">
                 <NumberInput min={5} max={480} value={form.slotMinutes} onChange={(v) => set('slotMinutes', Math.round(v ?? 30))} />
               </Field>
@@ -206,8 +206,8 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
           </fieldset>
 
           <fieldset>
-            <legend className="mb-1 text-sm font-semibold text-fg">Emails to the customer</legend>
-            <p className="mb-3 text-[13px] text-muted">
+            <legend className="mb-1 text-body font-semibold text-fg">Emails to the customer</legend>
+            <p className="mb-3 text-body-sm text-muted">
               Sent to the email saved on the contact: never to one waiting for duplicate review, and never from test chats. Each appointment shows what was sent.
             </p>
             <div className="space-y-4">
@@ -217,7 +217,7 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
                 checked={form.sendConfirmations}
                 onChange={(v) => set('sendConfirmations', v)}
               />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Reminders">
                   <Select value={reminderValue} onChange={(e) => set('reminderMinutes', e.target.value ? e.target.value.split(',').map(Number) : [])}>
                     {!REMINDER_CHOICES.some((c) => c.value === reminderValue) && <option value={reminderValue}>{reminderLabel(form.reminderMinutes)}</option>}
@@ -247,7 +247,7 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
           </fieldset>
 
           <fieldset>
-            <legend className="mb-3 text-sm font-semibold text-fg">Changes and cancellations</legend>
+            <legend className="mb-3 text-body font-semibold text-fg">Changes and cancellations</legend>
             <Field label="The assistant can move or cancel a booking" hint="Inside this window it offers your team instead. Your team can always change a booking.">
               <Select value={noticeValue} onChange={(e) => set('minCancelNoticeMinutes', e.target.value ? Number(e.target.value) : null)}>
                 {!NOTICE_CHOICES.some((c) => c.value === noticeValue) && <option value={noticeValue}>Until {form.minCancelNoticeMinutes} minutes before</option>}
@@ -261,15 +261,15 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
           </fieldset>
 
           <fieldset>
-            <legend className="mb-3 text-sm font-semibold text-fg">Weekly hours</legend>
+            <legend className="mb-3 text-body font-semibold text-fg">Weekly hours</legend>
             <div className="divide-y divide-border rounded-lg border border-border">
               {WEEKDAYS.map((day) => {
                 const ranges = form.weeklyHours[day] ?? [];
                 return (
                   <div key={day} className="grid grid-cols-[120px_1fr] items-center gap-3 px-3 py-2">
-                    <span className={cx('text-[13px] font-medium', ranges.length ? 'text-fg' : 'text-muted')}>
+                    <span className={cx('text-body-sm font-medium', ranges.length ? 'text-fg' : 'text-muted')}>
                       {DAY_LABEL[day]}
-                      {!ranges.length && <span className="block text-xs font-normal">Closed</span>}
+                      {!ranges.length && <span className="block text-caption font-normal">Closed</span>}
                     </span>
                     <RangesEditor label={DAY_LABEL[day]} ranges={ranges} onChange={(r) => setDay(day, r)} />
                   </div>
@@ -279,8 +279,8 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
           </fieldset>
 
           <fieldset>
-            <legend className="mb-1 text-sm font-semibold text-fg">Date overrides</legend>
-            <p className="mb-3 text-[13px] text-muted">Holidays or special hours. A date with no hours is closed all day.</p>
+            <legend className="mb-1 text-body font-semibold text-fg">Date overrides</legend>
+            <p className="mb-3 text-body-sm text-muted">Holidays or special hours. A date with no hours is closed all day.</p>
             <div className="space-y-2">
               {form.dateOverrides.map((o, i) => (
                 <div key={i} className="flex items-start gap-3 rounded-lg border border-border px-3 py-2">
@@ -292,7 +292,7 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
                     onChange={(e) => setOverride(i, { date: e.target.value })}
                   />
                   <div className="flex-1 pt-1">
-                    {!o.hours.length && <span className="mr-2 text-xs text-muted">Closed all day</span>}
+                    {!o.hours.length && <span className="mr-2 text-caption text-muted">Closed all day</span>}
                     <RangesEditor label={`Override ${o.date || i + 1}`} ranges={o.hours} onChange={(hours) => setOverride(i, { hours })} />
                   </div>
                   <IconButton label={`Remove override ${o.date}`} size="sm" onClick={() => set('dateOverrides', form.dateOverrides.filter((_, j) => j !== i))}>
@@ -336,15 +336,15 @@ function AvailabilityPreview({ calendar, dirty }: { calendar: Calendar; dirty: b
         ) : availability.error ? (
           <ErrorBanner error={availability.error} />
         ) : groups.length === 0 ? (
-          <p className="text-[13px] text-muted">No open slots in the next 7 days. Check the weekly hours, minimum notice and whether the calendar is accepting bookings.</p>
+          <p className="text-body-sm text-muted">No open slots in the next 7 days. Check the weekly hours, minimum notice and whether the calendar is accepting bookings.</p>
         ) : (
           <div className="space-y-3">
             {groups.map(([day, slots]) => (
-              <div key={day} className="grid grid-cols-[180px_1fr] gap-3">
-                <p className="text-[13px] font-medium text-fg-2">{formatDayHeading(day)}</p>
+              <div key={day} className="grid grid-cols-1 gap-1 sm:grid-cols-[180px_1fr] sm:gap-3">
+                <p className="text-body-sm font-medium text-fg-2">{formatDayHeading(day)}</p>
                 <div className="flex flex-wrap gap-1">
                   {slots.map((s) => (
-                    <span key={s.start} className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-fg-2 tabular-nums">
+                    <span key={s.start} className="rounded bg-surface-2 px-1.5 py-0.5 text-caption text-fg-2 tabular-nums">
                       {formatLocalTime(s.local)}
                     </span>
                   ))}

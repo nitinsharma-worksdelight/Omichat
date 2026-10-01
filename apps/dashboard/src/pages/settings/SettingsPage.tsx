@@ -63,7 +63,7 @@ export function SettingsPage() {
           ]}
         />
       </PageHeader>
-      <div className="px-8 py-6">
+      <div className="px-4 sm:px-8 py-6">
         {tab === 'organization' && <OrganizationTab isAdmin={isAdmin} />}
         {tab === 'channels' && <ChannelsTab isAdmin={isAdmin} />}
         {tab === 'team' && <TeamTab isAdmin={isAdmin} />}
@@ -196,7 +196,7 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
         />
         <div className="space-y-4 p-4">
           {save.error ? <ErrorBanner error={save.error} /> : null}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name">
               <Input value={form.name} maxLength={120} disabled={!isAdmin} onChange={(e) => set('name', e.target.value)} />
             </Field>
@@ -230,8 +230,8 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
             <ChipsInput value={form.notificationEmails} disabled={!isAdmin} onChange={(v) => set('notificationEmails', v)} placeholder="frontdesk@example.com" normalize={(s) => s.toLowerCase()} />
           </Field>
           <fieldset>
-            <legend className="mb-1 text-sm font-semibold text-fg">Team hours</legend>
-            <p className="mb-3 text-[13px] text-muted">
+            <legend className="mb-1 text-body font-semibold text-fg">Team hours</legend>
+            <p className="mb-3 text-body-sm text-muted">
               When your team answers chats, in the timezone above. Bots set to respect team hours tell visitors the team is away outside these hours.
             </p>
             <Toggle
@@ -247,9 +247,9 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
                   const ranges = form.teamHours.weekly[day] ?? [];
                   return (
                     <div key={day} className="grid grid-cols-[120px_1fr] items-center gap-3 px-3 py-2">
-                      <span className={cx('text-[13px] font-medium', ranges.length ? 'text-fg' : 'text-muted')}>
+                      <span className={cx('text-body-sm font-medium', ranges.length ? 'text-fg' : 'text-muted')}>
                         {DAY_LABEL[day]}
-                        {!ranges.length && <span className="block text-xs font-normal">Away</span>}
+                        {!ranges.length && <span className="block text-caption font-normal">Away</span>}
                       </span>
                       <RangesEditor label={DAY_LABEL[day]} ranges={ranges} onChange={(r) => set('teamHours', { ...form.teamHours, weekly: { ...form.teamHours.weekly, [day]: r } })} />
                     </div>
@@ -284,8 +284,8 @@ function ChannelsTab({ isAdmin }: { isAdmin: boolean }) {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold text-fg">Website chat</h2>
-          <p className="mt-0.5 text-[13px] text-muted">Add the chat widget to your website with one script tag. Each widget can use a different bot and look.</p>
+          <h2 className="text-body font-semibold text-fg">Website chat</h2>
+          <p className="mt-0.5 text-body-sm text-muted">Add the chat widget to your website with one script tag. Each widget can use a different bot and look.</p>
         </div>
         {isAdmin && (
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
@@ -346,11 +346,11 @@ function ChannelsTab({ isAdmin }: { isAdmin: boolean }) {
             />
             <div className="space-y-2 p-4">
               <div className="flex items-center justify-between">
-                <p className="text-[13px] font-medium text-fg-2">Embed snippet</p>
+                <p className="text-body-sm font-medium text-fg-2">Embed snippet</p>
                 {c.embedSnippet && <CopyButton text={c.embedSnippet} label="Copy snippet" />}
               </div>
               <CodeBlock>{c.embedSnippet ?? '—'}</CodeBlock>
-              <p className="text-xs text-muted">
+              <p className="text-caption text-muted">
                 Paste it just before <code className="font-mono">&lt;/body&gt;</code> on every page where the chat should appear. Public key: <code className="font-mono">{c.publicKey}</code>
               </p>
             </div>
@@ -362,7 +362,7 @@ function ChannelsTab({ isAdmin }: { isAdmin: boolean }) {
           <CardHeader title="System channels" description="Created automatically; they can't be deleted." />
           <ul className="divide-y divide-border">
             {system.map((c) => (
-              <li key={c.id} className="flex items-center justify-between px-4 py-2.5 text-[13px]">
+              <li key={c.id} className="flex items-center justify-between px-4 py-2.5 text-body-sm">
                 <span className="text-fg">{c.name}</span>
                 <span className="flex items-center gap-2 text-muted">
                   {botName(c.botId)} <Badge tone="slate">{c.channel === 'api' ? 'API' : 'Playground'}</Badge>
@@ -443,10 +443,10 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
         </>
       }
     >
-      <div className="grid grid-cols-[1fr_260px] gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
         <div className="space-y-4">
           {save.error ? <ErrorBanner error={save.error} /> : null}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required>
               <Input value={form.name} maxLength={120} onChange={(e) => set('name', e.target.value)} />
             </Field>
@@ -469,12 +469,12 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
             <ChipsInput value={form.allowedOrigins} onChange={(v) => set('allowedOrigins', v)} normalize={(s) => s.replace(/\/+$/, '')} placeholder="https://www.example.com" />
           </Field>
           <fieldset className="space-y-4">
-            <legend className="text-sm font-semibold text-fg">Appearance</legend>
-            <div className="grid grid-cols-2 gap-4">
+            <legend className="text-body font-semibold text-fg">Appearance</legend>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Brand colour" error={colorValid ? null : 'Use a hex colour like #4f46e5'}>
                 <div className="flex gap-2">
                   <input type="color" aria-label="Pick brand colour" className="h-9 w-12 shrink-0 cursor-pointer rounded-lg border border-border-strong bg-surface p-1" value={colorValid ? form.primaryColor : '#4f46e5'} onChange={(e) => set('primaryColor', e.target.value)} />
-                  <Input className="font-mono text-[13px]" value={form.primaryColor} maxLength={7} onChange={(e) => set('primaryColor', e.target.value)} />
+                  <Input className="font-mono text-body-sm" value={form.primaryColor} maxLength={7} onChange={(e) => set('primaryColor', e.target.value)} />
                 </div>
               </Field>
               <Field label="Position">
@@ -666,8 +666,8 @@ function TeamTab({ isAdmin }: { isAdmin: boolean }) {
     <div className="max-w-4xl space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold text-fg">Team</h2>
-          <p className="mt-0.5 text-[13px] text-muted">Admins configure bots and settings; agents reply to conversations and manage leads; viewers can only look.</p>
+          <h2 className="text-body font-semibold text-fg">Team</h2>
+          <p className="mt-0.5 text-body-sm text-muted">Admins configure bots and settings; agents reply to conversations and manage leads; viewers can only look.</p>
         </div>
         {isAdmin && (
           <Button variant="primary" icon={<UserPlus className="size-4" />} onClick={() => setAdding(true)}>
@@ -698,9 +698,9 @@ function TeamTab({ isAdmin }: { isAdmin: boolean }) {
                   <TD>
                     <p className="font-medium text-fg">
                       {m.name || m.email}
-                      {m.userId === me?.user.id && <span className="ml-1.5 text-xs font-normal text-muted">(you)</span>}
+                      {m.userId === me?.user.id && <span className="ml-1.5 text-caption font-normal text-muted">(you)</span>}
                     </p>
-                    {m.name && <p className="text-xs text-muted">{m.email}</p>}
+                    {m.name && <p className="text-caption text-muted">{m.email}</p>}
                   </TD>
                   <TD>
                     <Badge tone={m.role === 'owner' ? 'indigo' : 'slate'}>{m.role}</Badge>
@@ -762,7 +762,7 @@ function AddMemberDialog({ onClose }: { onClose: () => void }) {
         }}
       >
         {add.error ? <ErrorBanner error={add.error} /> : null}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Email" required>
             <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
           </Field>
@@ -810,9 +810,9 @@ function ApiKeysTab() {
     <div className="max-w-4xl space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold text-fg">API keys</h2>
-          <p className="mt-0.5 text-[13px] text-muted">
-            For n8n and other server-to-server integrations. Send as <code className="font-mono text-xs">Authorization: Bearer sk_…</code>.
+          <h2 className="text-body font-semibold text-fg">API keys</h2>
+          <p className="mt-0.5 text-body-sm text-muted">
+            For n8n and other server-to-server integrations. Send as <code className="font-mono text-caption">Authorization: Bearer sk_…</code>.
           </p>
         </div>
         <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
@@ -844,7 +844,7 @@ function ApiKeysTab() {
                 <tr key={k.id} className={k.revokedAt ? 'opacity-60' : ''}>
                   <TD>
                     <p className="font-medium text-fg">{k.name}</p>
-                    <code className="font-mono text-xs text-muted">{k.prefix}…</code>
+                    <code className="font-mono text-caption text-muted">{k.prefix}…</code>
                   </TD>
                   <TD>
                     <div className="flex flex-wrap gap-1">
@@ -896,12 +896,12 @@ function ApiKeysTab() {
       {created && (
         <Modal open onClose={() => setCreated(null)} title={`API key “${created.name}”`} size="lg" footer={<Button variant="primary" onClick={() => setCreated(null)}>I've saved it</Button>}>
           <div className="space-y-4">
-            <p className="rounded-md bg-warning-soft px-3 py-2 text-[13px] text-warning-text">Copy this key now — it won't be shown again.</p>
+            <p className="rounded-md bg-warning-soft px-3 py-2 text-body-sm text-warning-text">Copy this key now — it won't be shown again.</p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 truncate rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-[13px] text-fg">{created.key}</code>
+              <code className="flex-1 truncate rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-body-sm text-fg">{created.key}</code>
               <CopyButton text={created.key} />
             </div>
-            <p className="text-[13px] text-fg-2">Example:</p>
+            <p className="text-body-sm text-fg-2">Example:</p>
             <CodeBlock>{`curl ${API_URL}/v1/contacts \\\n  -H "Authorization: Bearer ${created.key}"`}</CodeBlock>
           </div>
         </Modal>
@@ -950,11 +950,11 @@ function KeyDialog({ apiKey, onClose, onCreated }: { apiKey?: ApiKey; onClose: (
           <Input value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
         </Field>
         <fieldset className="space-y-2">
-          <legend className="mb-1 text-[13px] font-medium text-fg-2">Scopes</legend>
+          <legend className="mb-1 text-body-sm font-medium text-fg-2">Scopes</legend>
           {API_KEY_SCOPES.map((s) => (
             <Checkbox
               key={s}
-              label={<code className="font-mono text-xs">{s}</code>}
+              label={<code className="font-mono text-caption">{s}</code>}
               description={SCOPE_HELP[s]}
               checked={scopes.includes(s)}
               onChange={(e) => setScopes((list) => (e.target.checked ? [...list, s] : list.filter((x) => x !== s)))}

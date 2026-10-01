@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDownRight, ArrowUpRight, Download, CalendarCheck, CircleDollarSign, Hand, Handshake, MessagesSquare, Sparkles, Star, UserPlus } from 'lucide-react';
+import { Download, CalendarCheck, CircleDollarSign, Hand, Handshake, MessagesSquare, Sparkles, Star, UserPlus } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useToast } from '../../components/feedback-context';
+import { DeltaPill, StatValue, type StatTone } from '../../components/stats';
 import { Button, Card, CardHeader, cx, ErrorBanner, Input, PageHeader, Select, Skeleton } from '../../components/ui';
 import { download, get } from '../../lib/api';
 import { formatNumber, formatUsd } from '../../lib/format';
@@ -11,14 +12,15 @@ import { navigate, useRoute, withQuery } from '../../lib/router';
 import type { AnalyticsMetric, AnalyticsReport } from '../../lib/types';
 import { Performance } from './Performance';
 
-const METRICS: Array<{ key: AnalyticsMetric; label: string; icon: ReactNode; hint: string }> = [
-  { key: 'conversations', label: 'Conversations', icon: <MessagesSquare className="size-4" />, hint: 'Started in the period' },
-  { key: 'leads', label: 'Leads captured', icon: <UserPlus className="size-4" />, hint: 'Became a lead in the period' },
-  { key: 'qualified', label: 'Qualified', icon: <Star className="size-4" />, hint: 'Became qualified in the period' },
-  { key: 'bookings', label: 'AI bookings', icon: <CalendarCheck className="size-4" />, hint: 'Booked by the assistant, not cancelled' },
-  { key: 'handoffs', label: 'Handoffs', icon: <Hand className="size-4" />, hint: 'Times a chat went to your team' },
-  { key: 'dealsWon', label: 'Deals won', icon: <Handshake className="size-4" />, hint: 'Closed as won in the period' },
-  { key: 'aiReplies', label: 'AI replies', icon: <Sparkles className="size-4" />, hint: 'Replies the assistant sent' },
+// The tile tone says what each number is about: ai and human mark who acted.
+const METRICS: Array<{ key: AnalyticsMetric; label: string; icon: ReactNode; tone: StatTone; hint: string }> = [
+  { key: 'conversations', label: 'Conversations', icon: <MessagesSquare />, tone: 'neutral', hint: 'Started in the period' },
+  { key: 'leads', label: 'Leads captured', icon: <UserPlus />, tone: 'brand', hint: 'Became a lead in the period' },
+  { key: 'qualified', label: 'Qualified', icon: <Star />, tone: 'success', hint: 'Became qualified in the period' },
+  { key: 'bookings', label: 'AI bookings', icon: <CalendarCheck />, tone: 'ai', hint: 'Booked by the assistant, not cancelled' },
+  { key: 'handoffs', label: 'Handoffs', icon: <Hand />, tone: 'human', hint: 'Times a chat went to your team' },
+  { key: 'dealsWon', label: 'Deals won', icon: <Handshake />, tone: 'success', hint: 'Closed as won in the period' },
+  { key: 'aiReplies', label: 'AI replies', icon: <Sparkles />, tone: 'ai', hint: 'Replies the assistant sent' },
 ];
 
 const PRESETS = [
@@ -94,8 +96,8 @@ export function AnalyticsPage() {
   return (
     <div>
       <PageHeader title="Analytics" description={`How your assistants are doing. Days are counted in ${timezone}; Test chats are left out.`} />
-      <div className="space-y-6 px-8 py-6">
-        <div className="flex flex-wrap items-end gap-3">
+      <div className="space-y-6 px-4 sm:px-8 py-6">
+        <div className="flex flex-wrap items-center gap-2">
           <Select aria-label="Period" className="w-40" value={preset} onChange={(e) => setQuery({ range: e.target.value, from: e.target.value === 'custom' ? from : null, to: e.target.value === 'custom' ? to : null })}>
             {PRESETS.map((p) => (
               <option key={p.value} value={p.value}>
@@ -135,6 +137,7 @@ export function AnalyticsPage() {
               key={m.key}
               label={m.label}
               icon={m.icon}
+              tone={m.tone}
               hint={m.hint}
               loading={report.isLoading}
               value={data?.totals[m.key]}
@@ -144,13 +147,15 @@ export function AnalyticsPage() {
             />
           ))}
           {roleAtLeast(role, 'admin') && (
-            <Card className="p-4">
-              <div className="flex items-center gap-2 text-muted">
-                <CircleDollarSign className="size-4" />
-                <span className="text-xs font-medium">AI cost</span>
-              </div>
-              {report.isLoading ? <Skeleton className="mt-2 h-7 w-16" /> : <p className="mt-1.5 text-2xl font-semibold text-fg tabular-nums">{formatUsd(data?.aiCostUsd ?? 0)}</p>}
-              <p className="mt-1 text-xs text-muted">Admins only · Test chats left out</p>
+            <Card className="px-5 py-4.5">
+              <StatValue
+                icon={<CircleDollarSign />}
+                tone="ai"
+                label="AI cost"
+                loading={report.isLoading}
+                value={formatUsd(data?.aiCostUsd ?? 0)}
+                footer="Admins only · Test chats left out"
+              />
             </Card>
           )}
         </div>
@@ -172,7 +177,7 @@ export function AnalyticsPage() {
             title={`${selected.label} by ${data?.interval === 'week' ? 'week' : 'day'}`}
             description={data?.dealsWonValue.length && selected.key === 'dealsWon' ? `Won value: ${data.dealsWonValue.map((d) => formatMoney(d.value, d.currency)).join(' · ')}` : selected.hint}
           />
-          <div className="px-5 pb-5">
+          <div className="px-5 pt-4 pb-5">
             {report.isLoading || !data ? (
               <Skeleton className="h-56 w-full" />
             ) : (
@@ -200,6 +205,7 @@ function formatMoney(value: number, currency: string): string {
 function MetricCard({
   label,
   icon,
+  tone,
   hint,
   value,
   previous,
@@ -209,6 +215,7 @@ function MetricCard({
 }: {
   label: string;
   icon: ReactNode;
+  tone: StatTone;
   hint: string;
   value: number | undefined;
   previous: number | undefined;
@@ -224,32 +231,31 @@ function MetricCard({
       aria-pressed={selected}
       title={hint}
       className={cx(
-        'rounded-xl border bg-surface p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
-        selected ? 'border-accent' : 'border-border hover:border-border-strong',
+        'rounded-xl border bg-surface px-5 py-4.5 text-left shadow-card transition-[border-color,box-shadow] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
+        selected ? 'border-accent ring-3 ring-accent/15' : 'border-border hover:border-border-strong',
       )}
     >
-      <div className="flex items-center gap-2 text-muted">
-        {icon}
-        <span className="text-xs font-medium">{label}</span>
-      </div>
-      {loading ? <Skeleton className="mt-2 h-7 w-16" /> : <p className="mt-1.5 text-2xl font-semibold text-fg tabular-nums">{formatNumber(value)}</p>}
-      <p className="mt-1 flex items-center gap-1 text-xs text-muted">
-        {loading ? (
-          ' '
-        ) : change === null ? (
-          previous === 0 && value ? 'New this period' : 'No earlier data'
-        ) : change === 0 ? (
-          'Same as before'
-        ) : (
-          <>
-            <span className={cx('inline-flex items-center gap-0.5 font-medium', change > 0 ? 'text-success' : 'text-danger')}>
-              {change > 0 ? <ArrowUpRight className="size-3.5" aria-hidden /> : <ArrowDownRight className="size-3.5" aria-hidden />}
-              {Math.abs(Math.round(change * 100))}%
+      <StatValue
+        icon={icon}
+        tone={tone}
+        label={label}
+        loading={loading}
+        value={formatNumber(value)}
+        footer={
+          loading ? (
+            <span aria-hidden>&nbsp;</span>
+          ) : change === null ? (
+            previous === 0 && value ? 'New this period' : 'No earlier data'
+          ) : change === 0 ? (
+            'Same as before'
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <DeltaPill change={change} />
+              vs previous period
             </span>
-            vs previous period
-          </>
-        )}
-      </p>
+          )
+        }
+      />
     </button>
   );
 }
@@ -278,7 +284,7 @@ function BarChart({ label, points, weekly }: { label: string; points: Array<{ da
           const y = 8 + plotH - (t / top) * plotH;
           return (
             <g key={t} className="text-border">
-              <line x1={left} x2={width - 8} y1={y} y2={y} stroke="currentColor" strokeWidth={1} />
+              <line x1={left} x2={width - 8} y1={y} y2={y} stroke="currentColor" strokeWidth={1} strokeDasharray={t === 0 ? undefined : '3 4'} />
               <text x={left - 6} y={y + 3} textAnchor="end" className="fill-current text-[10px] text-muted">
                 {t}
               </text>
@@ -290,7 +296,7 @@ function BarChart({ label, points, weekly }: { label: string; points: Array<{ da
           const x = left + i * slot + (slot - bar) / 2;
           return (
             <g key={p.date}>
-              <rect x={x} y={8 + plotH - h} width={bar} height={Math.max(h, p.value ? 1 : 0)} rx={2} className="fill-current text-accent">
+              <rect x={x} y={8 + plotH - h} width={bar} height={Math.max(h, p.value ? 1 : 0)} rx={Math.min(4, bar / 3)} className="fill-current text-accent transition-opacity hover:opacity-80">
                 <title>{`${weekly ? 'Week of ' : ''}${fmt(p.date)}: ${p.value}`}</title>
               </rect>
               {i % labelEvery === 0 && (
