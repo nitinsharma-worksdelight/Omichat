@@ -3,6 +3,7 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { schema, type Db } from '../../db/client';
 import type { AppointmentStatus } from '../../db/schema';
+import { assertContactInOrg, assertConversationInOrg } from '../../db/ownership';
 import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
 import { recordEvent } from '../automation/events';
@@ -234,6 +235,8 @@ export class SchedulingService {
   ): Promise<{ appointment: AppointmentView; duplicate: boolean; customerEmail: CustomerEmailOutcome }> {
     try {
       const result = await inScope(this.tenantDb, scope, async (tx) => {
+        await assertContactInOrg(tx, scope.orgId, input.contactId);
+        if (input.conversationId) await assertConversationInOrg(tx, scope.orgId, input.conversationId);
         await this.lockCalendar(tx, input.calendarId);
         const [existing] = await tx
           .select()

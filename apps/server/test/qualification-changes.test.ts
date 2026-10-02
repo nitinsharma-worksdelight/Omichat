@@ -170,6 +170,8 @@ describe('in the conversation', () => {
 
   it('records which bot asked, and after a re-qualification the tool offers the next step', async () => {
     const org = await clinic();
+    // "Offer to book" is only the next step for a bot that can book.
+    await t.c.bots.update(org.scope, org.bot.id, { config: { booking: { enabled: true, calendarId: org.calendar.id } } });
     t.llm.setScript([
       tools({ name: 'record_qualification_answers', input: { answers: [{ question_key: 'treatment', value: 'Invisalign' }, { question_key: 'timeline', value: 'Later' }] } }),
       text('No problem.'),

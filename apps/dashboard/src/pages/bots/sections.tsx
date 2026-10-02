@@ -3,8 +3,10 @@ import { ArrowDown, ArrowUp, LayoutTemplate, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Badge, Button, Card, Checkbox, ChipsInput, cx, EmptyState, Field, IconButton, Input, NumberInput, Select, Textarea, Toggle } from '../../components/ui';
 import { initialsOf, slugify, TOOL_LABELS } from '../../lib/format';
+import { finalizeKey } from '../../lib/validate';
 import { Link } from '../../lib/router';
-import { askedFor } from './editorNav';
+import { askedFor, businessFieldError, type SectionId } from './editorNav';
+import { hoursSummary, starterProblem, type BookingAbilities, type BotWarning } from './warnings';
 import {
   ASK_FIRST_TOOLS,
   CRM_TOOL_KEYS,
@@ -58,6 +60,31 @@ export interface EditorContext {
   members: Member[];
   /** Where the assistant may open deals. */
   pipelines: Pipeline[];
+  /** Things worth checking in the draft (see warnings.ts). */
+  warnings: BotWarning[];
+  /** The calendar the assistant books on, when it can book. */
+  bookingCalendar: Calendar | null;
+}
+
+/** A section's warnings, above its settings (those shown next to a field are left out). */
+export function SectionWarnings({ warnings, section }: { warnings: BotWarning[]; section: SectionId }) {
+  const list = warnings.filter((w) => !w.inline && (w.section === section || w.also === section));
+  if (!list.length) return null;
+  return (
+    <div role="note" className="space-y-1.5 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3">
+      {list.map((w) => (
+        <p key={w.id} className="text-body-sm leading-5 text-warning-text">
+          {w.message}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** One warning next to its field, by id. */
+function InlineWarning({ warnings, id }: { warnings: BotWarning[]; id: string }) {
+  const w = warnings.find((x) => x.id === id);
+  return w ? <p className="text-caption text-warning-text">{w.message}</p> : null;
 }
 
 interface SectionProps<T> {
@@ -511,6 +538,8 @@ export function PersonaSection({ value, onChange, ctx, onApplyTemplate }: Sectio
 export function GoalsSection({ value, onChange, ctx }: SectionProps<Goals>) {
   const setOther = (i: number, text: string) => onChange({ ...value, secondary: value.secondary.map((g, j) => (j === i ? text : g)) });
   return (
+    <>
+    <SectionWarnings warnings={ctx.warnings} section="goals" />
     <SettingsCard title={`What ${ctx.assistantName} works towards`} description="It never pushes: the visitor's question always comes first.">
       <Setting id="goals.primary">
         <Field label="Main goal" hint="One sentence, e.g. “Get visitors to book a free consultation.”">
@@ -536,6 +565,7 @@ export function GoalsSection({ value, onChange, ctx }: SectionProps<Goals>) {
         Built-in goals are added for what you switch on: answering from your information, capturing details, qualifying, booking and handing off.
       </p>
     </SettingsCard>
+    </>
   );
 }
 
@@ -563,7 +593,7 @@ export function InstructionsSection({ value, onChange }: { value: string; onChan
 
 // ---------- Business ----------
 
-export function BusinessSection({ value, onChange }: SectionProps<BusinessProfile>) {
+export function BusinessSection({ value, onChange, ctx }: SectionProps<BusinessProfile>) {
   const set = <K extends keyof BusinessProfile>(key: K, v: string) => onChange({ ...value, [key]: v });
   return (
     <>
@@ -587,9 +617,13 @@ export function BusinessSection({ value, onChange }: SectionProps<BusinessProfil
       <SettingsCard title="Hours and contact details" description="What visitors ask for most. Leave out anything you'd rather not share.">
         <Grid>
           <Setting id="business.hours">
-            <Field label="Opening hours">
+            <Field
+              label="Opening hours"
+              hint={ctx.bookingCalendar ? `Bookable on ${ctx.bookingCalendar.name}: ${hoursSummary(ctx.bookingCalendar.weeklyHours)} (${ctx.bookingCalendar.timezone}).` : undefined}
+            >
               <Input maxLength={1000} value={value.hours} onChange={(e) => set('hours', e.target.value)} />
             </Field>
+            <InlineWarning warnings={ctx.warnings} id="hours-calendar" />
           </Setting>
           <Setting id="business.location">
             <Field label="Location">
@@ -597,17 +631,17 @@ export function BusinessSection({ value, onChange }: SectionProps<BusinessProfil
             </Field>
           </Setting>
           <Setting id="business.website">
-            <Field label="Website">
+            <Field label="Website" error={businessFieldError('website', value.website)}>
               <Input type="url" maxLength={300} value={value.website} onChange={(e) => set('website', e.target.value)} placeholder="https://" />
             </Field>
           </Setting>
           <Setting id="business.phone">
-            <Field label="Phone">
+            <Field label="Phone" error={businessFieldError('phone', value.phone)}>
               <Input maxLength={60} value={value.phone} onChange={(e) => set('phone', e.target.value)} />
             </Field>
           </Setting>
           <Setting id="business.email">
-            <Field label="Email">
+            <Field label="Email" error={businessFieldError('email', value.email)}>
               <Input type="email" maxLength={200} value={value.email} onChange={(e) => set('email', e.target.value)} />
             </Field>
           </Setting>
@@ -635,6 +669,7 @@ export function LeadCaptureSection({ value, onChange, ctx }: SectionProps<LeadCa
   const nextFree = options.find((o) => !used.has(o.key));
   return (
     <>
+      <SectionWarnings warnings={ctx.warnings} section="leadCapture" />
       <FeatureCard
         title="Capture leads"
         setting="leadCapture.enabled"
@@ -700,6 +735,7 @@ export function LeadCaptureSection({ value, onChange, ctx }: SectionProps<LeadCa
           <Field label="Privacy notice" hint="Mentioned when collecting details, e.g. how you use them. Informational only; leave empty to skip.">
             <Textarea rows={2} maxLength={500} value={value.consentNotice} onChange={(e) => onChange({ ...value, consentNotice: e.target.value })} />
           </Field>
+          <InlineWarning warnings={ctx.warnings} id="privacy-notice" />
         </Setting>
         <Setting id="leadCapture.marketingOptIn">
           <Field
@@ -907,7 +943,17 @@ export function QualificationSection({ value, onChange, ctx }: SectionProps<Qual
                       <Input value={q.question} maxLength={300} placeholder="What's your budget?" onChange={(e) => setQuestion(i, { question: e.target.value })} />
                     </Field>
                     <Field label="Key" hint="Used in rules and exports.">
-                      <Input className="font-mono text-body-sm" value={q.key} maxLength={64} onChange={(e) => setQuestion(i, { key: slugify(e.target.value) })} />
+                      <Input
+                        className="font-mono text-body-sm"
+                        value={q.key}
+                        maxLength={64}
+                        onChange={(e) => setQuestion(i, { key: slugify(e.target.value) })}
+                        // Cleaned when they leave the box, only if they changed it (rules may use the key as it is).
+                        onFocus={(e) => (e.currentTarget.dataset.before = q.key)}
+                        onBlur={(e) => {
+                          if (q.key !== e.currentTarget.dataset.before) setQuestion(i, { key: finalizeKey(q.key) });
+                        }}
+                      />
                     </Field>
                     <Field label="Answer type">
                       <Select
@@ -1104,6 +1150,7 @@ export function BookingSection({ value, onChange, ctx }: SectionProps<Booking>) 
   const calendar = ctx.calendars.find((c) => c.id === value.calendarId);
   return (
     <>
+      <SectionWarnings warnings={ctx.warnings} section="booking" />
       <FeatureCard
         title="Book appointments"
         setting="booking.enabled"
@@ -1261,10 +1308,13 @@ export function StartersSection({
   value,
   onChange,
   handoffEnabled,
+  booking,
 }: {
   value: ConversationStarter[];
   onChange: (value: ConversationStarter[]) => void;
   handoffEnabled: boolean;
+  /** What the assistant can do with appointments: starters that offer more get a note. */
+  booking: BookingAbilities;
 }) {
   // The list order is the display order.
   const commit = (starters: ConversationStarter[]) => onChange(starters.map((s, order) => ({ ...s, order })));
@@ -1303,7 +1353,7 @@ export function StartersSection({
             title="No conversation starters"
             description="Visitors see just the greeting. Offer a few one-click options, such as booking an appointment or talking to your team."
             action={
-              <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => add(SUGGESTED_STARTERS)}>
+              <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => add(SUGGESTED_STARTERS.filter((s) => !starterProblem(s, booking)))}>
                 Add suggested starters
               </Button>
             }
@@ -1357,6 +1407,7 @@ export function StartersSection({
                   Human handoff is off (Handoff tab), so this starter can't be saved as shown. Turn handoff on, choose “Send the message”, or hide it.
                 </p>
               )}
+              {s.enabled && starterProblem(s, booking) && <p className="pl-9 text-caption text-warning-text">{starterProblem(s, booking)}</p>}
             </Card>
           ))}
           <p className="text-caption text-muted">

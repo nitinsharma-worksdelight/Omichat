@@ -222,7 +222,7 @@ export class KnowledgeService {
         .where(inArray(schema.documents.id, stale.map((s) => s.document_id)));
     }
     for (const row of stale) {
-      await this.queue.add('ingest', { orgId: row.organization_id, documentId: row.document_id }, { jobId: `reembed_${row.document_id}_${tag}`, attempts: 3, backoffMs: 5_000 });
+      await this.queue.add('ingest', { orgId: row.organization_id, documentId: row.document_id }, { jobId: `reembed_${row.document_id}_${tag}`, attempts: 3, backoffMs: 5_000, removeOnFail: true });
     }
     if (stale.length) this.logger.info({ documents: stale.length, model: this.embeddings.model }, 're-embedding documents for the current embedding model');
     return stale.length;

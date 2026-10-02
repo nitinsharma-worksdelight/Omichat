@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate-cli.ts",
     "db:seed": "tsx src/db/seed-cli.ts",
@@ -37,6 +38,7 @@
     "openai": "^7.23.0",
     "pg": "^8.23.0",
     "pino": "^10.3.1",
+    "undici": "^7.30.0",
     "unpdf": "^1.8.1",
     "uuid": "^14.0.2",
     "zod": "^4.6.5"

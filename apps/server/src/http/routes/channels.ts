@@ -7,8 +7,18 @@ import { requireUser } from '../auth';
 
 const Id = z.object({ id: z.string().uuid() });
 
-/** The address this request reached the API at (proxy-aware: `trustProxy` is on), for the widget embed code. */
-const requestOrigin = (req: FastifyRequest) => `${req.protocol}://${req.host}`;
+const firstHeader = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)?.split(',')[0]?.trim();
+
+/**
+ * The address this request reached the API at, for the widget embed code. The proxy's forwarded protocol and host
+ * are read even when TRUST_PROXY is off: they only shape the snippet shown to this signed-in staff member, so a made-up
+ * value can only mislead the person who sent it (unlike a client address, which rate limits rely on).
+ */
+const requestOrigin = (req: FastifyRequest) => {
+  const proto = firstHeader(req.headers['x-forwarded-proto']);
+  const host = firstHeader(req.headers['x-forwarded-host']);
+  return `${proto === 'https' || proto === 'http' ? proto : req.protocol}://${host && /^[a-z0-9.-]+(:\d+)?$/i.test(host) ? host : req.host}`;
+};
 
 export async function registerChannelRoutes(app: FastifyInstance, c: Container) {
   app.get('/channels', async (req) => {

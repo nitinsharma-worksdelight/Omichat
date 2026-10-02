@@ -105,7 +105,8 @@ export async function registerWidgetRoutes(app: FastifyInstance, c: Container) {
       timezone: input.timezone,
       visitorIp: req.ip,
     });
-    return reply.status(result.duplicate ? 200 : 201).send({ conversationId: result.conversationId, message: publicMessage(result.message) });
+    // `aiQueued`: a reply is on its way (false when a person has the chat, or nobody will answer): the widget shows "typing" only then.
+    return reply.status(result.duplicate ? 200 : 201).send({ conversationId: result.conversationId, message: publicMessage(result.message), aiQueued: result.aiQueued });
   });
 
   /**

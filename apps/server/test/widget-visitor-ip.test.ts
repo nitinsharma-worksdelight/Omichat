@@ -18,6 +18,13 @@ beforeAll(async () => {
 afterAll(() => t.close());
 
 type Org = Awaited<ReturnType<typeof createOrg>>;
+
+/** New organizations don't record addresses until they turn it on (Settings → Organization). */
+async function recordingOrg(c: TestEnv['c'], name: string) {
+  const org = await createOrg(c, name);
+  await c.tenancy.updateOrganization(org.orgId, { settings: { recordVisitorIp: true } });
+  return org;
+}
 type Session = { token: string; visitorId: string; conversationId: string | null };
 
 async function openChat(env: TestEnv, org: Org, from: string, opts: { visitorId?: string; body?: Record<string, unknown>; headers?: Record<string, string> } = {}) {
@@ -53,7 +60,7 @@ const recordsOf = async (env: TestEnv, org: Org) => {
 
 describe("the visitor's IP address", () => {
   it('is saved on the conversation the first message creates; opening the chat creates nothing', async () => {
-    const org = await createOrg(t.c, 'IP Clinic');
+    const org = await recordingOrg(t.c, 'IP Clinic');
     const before = await recordsOf(t, org);
     const { session, raw } = await openChat(t, org, '203.0.113.7');
     expect(await recordsOf(t, org)).toEqual(before);
@@ -78,7 +85,7 @@ describe("the visitor's IP address", () => {
   });
 
   it('is updated when a returning visitor opens the chat from a new address, and left alone when unchanged', async () => {
-    const org = await createOrg(t.c, 'Returning IP Clinic');
+    const org = await recordingOrg(t.c, 'Returning IP Clinic');
     const first = await openChat(t, org, '203.0.113.7');
     const id = await send(t, first.session.token, '203.0.113.7');
     const seenFirst = (await conversation(t, id)).metadata.visitorIpAt;
@@ -98,7 +105,7 @@ describe("the visitor's IP address", () => {
   });
 
   it('ignores any address the visitor sends', async () => {
-    const org = await createOrg(t.c, 'Spoof IP Clinic');
+    const org = await recordingOrg(t.c, 'Spoof IP Clinic');
     const fake = { ip: '1.1.1.1', visitorIp: '1.1.1.1' };
     const { session } = await openChat(t, org, '203.0.113.50', { body: fake, headers: { 'x-real-ip': '1.1.1.1', 'client-ip': '1.1.1.1' } });
     const id = await send(t, session.token, '203.0.113.50', { 'x-real-ip': '1.1.1.1' });
@@ -106,7 +113,7 @@ describe("the visitor's IP address", () => {
   });
 
   it('is not recorded for playground chats (that would be the team member testing)', async () => {
-    const org = await createOrg(t.c, 'Playground IP Clinic');
+    const org = await recordingOrg(t.c, 'Playground IP Clinic');
     const pg = (await t.app.inject({ method: 'POST', url: `/v1/bots/${org.bot.id}/playground`, headers: authHeaders(org.token) })).json() as { token: string };
     const id = await send(t, pg.token, '203.0.113.99');
     expect((await conversation(t, id)).metadata).not.toHaveProperty('visitorIp');
@@ -131,7 +138,7 @@ describe('TRUST_PROXY', () => {
   it("set to the platform's proxy addresses, only the address they saw counts", async () => {
     const env = await createTestEnv({ env: { TRUST_PROXY: 'uniquelocal' } });
     try {
-      const org = await createOrg(env.c, 'Proxy IP Clinic');
+      const org = await recordingOrg(env.c, 'Proxy IP Clinic');
       const { session } = await openChat(env, org, '10.0.0.5', { headers: forwarded });
       const id = await send(env, session.token, '10.0.0.5', forwarded);
       expect((await conversation(env, id)).metadata).toMatchObject({ visitorIp: '198.51.100.9' });
@@ -147,12 +154,77 @@ describe('TRUST_PROXY', () => {
   it('set to false, forwarded addresses are ignored', async () => {
     const env = await createTestEnv({ env: { TRUST_PROXY: 'false' } });
     try {
-      const org = await createOrg(env.c, 'No Proxy IP Clinic');
+      const org = await recordingOrg(env.c, 'No Proxy IP Clinic');
       const { session } = await openChat(env, org, '10.0.0.5', { headers: forwarded });
       const id = await send(env, session.token, '10.0.0.5', forwarded);
       expect((await conversation(env, id)).metadata).toMatchObject({ visitorIp: '10.0.0.5' });
     } finally {
       await env.close();
     }
+  });
+});
+
+describe('who sees the address (Q4)', () => {
+  const login = async (org: Org, role: 'viewer' | 'agent' | 'admin') => {
+    const email = `${role}-${Math.random().toString(36).slice(2)}@example.com`;
+    await t.c.tenancy.addMember(org.orgId, { email, role, password: 'password-123' });
+    return (await t.c.auth.login({ email, password: 'password-123' })).token;
+  };
+  const ipIn = (body: string) => body.includes('198.51.100.9');
+
+  it('admins and owners only: not viewers, agents or API keys, in the conversation or the list', async () => {
+    const org = await recordingOrg(t.c, 'Who Sees IP Clinic');
+    const { session } = await openChat(t, org, '198.51.100.9');
+    const id = await send(t, session.token, '198.51.100.9');
+    const key = (await t.app.inject({ method: 'POST', url: '/v1/api-keys', headers: authHeaders(org.token), payload: { name: 'reader', scopes: ['conversations:read'] } })).json().key as string;
+
+    const as = async (headers: Record<string, string>) => {
+      const one = await t.app.inject({ method: 'GET', url: `/v1/conversations/${id}`, headers });
+      const list = await t.app.inject({ method: 'GET', url: '/v1/conversations', headers });
+      expect(one.statusCode).toBe(200);
+      expect(list.statusCode).toBe(200);
+      return { one: ipIn(one.body), list: ipIn(list.body) };
+    };
+    expect(await as(authHeaders(org.token))).toEqual({ one: true, list: true }); // the owner
+    expect(await as(authHeaders(await login(org, 'admin'), org.orgId))).toEqual({ one: true, list: true });
+    expect(await as(authHeaders(await login(org, 'agent'), org.orgId))).toEqual({ one: false, list: false });
+    expect(await as(authHeaders(await login(org, 'viewer'), org.orgId))).toEqual({ one: false, list: false });
+    expect(await as({ authorization: `Bearer ${key}` })).toEqual({ one: false, list: false });
+
+    // Taking over or assigning answers with the conversation too: still without the address for an agent.
+    const agent = await login(org, 'agent');
+    const takeover = await t.app.inject({ method: 'POST', url: `/v1/conversations/${id}/status`, headers: authHeaders(agent, org.orgId), payload: { action: 'takeover' } });
+    expect(takeover.statusCode).toBe(200);
+    expect(ipIn(takeover.body)).toBe(false);
+    const assigned = await t.app.inject({ method: 'POST', url: `/v1/conversations/${id}/assign`, headers: authHeaders(agent, org.orgId), payload: { userId: null } });
+    expect(assigned.statusCode).toBe(200);
+    expect(ipIn(assigned.body)).toBe(false);
+  });
+
+  it('is not recorded or shown while the setting is off, which new organizations start with', async () => {
+    const org = await createOrg(t.c, 'New Org IP Clinic');
+    expect((await t.app.inject({ method: 'GET', url: '/v1/org', headers: authHeaders(org.token) })).json().settings.recordVisitorIp).toBe(false);
+    const { session } = await openChat(t, org, '198.51.100.9');
+    const id = await send(t, session.token, '198.51.100.9');
+    expect((await conversation(t, id)).metadata).not.toHaveProperty('visitorIp');
+
+    // Turned on: recorded from the next session. Turned off again: the stored one isn't shown, even to the owner.
+    expect((await t.app.inject({ method: 'PATCH', url: '/v1/org', headers: authHeaders(org.token), payload: { settings: { recordVisitorIp: true } } })).statusCode).toBe(200);
+    await openChat(t, org, '198.51.100.9', { visitorId: session.visitorId });
+    expect((await conversation(t, id)).metadata).toMatchObject({ visitorIp: '198.51.100.9' });
+    await t.app.inject({ method: 'PATCH', url: '/v1/org', headers: authHeaders(org.token), payload: { settings: { recordVisitorIp: false } } });
+    expect(ipIn((await t.app.inject({ method: 'GET', url: `/v1/conversations/${id}`, headers: authHeaders(org.token) })).body)).toBe(false);
+  });
+
+  it('keeps recording for organizations from before the setting', async () => {
+    const org = await createOrg(t.c, 'Older Org IP Clinic');
+    // Saved before the setting existed: no recordVisitorIp at all.
+    const [row] = await t.c.db.select().from(schema.organizations).where(eq(schema.organizations.id, org.orgId));
+    const { recordVisitorIp: _, ...settings } = row!.settings;
+    await t.c.db.update(schema.organizations).set({ settings }).where(eq(schema.organizations.id, org.orgId));
+    expect((await t.app.inject({ method: 'GET', url: '/v1/org', headers: authHeaders(org.token) })).json().settings.recordVisitorIp).toBe(true);
+    const { session } = await openChat(t, org, '198.51.100.9');
+    const id = await send(t, session.token, '198.51.100.9');
+    expect((await conversation(t, id)).metadata).toMatchObject({ visitorIp: '198.51.100.9' });
   });
 });

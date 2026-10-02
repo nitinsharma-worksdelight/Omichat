@@ -16,8 +16,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { ErrorDetail } from '../../lib/api';
-import { STANDARD_LEAD_FIELDS, type BotConfig, type BotConfigSection, type CustomFieldDef, type Effort, type LeadCapture } from '../../lib/types';
+import { STANDARD_LEAD_FIELDS, type BotConfig, type BotConfigSection, type BusinessProfile, type CustomFieldDef, type Effort, type LeadCapture } from '../../lib/types';
+import { isEmail, isPhoneLike, isWebsite } from '../../lib/validate';
 import type { EditorContext } from './sections';
+import { privacyNoticeMissing } from './warnings';
 
 /**
  * The bot editor's menu: its sections in plain-language groups, what each one's status is, which six parts are
@@ -288,6 +290,33 @@ function sectionOfName(name: string): SectionId | null {
   return null;
 }
 
+// ---------- Business contact details ----------
+
+const BUSINESS_CONTACT = {
+  website: { check: isWebsite, message: 'Enter a valid website, e.g. https://example.com' },
+  email: { check: isEmail, message: 'Enter a valid email address' },
+  phone: { check: isPhoneLike, message: 'Enter a valid phone number' },
+} as const;
+export type BusinessContactField = keyof typeof BUSINESS_CONTACT;
+
+/** What's wrong with a website, email or phone the bot would hand out (empty is fine). Same rules as the server. */
+export function businessFieldError(key: BusinessContactField, value: string): string | null {
+  const v = value.trim();
+  return v && !BUSINESS_CONTACT[key].check(v) ? BUSINESS_CONTACT[key].message : null;
+}
+
+/**
+ * The changed business contact details that can't be saved, as save errors. Like the server, a value that was
+ * already stored isn't held against a save of other settings.
+ */
+export function businessProblems(next: BusinessProfile, previous?: BusinessProfile): ErrorDetail[] {
+  return (Object.keys(BUSINESS_CONTACT) as BusinessContactField[]).flatMap((key) => {
+    if (previous && previous[key].trim() === next[key].trim()) return [];
+    const message = businessFieldError(key, next[key]);
+    return message ? [{ path: `business.${key}`, message }] : [];
+  });
+}
+
 /** The section a server validation error points at (paths like `qualification.rules.0.value`, messages like "booking: …"). */
 export function sectionOfError(d: ErrorDetail): SectionId | null {
   const path = d.path.startsWith('config.') ? d.path.slice(7) : d.path;
@@ -355,6 +384,8 @@ export interface Essential {
   action: string;
   /** A second section it covers, linked under the summary. */
   also?: { label: string; section: SectionId };
+  /** Worth fixing even when done (it doesn't change the count). */
+  warning?: string;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -452,6 +483,7 @@ export function essentials(draft: BotDraft, ctx: EditorContext): Essential[] {
     summary: !lc.enabled ? "Off: visitors' contact details aren't collected." : (askedFor(lc, ctx.customFields) ?? 'On, but no fields to ask for.'),
     nextStep: `Turn on lead capture so ${name} collects contact details.`,
     action: 'Set up lead capture',
+    warning: privacyNoticeMissing(lc) ? 'Add a privacy notice' : undefined,
   });
 
   if (ctx.calendars.length) {

@@ -11,6 +11,7 @@ import { queryBool } from '../../lib/validation';
 import type { SummaryJob } from '../ai/summary';
 import { recordEvent } from '../automation/events';
 import { trimPageUrl } from '../leads/attribution';
+import { pendingInbound } from './pending';
 import type { ChannelRegistry } from '../channels/adapter';
 import { toContactView, type ContactsService } from '../contacts/service';
 import { displayName } from '../leads/capture';
@@ -45,6 +46,21 @@ export interface InboundResult {
 }
 
 export type MessageView = ReturnType<typeof toMessageView>;
+export type ConversationRow = typeof schema.conversations.$inferSelect;
+
+export interface OutboundInput {
+  conversationId: string;
+  senderType: Exclude<SenderType, 'contact'>;
+  content: string;
+  senderUserId?: string | null;
+  citations?: Citation[];
+  aiRunId?: string | null;
+  /**
+   * What the message is for: `answersThrough` (an AI reply: the customer message it answers), `notice` (not an answer),
+   * `consentRequest` (a posted consent question), … See `pendingInbound`.
+   */
+  metadata?: Record<string, unknown>;
+}
 
 export function toMessageView(m: typeof schema.messages.$inferSelect) {
   return {
@@ -153,7 +169,7 @@ export class ConversationsService {
 
     const isTest = msg.isTest ?? account.channel === 'playground';
     // A new conversation keeps where it came from; its messages don't carry the address.
-    const visitorIp = isTest ? null : normalizeIp(msg.visitorIp);
+    const visitorIp = isTest || !msg.visitorIp || !(await this.recordsVisitorIp(msg.orgId)) ? null : normalizeIp(msg.visitorIp);
     const conversationMetadata = visitorIp ? { ...metadata, visitorIp, visitorIpAt: new Date().toISOString() } : metadata;
 
     const result = await inScope(this.tenantDb, scope, async (tx) => {
@@ -200,19 +216,51 @@ export class ConversationsService {
     let aiQueued = false;
     if (!result.duplicate) {
       await this.publish(msg.orgId, { type: 'message', conversationId: result.conversation.id, message: view });
-      if (result.conversation.status === 'ai_active' && result.conversation.botId) {
+      // A chat with no bot (its bot was deleted) is queued too: the reply job tells the team nobody can answer.
+      if (result.conversation.status === 'ai_active') {
         // One job per inbound message; the handler skips itself if a newer message arrived meanwhile,
         // so a burst of messages gets a single reply.
-        await this.queue.add(
-          'ai-reply',
-          { orgId: msg.orgId, conversationId: result.conversation.id, triggerMessageId: view.id },
-          { jobId: `reply_${view.id}`, delayMs: this.opts.replyDebounceMs, attempts: 3, backoffMs: 3_000 },
-        );
+        await this.queueReply(msg.orgId, result.conversation.id, view.id, { delayMs: this.opts.replyDebounceMs });
         aiQueued = true;
       }
       await this.queueRecap(msg.orgId, result.conversation.id, view.id);
+    } else if (result.conversation.status === 'ai_active') {
+      // A retry of a message that was saved but whose reply job may never have been queued (the queue was down at
+      // that moment): queue it again. If the first job is still waiting, or the message was answered, this is a no-op.
+      await this.queueReply(msg.orgId, result.conversation.id, view.id, { delayMs: this.opts.replyDebounceMs });
     }
     return { conversationId: result.conversation.id, contactId, message: view, duplicate: result.duplicate, aiQueued };
+  }
+
+  /**
+   * Queues the AI's reply to a customer message. A job that fails for good forgets its id, so the same message can be
+   * queued again (a retry of the request, the sweeper, handing the chat back to the AI).
+   */
+  async queueReply(orgId: string, conversationId: string, triggerMessageId: string, opts: { delayMs?: number; suffix?: string } = {}) {
+    await this.queue.add(
+      'ai-reply',
+      { orgId, conversationId, triggerMessageId },
+      { jobId: `reply_${triggerMessageId}${opts.suffix ? `_${opts.suffix}` : ''}`, delayMs: opts.delayMs ?? 0, attempts: 3, backoffMs: 3_000, removeOnFail: true },
+    );
+  }
+
+  /** The latest customer message in the conversation that nobody has answered, if any. */
+  async unansweredTrigger(scope: Scope, conversationId: string): Promise<string | null> {
+    const rows = await this.recentRows(scope, conversationId, 60);
+    return pendingInbound(rows).at(-1)?.id ?? null;
+  }
+
+  /** The conversation's latest messages, oldest first (ties broken by id, which is time-ordered). */
+  async recentRows(scope: Scope, conversationId: string, limit: number) {
+    const rows = await inScope(this.tenantDb, scope, (tx) =>
+      tx
+        .select()
+        .from(schema.messages)
+        .where(and(eq(schema.messages.organizationId, scope.orgId), eq(schema.messages.conversationId, conversationId)))
+        .orderBy(desc(schema.messages.createdAt), desc(schema.messages.id))
+        .limit(limit),
+    );
+    return rows.reverse();
   }
 
   /**
@@ -281,21 +329,22 @@ export class ConversationsService {
   // ---------- outbound ----------
 
   /** Stores an outbound message and delivers it through the conversation's channel adapter. */
-  async addOutbound(
-    scope: Scope,
-    input: {
-      conversationId: string;
-      senderType: Exclude<SenderType, 'contact'>;
-      content: string;
-      senderUserId?: string | null;
-      citations?: Citation[];
-      aiRunId?: string | null;
-      /** E.g. `{ consentRequest }` on a posted consent question. */
-      metadata?: Record<string, unknown>;
-    },
-  ): Promise<MessageView> {
-    const { message, conversation } = await inScope(this.tenantDb, scope, async (tx) => {
-      const conversation = await this.row(tx, scope.orgId, input.conversationId);
+  async addOutbound(scope: Scope, input: OutboundInput): Promise<MessageView> {
+    return (await this.insertOutbound(scope, input))!;
+  }
+
+  /**
+   * Like `addOutbound`, but only while `allowed` says yes about the conversation as it is right now (checked with the
+   * row locked, so a staff takeover or a close can't slip in between the check and the message). Null when it said no.
+   */
+  async addOutboundIf(scope: Scope, input: OutboundInput, allowed: (conversation: ConversationRow) => boolean): Promise<MessageView | null> {
+    return this.insertOutbound(scope, input, allowed);
+  }
+
+  private async insertOutbound(scope: Scope, input: OutboundInput, allowed?: (conversation: ConversationRow) => boolean): Promise<MessageView | null> {
+    const stored = await inScope(this.tenantDb, scope, async (tx) => {
+      const conversation = await this.row(tx, scope.orgId, input.conversationId, { lock: Boolean(allowed) });
+      if (allowed && !allowed(conversation)) return null;
       const [message] = await tx
         .insert(schema.messages)
         .values({
@@ -340,6 +389,8 @@ export class ConversationsService {
       }
       return { message: message!, conversation };
     });
+    if (!stored) return null;
+    const { message, conversation } = stored;
     const view = toMessageView(message);
     await this.channels.get(conversation.channel).deliver({ orgId: scope.orgId, conversation, message: view });
     await this.publish(scope.orgId, { type: 'message', conversationId: conversation.id, message: view });
@@ -365,12 +416,44 @@ export class ConversationsService {
     const text = content.trim();
     if (!text) throw badRequest('Message is empty');
     const conv = await inScope(this.tenantDb, scope, (tx) => this.row(tx, scope.orgId, conversationId));
+    if (conv.status === 'closed') throw conflict('This conversation is closed');
     if (conv.status === 'ai_active') {
       await this.setStatus(scope, conversationId, 'human_active', { actor: 'user', actorUserId: userId, reason: 'Staff replied' });
+    } else if (conv.status === 'human_active' && !conv.assignedUserId) {
+      await this.assignReplier(scope, conversationId, userId);
     }
     const message = await this.addOutbound(scope, { conversationId, senderType: 'human', content: text, senderUserId: userId });
     await this.queueRecap(scope.orgId, conversationId, message.id);
     return message;
+  }
+
+  /**
+   * A chat with the team that nobody looks after goes to whoever answers it. Only while it's still unassigned, so two
+   * people replying at once end up with one assignee, and a teammate's chat is never taken from them.
+   */
+  private async assignReplier(scope: Scope, conversationId: string, userId: string) {
+    const c = schema.conversations;
+    const claimed = await inScope(this.tenantDb, scope, async (tx) => {
+      const [row] = await tx
+        .update(c)
+        .set({ assignedUserId: userId })
+        .where(and(eq(c.id, conversationId), eq(c.organizationId, scope.orgId), eq(c.status, 'human_active'), isNull(c.assignedUserId)))
+        .returning();
+      if (!row) return null;
+      await recordEvent(tx, {
+        orgId: scope.orgId,
+        type: 'conversation.assigned',
+        actor: 'user',
+        actorUserId: userId,
+        contactId: row.contactId,
+        conversationId: row.id,
+        payload: { assignedUserId: userId, previousUserId: null, auto: true },
+      });
+      return row;
+    });
+    if (!claimed) return;
+    await this.opts.onEventRecorded?.();
+    await this.publish(scope.orgId, { type: 'conversation.assigned', conversationId, assignedUserId: userId });
   }
 
   async setStatus(
@@ -383,12 +466,20 @@ export class ConversationsService {
       reason?: string | null;
       /** Handoffs by the AI: whether staff get an alert (the bot's `handoff.notifyTeam`). Webhooks get the event either way. */
       notifyTeam?: boolean;
+      /** Change the status only if it is one of these right now (e.g. the AI's handoff never reopens a closed chat). */
+      onlyFrom?: ConversationStatus[];
+      /** Staff reopening a closed chat (to `human_active`): its own event, not a handoff, and no new recap. */
+      reopen?: boolean;
     },
   ) {
     let changed = false;
     const updated = await inScope(this.tenantDb, scope, async (tx) => {
-      const conv = await this.row(tx, scope.orgId, conversationId);
+      // Locked, so two people (or the AI and a person) changing it at once are applied one after the other: the second
+      // sees the first's result and, when it asked for the same status, changes nothing and records no second event.
+      const conv = await this.row(tx, scope.orgId, conversationId, { lock: true });
+      if (opts.reopen && conv.status !== 'closed') throw conflict('This conversation is not closed');
       if (conv.status === status) return conv;
+      if (opts.onlyFrom && !opts.onlyFrom.includes(conv.status)) return conv;
       if (conv.status === 'closed') {
         // One open conversation per customer per channel: reopening an old one would collide with a newer one.
         const [open] = await tx
@@ -402,7 +493,8 @@ export class ConversationsService {
             ),
           )
           .limit(1);
-        if (open) throw conflict('This customer already has a newer open conversation');
+        // The newer conversation's id travels in the details, so the dashboard can link to it.
+        if (open) throw conflict('This customer already has a newer open conversation', [{ path: 'openConversationId', message: open.id }]);
       }
       changed = true;
       // Who looks after it: whoever took it over, else the customer's owner when they're a member; nobody once it's
@@ -417,15 +509,23 @@ export class ConversationsService {
           assignedUserId: assignee,
           // Returning to the AI resets the per-conversation reply budget.
           aiReplyCount: status === 'ai_active' ? 0 : conv.aiReplyCount,
-          // The waiting clock: starts at a handoff, and a person taking over by hand is already answering.
-          handedOffAt: status === 'human_active' ? new Date() : null,
-          firstStaffReplyAt: status === 'human_active' && opts.actor === 'user' ? new Date() : null,
+          // The waiting clock: starts at a handoff, and a person taking over by hand is already answering. Reopening
+          // isn't a handoff: no clock.
+          handedOffAt: status === 'human_active' && !opts.reopen ? new Date() : null,
+          firstStaffReplyAt: status === 'human_active' && opts.actor === 'user' && !opts.reopen ? new Date() : null,
           handoffEscalatedAt: null,
+          // A new handoff (or a return to the AI) starts the overdue alert afresh.
+          metadata: sql`${schema.conversations.metadata} - 'overdueAlerted'`,
         })
         .where(eq(schema.conversations.id, conv.id))
         .returning();
-      const type =
-        status === 'human_active' ? 'conversation.handoff_requested' : status === 'ai_active' ? 'conversation.resumed_by_ai' : 'conversation.closed';
+      const type = opts.reopen
+        ? 'conversation.reopened'
+        : status === 'human_active'
+          ? 'conversation.handoff_requested'
+          : status === 'ai_active'
+            ? 'conversation.resumed_by_ai'
+            : 'conversation.closed';
       await recordEvent(tx, {
         orgId: scope.orgId,
         type,
@@ -454,7 +554,12 @@ export class ConversationsService {
       return row!;
     });
     await this.publish(scope.orgId, { type: 'conversation.status', conversationId, status: updated.status, reason: opts.reason });
-    if (changed && status !== 'ai_active') {
+    if (changed && status === 'ai_active') {
+      // Back with the AI: answer what the customer wrote while the team had it and nobody replied.
+      const waiting = await this.unansweredTrigger(scope, conversationId);
+      if (waiting) await this.queueReply(scope.orgId, conversationId, waiting, { suffix: 'resume' });
+    }
+    if (changed && status !== 'ai_active' && !opts.reopen) {
       // Closed: recap it now, so the customer's next conversation can recall it. Handed to a person: so they
       // (and integrations) start from a current summary.
       const job: SummaryJob = { orgId: scope.orgId, conversationId, mode: 'recap', trigger: status === 'closed' ? 'closed' : 'handoff' };
@@ -655,6 +760,7 @@ export class ConversationsService {
    * changed, and never for test (playground) conversations.
    */
   async recordVisitorIp(scope: Scope, conversationId: string, ip: string): Promise<void> {
+    if (!(await this.recordsVisitorIp(scope.orgId))) return;
     const c = schema.conversations;
     await inScope(this.tenantDb, scope, (tx) =>
       tx
@@ -662,6 +768,14 @@ export class ConversationsService {
         .set({ metadata: sql`${c.metadata} || ${JSON.stringify({ visitorIp: ip, visitorIpAt: new Date().toISOString() })}::jsonb` })
         .where(and(eq(c.id, conversationId), eq(c.organizationId, scope.orgId), eq(c.isTest, false), sql`${c.metadata} ->> 'visitorIp' is distinct from ${ip}`)),
     );
+  }
+
+  /** Whether the organization records visitors' IP addresses (missing = yes; new organizations start with no). */
+  private async recordsVisitorIp(orgId: string): Promise<boolean> {
+    const [row] = await inScope(this.tenantDb, { orgId }, (tx) =>
+      tx.select({ settings: schema.organizations.settings }).from(schema.organizations).where(eq(schema.organizations.id, orgId)),
+    );
+    return row?.settings.recordVisitorIp !== false;
   }
 
   async openForIdentity(scope: Scope, channelAccountId: string, channel: ChannelType, externalUserId: string) {
@@ -699,11 +813,12 @@ export class ConversationsService {
     });
   }
 
-  async row(tx: Db, orgId: string, id: string) {
-    const [row] = await tx
+  async row(tx: Db, orgId: string, id: string, opts: { lock?: boolean } = {}) {
+    const query = tx
       .select()
       .from(schema.conversations)
       .where(and(eq(schema.conversations.id, id), eq(schema.conversations.organizationId, orgId)));
+    const [row] = opts.lock ? await query.for('update') : await query;
     if (!row) throw notFound('Conversation');
     return row;
   }

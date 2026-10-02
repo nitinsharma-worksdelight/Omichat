@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cx, IconButton } from './ui';
 
@@ -145,55 +145,125 @@ export function Drawer({ open, onClose, title, description, children, footer, wi
   );
 }
 
-/** Small dropdown anchored to a trigger; closes on outside click and Escape. */
+/** Gap between the trigger and the menu, and the least room kept from the screen's edges. */
+const MENU_GAP = 6;
+const SCREEN_MARGIN = 8;
+
+/**
+ * Small dropdown anchored to a trigger; closes on outside click and Escape.
+ *
+ * `portal`: the menu is drawn at page level (fixed, from the trigger's position) instead of inside its parent, so a
+ * box that scrolls or clips (a table) can't cut it off. It opens below the trigger, or above when there's no room,
+ * and closes when the page scrolls or resizes. Focus moves into it on open and back to the trigger on Escape; tabbing
+ * out of it closes it (it sits at the end of the page, not next to its trigger).
+ */
 export function Popover({
   trigger,
   children,
   align = 'right',
   className,
   label,
+  portal = false,
 }: {
   trigger: (props: { open: boolean; toggle: () => void; id: string }) => ReactNode;
   children: (close: () => void) => ReactNode;
   align?: 'left' | 'right';
   className?: string;
   label?: string;
+  portal?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<{ top: number; left?: number; right?: number } | null>(null);
   const id = useId();
+  const focusTrigger = () => ref.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
   useEffect(() => {
     if (!open) return;
+    const inside = (target: EventTarget | null) => target instanceof Node && (ref.current?.contains(target) || panelRef.current?.contains(target));
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (!inside(e.target)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      if (portal) focusTrigger();
     };
+    // A menu drawn at page level would drift away from its row: it closes instead (scrolling inside it is fine).
+    const onScroll = (e: Event) => {
+      if (!inside(e.target)) setOpen(false);
+    };
+    const onResize = () => setOpen(false);
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
+    if (portal) {
+      window.addEventListener('scroll', onScroll, true);
+      window.addEventListener('resize', onResize);
+    }
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
     };
-  }, [open]);
+  }, [open, portal]);
+
+  // Placed once it has rendered: its height decides whether it fits below.
+  useLayoutEffect(() => {
+    if (!open || !portal) {
+      setPlace(null);
+      return;
+    }
+    const anchor = ref.current?.getBoundingClientRect();
+    const panel = panelRef.current;
+    if (!anchor || !panel) return;
+    const height = panel.offsetHeight;
+    const below = anchor.bottom + MENU_GAP;
+    const above = anchor.top - MENU_GAP - height;
+    const top = below + height > window.innerHeight - SCREEN_MARGIN && above >= SCREEN_MARGIN ? above : below;
+    // `right` is measured from the page's edge without its scrollbar, as fixed positions are.
+    const width = document.documentElement.clientWidth;
+    setPlace(
+      align === 'right' ? { top, right: Math.max(SCREEN_MARGIN, width - anchor.right) } : { top, left: Math.max(SCREEN_MARGIN, anchor.left) },
+    );
+  }, [open, portal, align]);
+
+  // Into the menu once it's placed and visible (a hidden element can't take focus).
+  useEffect(() => {
+    if (portal && place) panelRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+  }, [portal, place]);
+
+  const panelClass = cx('z-40 min-w-48 rounded-xl border border-border bg-surface p-1.5 shadow-pop', className);
+  const items = children(() => setOpen(false));
   return (
     <div ref={ref} className="relative">
       {trigger({ open, toggle: () => setOpen((o) => !o), id })}
-      {open && (
-        <div
-          id={id}
-          role="menu"
-          aria-label={label}
-          className={cx(
-            'absolute top-full z-40 mt-1.5 min-w-48 rounded-xl border border-border bg-surface p-1.5 shadow-pop',
-            align === 'right' ? 'right-0' : 'left-0',
-            className,
-          )}
-        >
-          {children(() => setOpen(false))}
-        </div>
-      )}
+      {open &&
+        (portal ? (
+          createPortal(
+            <div
+              ref={panelRef}
+              id={id}
+              role="menu"
+              aria-label={label}
+              className={cx('fixed', panelClass)}
+              style={place ? { top: place.top, left: place.left, right: place.right } : { top: 0, left: 0, visibility: 'hidden' }}
+              onBlur={(e) => {
+                // Only when focus moves to something else on the page: a click that focuses nothing (Safari doesn't
+                // focus buttons) must not close it before the click lands.
+                const to = e.relatedTarget;
+                if (to instanceof Node && !panelRef.current?.contains(to) && !ref.current?.contains(to)) setOpen(false);
+              }}
+            >
+              {items}
+            </div>,
+            document.body,
+          )
+        ) : (
+          <div id={id} role="menu" aria-label={label} className={cx('absolute top-full mt-1.5', align === 'right' ? 'right-0' : 'left-0', panelClass)}>
+            {items}
+          </div>
+        ))}
     </div>
   );
 }

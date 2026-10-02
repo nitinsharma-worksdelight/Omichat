@@ -1,4 +1,4 @@
-import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js';
+import { parsePhoneNumberFromString, validatePhoneNumberLength, type CountryCode } from 'libphonenumber-js';
 import { z } from 'zod';
 import type { CustomFieldType } from '../../db/schema';
 
@@ -13,6 +13,21 @@ export function normalizeEmail(raw: string): string | null {
 export function normalizePhone(raw: string, defaultCountry = 'US'): string | null {
   const parsed = parsePhoneNumberFromString(raw.trim(), defaultCountry.toUpperCase() as CountryCode);
   return parsed?.isValid() ? parsed.number : null;
+}
+
+/**
+ * Why normalizePhone rejects a number, as a message the assistant can act on. A number that already has a country
+ * code is never sent back for one: it is too short or too long, or it has the right length but doesn't exist.
+ */
+export function phoneError(raw: string, defaultCountry = 'US'): string {
+  const value = raw.trim();
+  const country = defaultCountry.toUpperCase() as CountryCode;
+  const problem = validatePhoneNumberLength(value, country);
+  if (problem === 'NOT_A_NUMBER') return `"${value}" is not a phone number`;
+  if (!value.startsWith('+')) return `"${value}" is not a valid phone number (include the country code if outside ${defaultCountry})`;
+  if (problem === 'TOO_SHORT') return `"${value}" is too short for a phone number with that country code: ask the customer to check the digits`;
+  if (problem === 'TOO_LONG') return `"${value}" is too long for a phone number with that country code: ask the customer to check the digits`;
+  return `"${value}" has a country code, but no such number exists: ask the customer to double-check the digits (don't ask for a country code)`;
 }
 
 export function splitName(full: string): { firstName: string; lastName: string | null } {

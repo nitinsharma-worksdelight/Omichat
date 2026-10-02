@@ -6,7 +6,7 @@ import { useConfirm } from '../../components/feedback-context';
 import { PersonAvatar } from '../../components/avatar';
 import { Drawer, Modal } from '../../components/overlay';
 import { Badge, Button, EmptyState, ErrorBanner, Field, IconButton, Input, NumberInput, PageHeader, Select, SkeletonRows, Spinner, Textarea } from '../../components/ui';
-import { del, get, patch, post } from '../../lib/api';
+import { del, fieldErrors, get, patch, post } from '../../lib/api';
 import { formatDate, formatMoney, timeAgo } from '../../lib/format';
 import { useDebounced } from '../../lib/hooks';
 import { useAction } from '../../lib/mutations';
@@ -280,8 +280,8 @@ export function DealDrawer({
   deal: Deal | null;
   pipelines: Pipeline[];
   defaultPipelineId?: string;
-  /** New deals: a known contact, the conversation it came from, a suggested title. */
-  preset?: { contact?: Pick<Contact, 'id' | 'name' | 'email' | 'phone'>; conversationId?: string; title?: string };
+  /** New deals: a known contact, the conversation it came from, a suggested title and what the customer wants. */
+  preset?: { contact?: Pick<Contact, 'id' | 'name' | 'email' | 'phone'>; conversationId?: string; title?: string; wants?: string };
   onClose: () => void;
 }) {
   const { role } = useAuth();
@@ -320,7 +320,9 @@ export function DealDrawer({
   });
   const remove = useAction(() => del(`/v1/deals/${deal!.id}`), { invalidate, success: 'Deal deleted', onSuccess: onClose });
 
-  const ready = title.trim() && contact && pipelineId && stageId;
+  const server = fieldErrors(save.error);
+  const valueError = value !== null && value < 0 ? 'Value cannot be negative' : (server.value ?? null);
+  const ready = title.trim() && contact && pipelineId && stageId && !(value !== null && value < 0);
   return (
     <Drawer
       open
@@ -368,7 +370,7 @@ export function DealDrawer({
     >
       <div className="space-y-4">
         {deal?.status === 'lost' && deal.lostReason && <p className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-body-sm text-danger-text">Lost: {deal.lostReason}</p>}
-        <Field label="Title" required>
+        <Field label="Title" required error={server.title} hint={!deal && preset?.wants ? `They want: ${preset.wants}` : undefined}>
           <Input value={title} maxLength={200} disabled={!canEdit} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Invisalign for Ana" />
         </Field>
         <Field label="Contact" required>
@@ -409,10 +411,10 @@ export function DealDrawer({
               ))}
             </Select>
           </Field>
-          <Field label={`Value (${currency})`}>
+          <Field label={`Value (${currency})`} error={valueError}>
             <NumberInput value={value} allowEmpty min={0} step="any" disabled={!canEdit} onChange={setValue} />
           </Field>
-          <Field label="Expected close">
+          <Field label="Expected close" error={server.expectedCloseOn}>
             <Input type="date" value={expectedCloseOn} disabled={!canEdit} onChange={(e) => setExpectedCloseOn(e.target.value)} />
           </Field>
         </div>

@@ -36,6 +36,11 @@ container.logger.info(
 if (env.NODE_ENV === 'production' && env.PUBLIC_API_URL && /\/\/(localhost|127\.0\.0\.1)(:|$)/.test(env.PUBLIC_API_URL)) {
   container.logger.warn(`PUBLIC_API_URL is ${env.PUBLIC_API_URL}: embed codes will point there. Unset it to use the address the API is reached at.`);
 }
+if (env.NODE_ENV === 'production' && !env.TRUST_PROXY) {
+  container.logger.warn(
+    'TRUST_PROXY is not set: forwarded client addresses are ignored, so behind a load balancer every visitor shares its address for rate limits. Set it to the proxy\'s address range.',
+  );
+}
 if (container.llm.name === 'mock') {
   container.logger.warn('No LLM provider configured: the assistant replies with placeholder text. Set LLM_PROVIDER, LLM_MODEL and the API key in apps/server/.env.');
 } else {

@@ -42,6 +42,8 @@ export interface OrgSettings {
   currency?: string;
   /** When the team is around, in the organization's timezone. */
   teamHours: { enabled: boolean; weekly: Partial<Record<Weekday, TimeRange[]>> };
+  /** Website visitors' IP addresses are recorded (admins see them on conversations). */
+  recordVisitorIp: boolean;
 }
 
 export interface Organization {
@@ -68,6 +70,7 @@ export const API_KEY_SCOPES = [
   'conversations:write',
   'contacts:read',
   'contacts:write',
+  'contacts:verify',
   'appointments:read',
   'appointments:write',
   'deals:read',
@@ -935,6 +938,7 @@ export const EVENT_TYPES = [
   'conversation.assigned',
   'conversation.unanswered',
   'conversation.closed',
+  'conversation.reopened',
   'conversation.summarized',
   'message.outbound',
   'deal.created',

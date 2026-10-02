@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Container } from '../../container';
-import { badRequest } from '../../lib/errors';
+import { AppError, badRequest } from '../../lib/errors';
 import { parseInput, parsePatch } from '../../lib/validation';
 import { ContactInputSchema, ContactListSchema, CustomFieldDefSchema } from '../../modules/contacts/service';
 import { actorUserId, requireAccess, requireUser } from '../auth';
@@ -19,6 +19,10 @@ export async function registerContactRoutes(app: FastifyInstance, c: Container) 
     const auth = await requireAccess(c, req, 'agent', 'contacts:write');
     // `source`: where an integration's lead came from (the same fields the widget reports).
     const { source, ...input } = parseInput(ContactInputSchema.extend({ source: z.record(z.string(), z.unknown()).optional() }), req.body);
+    // Staff add people they know something about. Integrations, the widget and the AI may still start anonymous ones.
+    if (actorUserId(auth) && ![input.firstName, input.lastName, input.email, input.phone].some((v) => v?.trim())) {
+      throw new AppError(400, 'validation_error', 'Request validation failed', [{ path: 'firstName', message: 'Add a name, email or phone' }]);
+    }
     return reply.status(201).send(await c.contacts.create({ orgId: auth.orgId }, input, actorUserId(auth), { source }));
   });
 
@@ -198,6 +202,11 @@ export async function registerContactRoutes(app: FastifyInstance, c: Container) 
       }),
       req.body,
     );
+    // Staff can't set a due date in the past; a day's grace keeps "today" valid in every timezone. Integrations may
+    // import older tasks, and updates aren't checked, so an overdue task can still be ticked off.
+    if (actorUserId(auth) && input.dueAt && input.dueAt.getTime() < c.now().getTime() - 86_400_000) {
+      throw new AppError(400, 'validation_error', 'Request validation failed', [{ path: 'dueAt', message: "Due date can't be in the past" }]);
+    }
     return reply.status(201).send(await c.contacts.createTask({ orgId: auth.orgId }, { ...input, createdBy: 'user' }));
   });
 

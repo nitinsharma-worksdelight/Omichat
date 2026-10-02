@@ -3475,6 +3475,309 @@ moved between Home and Inbox.
 
 ---
 
+## Production hardening track (H1–H10)
+
+*Planned 2026-10-02 after the production-readiness audit of the 12 features (static review plus 15 live scenarios
+against gpt-4o-mini, $0.0136). Code-only fixes; Render/environment settings are handled separately. The hook tracks
+H1–H10 as phases 19–28. Each phase is approved, built, tested and reviewed on its own.*
+
+**Critical findings and where they're fixed:** (1) SSRF guard bypass with IPv4-mapped IPv6 + DNS rebinding → H2;
+(2) the outbox nudge's fixed BullMQ job id stalls webhooks/alerts for good after one failure → H1; (3) the public API
+auto-merges into whoever owns a form-typed email/phone → H2; (4) unbounded AI spend (no default budget, unpriced
+model overrides cost $0, spoofable rate limits) → H2/H4; (5) visitor messages silently unanswered (sent mid-reply,
+asked during a handoff, errors before the turn) → H3.
+
+**Order:** H1 → H2 → H3 → H4 → H5 → H6 → H7 → H8 → H9 → H10. H1 first so later fixes can be verified the way
+production runs; H4 and H8 build on H3.
+
+### H1 (Phase 19) — Queue semantics and test foundation
+
+*Approved 2026-10-02.*
+
+**H1.1 Nudge jobs can stop for good.**
+- **Root cause:** `AutomationService.kick()` always adds job id `dispatch` (one attempt) and the booking-email nudge
+  always adds `appointment-email-now`. BullMQ keeps failed jobs (`removeOnFail: {count: 5000}`) and ignores an add
+  whose job id still exists in any state (waiting, delayed, active or failed; `handleDuplicatedJob`). After one failed
+  run every later nudge — the 5 s timer included — is a no-op: no webhooks, notifications, handoff alerts or
+  workflows. The in-process queue used by tests forgets ids once a job starts, so tests can't see it.
+- **Approach:**
+  - `JobOptions.coalesce`: a nudge that only needs "run once more soon". Adds are merged while one is waiting; an add
+    while one runs queues the next run. BullMQ: the job id carries a generation number in Redis that each run bumps
+    before it starts, so an add during a run gets a fresh id, and an add that raced the bump happened before the run
+    read anything. Coalesced jobs are removed when they fail.
+  - `JobOptions.removeOnFail` for jobs whose id must be reusable after a final failure (`reembed_*`).
+  - `InlineQueueDriver` follows BullMQ: a job id is taken while waiting, retrying, running, and after a final failure
+    (kept, up to 5,000) unless `removeOnFail`; coalesced jobs behave as above.
+- **Files:** `infra/queue.ts`, `container.ts`, `modules/automation/service.ts`, `modules/knowledge/service.ts`.
+- **Tests:** `test/queue.test.ts` — id taken while waiting/running/failed; `removeOnFail` frees it; coalesced adds
+  merge while waiting and re-run when added during a run; the outbox delivers after a failed dispatch run.
+
+**H1.2 Integration tier on real Postgres and Redis.**
+- **Root cause:** all tests run on PGlite (one connection) with the in-process queue, so concurrency, the overlap
+  rule's clash path, Redis locks and BullMQ behaviour are untested.
+- **Approach:** `apps/server/test-integration/` with its own Vitest config and `npm run test:integration`, run only
+  when `INTEGRATION_DATABASE_URL` and `INTEGRATION_REDIS_URL` are set (else skipped). Each file gets a fresh database
+  and its own BullMQ prefix. First tests: BullMQ job-id and coalescing behaviour, two concurrent bookings of one slot,
+  the Redis lock across two clients. Later phases add their concurrency tests here.
+- **Runs locally on:** Homebrew Redis + Postgres 17 + pgvector, started only for the run.
+
+### H2 (Phase 20) — Security holes
+
+- **H2.1 SSRF:** one address classifier (`net.BlockList`, normalizing IPv4-mapped/compatible, NAT64 and 6to4 forms)
+  and an `undici` dispatcher that re-checks every resolved address at connect time, used for every tenant-supplied
+  URL and redirect hop. `ALLOW_PRIVATE_URLS` (default false) replaces `NODE_ENV !== 'production'`.
+- **H2.2 TRUST_PROXY:** default `false`; production warns when unset.
+- **H2.3 Public API contact data:** unverified by default; `contact.verified: true` needs the new `contacts:verify`
+  scope; contact/consent handling skipped for duplicate messages; the response returns the post-merge contact id.
+- **H2.4 Verified capture:** resolve email and phone owners first; merge at most once; different owners → reviews.
+- **H2.5 Cross-org contact ids:** `assertContactInOrg` before inserts in `book`, `addTags`, `addNote`, `createTask`;
+  the dispatcher filters contacts by org.
+- **H2.6 Rate limiter:** `skipOnError: true` so a Redis error doesn't fail requests.
+
+### H3 (Phase 21) — Message reliability
+
+- **H3.1** AI replies record `metadata.answersThrough`; notices are tagged `metadata.notice`. "Answered up to here" uses
+  them, so a message sent mid-reply gets its own reply; pending messages follow the replies they arrived during.
+- **H3.2** Staleness check before taking the conversation lock as well as inside it.
+- **H3.3** Errors before the main try block and lock timeouts: alert plus apology on the last attempt; temporary
+  database errors retry.
+- **H3.4** A duplicate inbound message re-queues its reply when still unanswered.
+- **H3.5** Unanswered-message sweeper every 60 s.
+- **H3.6** Returning a chat to the AI (resume or fallback) answers messages left waiting.
+- **H3.7** `setStatus` locks the row; AI sends go through `addOutboundIf` with a status check (normal, handoff and
+  error paths); the watcher re-checks; no replies to closed chats.
+- **H3.8** Empty replies retry then apologize; early exits publish `ai.done`; `no_bot` alert; the widget gets `aiQueued`.
+
+### H4 (Phase 22) — Cost and abuse limits
+
+Model allowlist with required prices and `LLM_MAX_OUTPUT_TOKENS`; `AI_DEFAULT_MONTHLY_BUDGET_USD` and
+`AI_MAX_MONTHLY_BUDGET_USD`; in-flight cost counted in the budget check; per-channel new-conversation cap; message
+limits keyed by visitor and address; route rate limits; tool-call caps (per round, `notify_team`, `create_task`,
+`add_note`, approval requests); `add_tags` needs `allowedTags`; test chats never call workflows and simulate bookings.
+
+### H5 (Phase 23) — Data integrity
+
+`mergeInto` rewrite (row locks, approvals moved, lifecycle/owner/timezone kept, qualification recomputed, merge chains
+re-pointed, closed chat announced); row locks for contact JSON fields and qualification, forward-only lifecycle;
+calendar/contact delete with upcoming bookings; booking `lock_timeout`, real-date checks, appointment status rules,
+reschedule timezone; approval replay key and workflow timeout under the tool timeout; bot `expectedVersion`, prompt
+size limit, attached-bot delete; removed members unassigned and their streams closed; AI facts can't fake the team
+marker.
+
+### H6 (Phase 24) — Production guards and observability
+
+Startup refuses log-only email, local storage with a separate worker, the hash embedder and private URLs in
+production unless explicitly allowed; signup timezone validated; `statement_timeout` for tenant transactions and a
+`messages(organization_id, created_at)` index; structured alerts for failed jobs, recoveries, stuck documents and
+outbox backlog; optional Sentry; queue depth in `/health`.
+
+### H7 (Phase 25) — Knowledge-base ingestion
+
+Stuck-document sweeper; per-document lock with version check; parsing in a worker thread with memory/time/page/size
+and chunk caps; NUL/UTF-16 handling; parse errors permanent; `tsv` computed on insert; storage writes outside the
+transaction; token-sized embedding batches, `Retry-After`, abortable query embedding, keyword fallback; weak-relevance
+guidance, grounded-only citations, tool results framed as information; paginated lists without bodies; per-org quotas;
+exact search for small tenants.
+
+### H8 (Phase 26) — Widget robustness, privacy and handoff UX
+
+"End chat" with a new visitor id; idle webchats closed after 24 h; heartbeat watchdog with polling fallback;
+failed-send state with retry; typing dots driven by `aiQueued`/`ai.done`; "chat ended" handling; stream leak and
+per-token stream limit; message ordering by `(created_at, id)` with a `clock_timestamp()` default; safer handoff
+defaults for new bots (existing bots keep theirs) and a waiting acknowledgement (*done in Q5.1, 2026-10-03*); markdown,
+link (*source links limited to http(s) in Q2.3*) and accessibility fixes; widget DOM tests (jsdom).
+
+### H9 (Phase 27) — Summaries and analytics correctness
+
+Recap input capped with follow-ups; recap job ids; stored summary errors and refresh for closed chats; no automatic
+recaps for test chats; stale details after a fold; complete CSV exports with a BOM; staff takeovers counted apart
+from handoffs and bounded first-reply windows; cached reports and a faster team query; `currency` returned; small
+validation fixes.
+
+### H10 (Phase 28) — Remaining medium/low items
+
+Test contacts no longer block real emails/phones; `lead.captured` for staff/API contacts; GDPR chain deletion, event
+scrubbing and export; contact search indexes; booking DST/overlap/200-slot/ICS fixes; per-bot qualification status;
+expired-approval notices and approver attribution; workflow run log; delivery retry starvation; bot settings
+history; ownership transfer, member consent and API-key expiry.
+
+---
+
+## QA fix track (Q1–Q7)
+
+*Planned 2026-10-02 from the QA bug report (BUG-01–BUG-15, tested 2 Oct 2026). All 15 were confirmed in the code.
+Kept outside the hook's table like the UI track; statuses are updated by hand in PROGRESS.md. Each Q phase is approved
+on its own.*
+
+**Order:** Q1 bot honesty (BUG-01, 02, 03, 06) → Q2 demo page off the dashboard address (15) → Q3 form validation
+(04, 05, 08, 09, 12) → Q4 owner warnings (01, 03, 06, 07) → Q5 handoff gaps (13) → Q6 layout (10, 11) → Q7 reply
+speed (14, code only).
+
+**Decisions (2026-10-02):** visitor IP shown to admins only, behind an org setting (BUG-07); phone validation stays
+strict (BUG-06); custom field keys get cleanup and a preview, no renaming (BUG-12); "Reopen" is its own action, not a
+takeover (BUG-13); the demo page moves to the API address, with no hosting changes (BUG-15); hosting is decided apart
+from the code fixes (BUG-14).
+
+### Q1 — Bot honesty: booking, dates, hours, phone numbers
+
+*Approved 2026-10-03. Server only: prompt, tools and context; no dashboard, database or API changes.*
+
+- **Q1.1 Never claim a booking it didn't make (BUG-01).** *Root cause:* without the booking tools nothing told the
+  model it couldn't book; owner goals and the qualification step still pushed for a booking, and `create_task`
+  answered `{created: true}`. *Fix:* the booking goal and section follow the tools the bot has this turn (a disabled
+  `book_appointment` counts); otherwise an "Appointments" section says it can't book, move or cancel and hands the
+  request to the team. Reschedule/cancel switched off get their own line. `create_task` and `notify_team` results say
+  nothing is booked or done yet. The qualified next step "offer booking" becomes "get their contact details" when the
+  bot can't book.
+- **Q1.2 Dates and settled bookings (BUG-02).** *Root cause:* one `<now>` line, so the model worked weekdays out
+  itself; no rule that bookings are settled; upcoming appointments loaded only for booking bots. *Fix:* a per-turn
+  `<days>` list of the next 14 days (same zone as `<now>`, year shown on today and across a new year); the booking
+  calendar's own date and time next to `<now>` when its timezone differs; `days` is a frame tag customers can't fake;
+  rules to take dates only from `<now>`/`<days>` and not to re-open `<appointments>`; upcoming appointments always
+  loaded (in the same parallel step as the calendar's timezone).
+- **Q1.3 Opening hours vs bookable times (BUG-03).** *Fix:* bookable times come only from `check_availability`;
+  opening hours in business facts or `<knowledge>` may differ; check before saying a day can be booked. The dashboard
+  mismatch warning is Q4.
+- **Q1.4 Phone errors and optional details (BUG-06).** *Root cause:* every rejected number was told to "include the
+  country code", and optional fields showed as "still needed" with an instruction to keep asking. *Fix:*
+  `phoneError()` in `leads/capture.ts` says what's wrong (not a number; too short/long for its country code; has a
+  country code but doesn't exist; the old hint only without a country code); `normalizePhone` is unchanged. "Still
+  needed" marks fields (required)/(optional); the bot asks for an optional detail at most once and never holds up a
+  booking for one.
+- **Files:** `modules/ai/prompt.ts`, `modules/ai/orchestrator.ts`, `modules/tools/definitions.ts`,
+  `modules/leads/capture.ts`, `modules/contacts/service.ts`.
+- **Tests:** `test/qa-honesty.test.ts` (15 cases, mock model). The demo bot's prompt snapshot is updated on purpose;
+  `qualification-changes.test.ts` turns booking on for the test that expects "Offer to book".
+
+### Q2 — Demo page off the dashboard address
+
+*Approved 2026-10-03. Code only: no hosting, Render or Vercel changes.*
+
+- **Root cause (BUG-15):** `apps/dashboard/public/demo.html` ran the widget script from the API on the dashboard's
+  address, where the login token is kept in `localStorage` (`omni.dashboard.token`). No security headers anywhere.
+- **Q2.1 Demo on the API:** `http/demo-page.ts` holds the page and its script as text (no build or Docker changes);
+  `app.ts` serves `GET /demo` and `GET /demo.js`. The script uses `location.origin` as the API (no `?api=`). Both are
+  sent with `Content-Security-Policy: default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' https:
+  data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (styles stay inline:
+  the widget adds a `<style>` to its shadow root), plus `nosniff`, `Referrer-Policy: no-referrer` and
+  `X-Frame-Options: DENY`. The API's address keeps no login (the dashboard sends its own bearer token; no cookies).
+- **Q2.2 Dashboard address:** `demo.html` only forwards to `<API>/demo` with the same query (localhost → :4000). It
+  loads no widget and shows nothing from the business, so old links keep working.
+- **Q2.3 Widget source links:** `safeLink()` (`apps/widget/src/links.ts`) lets only http(s) addresses become links.
+- **After deploy (settings, no code):** the tester chat's allowed websites need `https://omichat-api.onrender.com`
+  instead of the Vercel address; new link `https://omichat-api.onrender.com/demo?key=pk_…`. Chats saved under the
+  old address aren't carried over (browser storage is per address).
+- **Not in Q2:** dashboard security headers (would need a `vercel.json` naming the API address: a hosting change),
+  a cookie session, a demo subdomain.
+- **Tests:** `test/demo-page.test.ts` (6 cases).
+
+### Q3 — Form validation
+
+*Approved 2026-10-03. Shared root cause: no checks in the forms and no way to show a server error next to its field;
+the server either didn't check (business info, empty contacts, past due dates, key shape) or answered with the
+validation library's own wording ("Too small: expected number to be >=0").*
+
+- **Q3.0 Groundwork.** `parseInput` (and the bot-settings check) pass `friendlyError`: built-in messages in plain words
+  ("Can't be negative", "Required", "Enter a valid email address"); a schema's own message always wins. Dashboard:
+  `lib/errors.ts` (`ApiError`, `errorMessage`, `fieldErrors`, `fieldLabel`; re-exported by `api.ts`) — validation
+  toasts drop "Request validation failed —" and name fields in words; `lib/validate.ts` (`isEmail`, `isWebsite`,
+  `isPhoneLike`, `todayLocal`, `finalizeKey`). Both have no browser APIs, so the server suite tests them. The contact
+  email/phone errors carry their field.
+- **Q3.1 Business info (BUG-04).** `businessContactProblems()` (`bots/config.ts`) checks website, email and phone on bot
+  create and update — only values that changed, so a bot storing an older value still loads and saves other sections.
+  The editor shows each error under its field and refuses to save, listing them with the section's red dot.
+- **Q3.2 Add contact (BUG-05).** Staff creating a contact must give a first or last name, email or phone (company alone
+  doesn't count); API keys, the widget and the AI still create anonymous contacts. The form shows "Add a name, email or
+  phone" and email problems inline, and server errors next to their field.
+- **Q3.3 Create deal (BUG-08).** From a conversation the title is "<name> deal" (or "New deal") and the summary's
+  "wants" sentence is the title's hint. A negative value shows "Value cannot be negative" and disables Create.
+- **Q3.4 Task due date (BUG-09).** The date input starts at today (the user's own date); an earlier one is refused
+  inline. Server: staff creating a task with `dueAt` more than 24 h ago get a 400 on `dueAt`; integrations may import
+  old tasks; updates aren't checked. The container exposes `now()` for this.
+- **Q3.5 Keys (BUG-12; cleanup and preview, no renaming).** `finalizeKey()` ("Bad Key!" → `bad_key`) for keys made
+  from the label, on blur and on save, with a "Saved as …" hint; Create is off when the key comes out empty. Workflow
+  keys and qualification-question keys (only when edited) get the same cleanup in the dashboard. Server: new custom
+  field keys can't start or end with `_` or contain `__`; stored rules for bots and workflows are unchanged.
+- **Not in Q3:** past-date checks on a deal's expected close, a minus-key block in the shared number input, server
+  key rules for workflows and qualification questions, renaming keys.
+- **Tests:** `test/qa-validation.test.ts` (12) and `test/dashboard-validate.test.ts` (8). No existing test needed a
+  change for the new messages.
+
+### Q4 — Owner warnings, and the visitor IP
+
+*Approved 2026-10-03, with IP option A (existing organizations keep recording, new ones start off). Warnings never
+block a save.*
+
+- **Q4.1 One check.** `pages/bots/warnings.ts`: `botWarnings(config, calendars)` → `{id, section, also?, message,
+  inline?}`; pure (no React or browser APIs), tested by the server suite. The editor works it out from the draft
+  (`ctx.warnings`, `ctx.bookingCalendar`): each section lists its own at the top (`SectionWarnings`), some sit next to
+  their field instead (`inline`); the overview has "Worth checking" with "Go to it"; each Bots page card has an amber
+  "N to check" badge listing them on hover.
+- **Q4.2 Booking (BUG-01).** `bookingAbilities()` (book/move/cancel, the server's tool rules, disabled tools
+  included) and `starterProblem()`: each enabled starter offering booking, rescheduling or cancelling the bot can't do
+  gets its own note; "Add suggested starters" only adds the ones it can do. Goals that mention booking while booking is
+  off are flagged.
+- **Q4.3 Hours (BUG-03).** With a booking calendar, "Opening hours" shows the bookable hours ("Bookable on Main
+  calendar: Mon–Fri 9:00–17:00 (America/Toronto)"). `openDaysIn()` reads days, ranges, weekends/weekdays/daily and
+  skips "closed" parts; a day the text says is open but the calendar has no hours for is flagged under the field. Text
+  it can't read gives no warning.
+- **Q4.4 Details (BUG-06).** Booking needs a detail lead capture doesn't ask for; lead capture requires a detail
+  before booking that booking doesn't need. Both show in Lead capture and Booking.
+- **Q4.5 Privacy notice (BUG-07).** Flagged under the field while lead capture collects details; the Lead capture
+  essential gets an amber "Add a privacy notice" line without changing its count. `consentNotice` is trimmed.
+- **Q4.6 Visitor IP (BUG-07).** `settings.recordVisitorIp` (missing = yes; `createOrganization` sets false), shown in
+  Settings → Organization. Off: new addresses aren't recorded (`receiveInbound`, `recordVisitorIp`) and stored ones
+  aren't returned. The conversation list, detail, status and assign routes drop `visitorIp`/`visitorIpAt` unless the
+  caller is an admin or owner (never API keys).
+- **Not in Q4:** comparing FAQ text, "fill from calendar", hiding starters automatically, clearing stored addresses
+  (H10).
+- **Tests:** `test/bot-warnings.test.ts` (11); `test/widget-visitor-ip.test.ts` +3, and its 6 recording tests now turn
+  the setting on for their organization.
+
+### Q5 — Handoff gaps (BUG-13)
+
+*Approved 2026-10-03.*
+
+- **Q5.1 Waiting sign.** *Root cause:* the widget announced a handoff only when the chat already had a status, and a
+  new visitor's starts with none. `apps/widget/src/handoff.ts`: `announcesHandoff(previous, next, ready)` — once the
+  chat has loaded, any move to `human_active` posts "A member of our team will reply here", never twice;
+  `headerLine()` — "Waiting for a team member…", then "A team member is replying" after a team message, else the usual
+  line; the AI tag hides while the team has the chat. Covers H8's "waiting acknowledgement".
+- **Q5.2 Whoever replies gets it.** *Root cause:* assignment happened only on a status change. `humanReply` on a
+  `human_active` chat with nobody assigned: `assignReplier` sets the replier with a conditional update (only while
+  unassigned), records `conversation.assigned` (actor the replier, `auto: true`: no note to themselves) and publishes
+  it. A teammate's chat is never taken.
+- **Q5.3 Reopen.** The status route takes `action: 'reopen'` (agents and up): `setStatus(..., 'human_active', { reopen:
+  true })` — closed chats only (409 otherwise), assigned to whoever reopened it, event `conversation.reopened` (added to
+  `EVENT_TYPES` and the dashboard's labels and icons) instead of a handoff, no waiting clock, no new recap. The
+  "newer open conversation" 409 carries its id (`details: [{ path: 'openConversationId' }]`). Dashboard: "Reopen" on
+  closed chats, the 409 offers "Open the newer conversation", footer "Reopen it to reply, or a new message…".
+- **Not in Q5 (still H8/H9):** the widget's "chat ended" state and "End chat", team members' names in the widget,
+  counting staff takeovers apart in analytics.
+- **Tests:** `test/handoff-gaps.test.ts` (8; the two-replies case runs on PGlite's single connection, so the guarantee
+  rests on the conditional update).
+
+### Q6 — Layout (BUG-10, BUG-11)
+
+*Approved 2026-10-03. Dashboard only.*
+
+- **Q6.1 Floating menus (BUG-10).** *Root cause:* `Popover` drew its menu inside its parent (`absolute top-full`), and a
+  table's `overflow-x-auto` box clips anything below it. `Popover` gets an opt-in `portal`: drawn at page level
+  (`fixed`, from the trigger's position, `right` measured without the scrollbar), below the trigger or above when there
+  is no room, at least 8 px inside the screen, closed on scroll or resize; clicks inside it aren't "outside"; focus
+  moves into it once placed (a hidden menu can't take focus) and back to the trigger on Escape; it closes when focus
+  moves to something else on the page (not on a click that focuses nothing, as in Safari). Used by the knowledge
+  document row menu only; the other six menus are unchanged (the sidebar's organization switcher sizes itself to the
+  sidebar).
+- **Q6.2 Agenda rows (BUG-11).** *Root cause:* the title line didn't wrap, the row didn't wrap from 640 px, the
+  appointment column could shrink to nothing (`flex-1` from zero), and the button group never shrank. Now: the title
+  line wraps (badges go under the title); "Emails" and the actions are one group no wider than the row, wrapping
+  inside it; the appointment column keeps at least 12rem, so with less room the buttons drop to the next line; one
+  line only from 1280 px.
+- **Verified in the browser** (local dashboard, no data changed): see PROGRESS.md.
+
+---
+
 ## Verification and the progress hook
 
 Built as the first implementation step of Phase 1 (after approval).

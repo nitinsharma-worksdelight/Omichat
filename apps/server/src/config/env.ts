@@ -28,9 +28,11 @@ const EnvSchema = z
     DASHBOARD_ORIGINS: z.string().default('http://localhost:5173'),
     /**
      * Which proxies in front of the API to believe about the client's address (X-Forwarded-For) and protocol:
-     * `true` (default: all), `false` (none), or a comma-separated list of the proxies' addresses and ranges, including
-     * `loopback`, `linklocal` and `uniquelocal` (private networks). Only listed proxies' forwarded addresses count, so a
-     * visitor can't make up theirs. A number of hops isn't accepted: it can't tell a proxy from a visitor.
+     * `false` (default: none), `true` (all — any client can then make up its address), or a comma-separated list of the
+     * proxies' addresses and ranges, including `loopback`, `linklocal` and `uniquelocal` (private networks). Only listed
+     * proxies' forwarded addresses count, so a visitor can't make up theirs. A number of hops isn't accepted: it can't
+     * tell a proxy from a visitor. Behind a load balancer (e.g. Render) set it to that proxy's range, or every visitor
+     * shares the proxy's address for rate limits.
      */
     TRUST_PROXY: z
       .string()
@@ -45,6 +47,11 @@ const EnvSchema = z
     AUTO_MIGRATE: bool(true),
 
     REDIS_URL: z.string().optional(),
+    /**
+     * Let tenant-supplied URLs (knowledge-base websites, webhooks, workflows) reach loopback and private networks.
+     * Local development with services on this machine only; refused in production.
+     */
+    ALLOW_PRIVATE_URLS: bool(false),
     RUN_WORKERS_IN_API: bool(true),
 
     AUTH_MODE: z.enum(['local', 'supabase']).default('local'),
@@ -120,8 +127,8 @@ export type Env = z.infer<typeof EnvSchema>;
 
 /** TRUST_PROXY as Fastify takes it; a bad address in a list fails at startup. */
 function parseTrustProxy(raw: string | undefined): boolean | string {
-  if (!raw || raw === 'true') return true;
-  if (raw === 'false') return false;
+  if (!raw || raw === 'false') return false;
+  if (raw === 'true') return true;
   return raw;
 }
 
@@ -157,6 +164,7 @@ export function loadEnv(overrides: Record<string, string | undefined> = {}): Env
     if (env.ENCRYPTION_KEY === DEV_ENCRYPTION_KEY) problems.push('ENCRYPTION_KEY must be set');
     if (!env.REDIS_URL) problems.push('REDIS_URL is required (queues, locks, streaming)');
     if (env.DATABASE_URL.startsWith('pglite://')) problems.push('DATABASE_URL must point at Postgres');
+    if (env.ALLOW_PRIVATE_URLS) problems.push('ALLOW_PRIVATE_URLS must be off (tenant URLs could reach the private network)');
     if (env.LLM_PROVIDER === 'mock') problems.push('LLM_PROVIDER must be set (openai or anthropic)');
     if (env.AUTH_MODE === 'supabase' && !env.SUPABASE_URL && !env.SUPABASE_JWT_SECRET) {
       problems.push('SUPABASE_URL or SUPABASE_JWT_SECRET is required when AUTH_MODE=supabase');

@@ -7,14 +7,16 @@ import { Badge, Button, Card, EmptyState, ErrorBanner, Field, IconButton, Input,
 import { del, post } from '../../lib/api';
 import { timeAgo } from '../../lib/format';
 import { useAction } from '../../lib/mutations';
-import { roleAtLeast, useAiConfig, useBots, useChannels } from '../../lib/queries';
+import { roleAtLeast, useAiConfig, useBots, useCalendars, useChannels } from '../../lib/queries';
 import { Link, navigate } from '../../lib/router';
 import type { Bot } from '../../lib/types';
+import { botWarnings } from './warnings';
 
 export function BotsPage() {
   const bots = useBots();
   const aiConfig = useAiConfig().data;
   const channels = useChannels();
+  const calendars = useCalendars();
   const { role } = useAuth();
   const isAdmin = roleAtLeast(role, 'admin');
   const confirm = useConfirm();
@@ -52,6 +54,7 @@ export function BotsPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {bots.data.map((bot) => {
               const usedBy = (channels.data ?? []).filter((c) => c.botId === bot.id && c.channel === 'webchat');
+              const warnings = botWarnings(bot.config, calendars.data ?? []);
               return (
                 <Card key={bot.id} className="flex flex-col p-5 transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-raise">
                   <div className="flex items-start justify-between gap-3">
@@ -77,6 +80,11 @@ export function BotsPage() {
                     <FeatureBadge on={bot.config.booking.enabled} label="Booking" />
                     <FeatureBadge on={bot.config.handoff.enabled} label="Handoff" />
                     <FeatureBadge on={bot.knowledgeBaseIds.length > 0} label={`${bot.knowledgeBaseIds.length} knowledge base${bot.knowledgeBaseIds.length === 1 ? '' : 's'}`} />
+                    {warnings.length > 0 && (
+                      <span title={warnings.map((w) => w.message).join('\n\n')}>
+                        <Badge tone="amber">{warnings.length} to check</Badge>
+                      </span>
+                    )}
                   </div>
                   <div className="mt-auto flex items-end justify-between gap-2 border-t border-border pt-3.5 text-caption text-muted">
                     <span className="min-w-0">

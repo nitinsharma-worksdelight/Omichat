@@ -52,6 +52,7 @@ const EVENT_ICONS: Record<string, LucideIcon> = {
   'conversation.handoff_requested': Hand,
   'conversation.resumed_by_ai': RotateCcw,
   'conversation.closed': MessageSquare,
+  'conversation.reopened': RotateCcw,
   'conversation.summarized': ScrollText,
   'deal.created': Handshake,
   'deal.updated': Handshake,

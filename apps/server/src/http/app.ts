@@ -8,6 +8,7 @@ import { Redis } from 'ioredis';
 import type { Container } from '../container';
 import { pingDatabase } from '../db/client';
 import { AppError } from '../lib/errors';
+import { DEMO_HEADERS, DEMO_HTML, DEMO_JS } from './demo-page';
 import { registerApprovalRoutes } from './routes/approvals';
 import { registerAuthRoutes } from './routes/auth';
 import { registerAutomationRoutes } from './routes/automation';
@@ -47,9 +48,13 @@ export async function buildApp(c: Container): Promise<FastifyInstance> {
       });
     },
   });
+  const limiterRedis = c.env.REDIS_URL ? new Redis(c.env.REDIS_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false }) : undefined;
+  limiterRedis?.on('error', (err) => c.logger.warn({ err }, 'rate limiter: Redis unavailable, requests are not being limited'));
   await app.register(rateLimit, {
     global: false,
-    ...(c.env.REDIS_URL ? { redis: new Redis(c.env.REDIS_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false }) } : {}),
+    // If Redis can't be reached, let requests through rather than failing every limited route.
+    skipOnError: true,
+    ...(limiterRedis ? { redis: limiterRedis } : {}),
   });
   await app.register(multipart, { limits: { fileSize: c.env.MAX_UPLOAD_MB * 1_000_000, files: 1, fields: 10 } });
 
@@ -88,6 +93,10 @@ export async function buildApp(c: Container): Promise<FastifyInstance> {
       .header('cache-control', c.env.NODE_ENV === 'production' ? 'public, max-age=300' : 'no-cache')
       .send(readFileSync(widgetPath));
   });
+
+  // The testers' demo page (/demo?key=pk_…): on this address, never next to the dashboard where the login is kept.
+  app.get('/demo', async (_req, reply) => reply.headers(DEMO_HEADERS).type('text/html; charset=utf-8').send(DEMO_HTML));
+  app.get('/demo.js', async (_req, reply) => reply.headers(DEMO_HEADERS).type('application/javascript; charset=utf-8').send(DEMO_JS));
 
   await app.register(
     async (v1) => {

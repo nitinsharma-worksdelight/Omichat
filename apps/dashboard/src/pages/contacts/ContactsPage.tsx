@@ -6,10 +6,11 @@ import { PersonAvatar } from '../../components/avatar';
 import { Modal } from '../../components/overlay';
 import { QualificationBadge, TagChip, TierBadge } from '../../components/status';
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, SkeletonRows, Table, TD, TH } from '../../components/ui';
-import { get, post } from '../../lib/api';
+import { fieldErrors, get, post } from '../../lib/api';
 import { timeAgo } from '../../lib/format';
 import { useDebounced } from '../../lib/hooks';
 import { useAction } from '../../lib/mutations';
+import { isEmail } from '../../lib/validate';
 import { roleAtLeast, useOrg, useTags } from '../../lib/queries';
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
 import type { Contact, ContactList, LeadTier, QualificationStatus, SourceOptions } from '../../lib/types';
@@ -303,6 +304,8 @@ function ContactRow({ contact: c }: { contact: Contact }) {
 function CreateContactModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const empty = { firstName: '', lastName: '', email: '', phone: '', company: '' };
   const [form, setForm] = useState(empty);
+  // Mistakes show once they try to add the contact, then update as they type.
+  const [tried, setTried] = useState(false);
   const create = useAction(
     (body: typeof empty) =>
       post<Contact>(
@@ -312,18 +315,31 @@ function CreateContactModal({ open, onClose }: { open: boolean; onClose: () => v
     {
       invalidate: [['contacts']],
       success: 'Contact added',
+      errorToast: false,
       onSuccess: (c) => {
         setForm(empty);
+        setTried(false);
         onClose();
         navigate(`/contacts/${c.id}`);
       },
     },
   );
+  const local = {
+    firstName: [form.firstName, form.lastName, form.email, form.phone].some((v) => v.trim()) ? null : 'Add a name, email or phone',
+    email: form.email.trim() && !isEmail(form.email) ? 'Enter a valid email address' : null,
+  };
+  const server = fieldErrors(create.error);
+  const errorOf = (k: keyof typeof empty) => (tried ? (local as Record<string, string | null>)[k] : null) || server[k] || null;
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    setTried(true);
+    if (local.firstName || local.email) return;
     create.mutate(form);
   };
-  const set = (k: keyof typeof empty) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k: keyof typeof empty) => (e: { target: { value: string } }) => {
+    if (create.error) create.reset(); // a server error goes once they change something
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+  };
   return (
     <Modal
       open={open}
@@ -340,20 +356,21 @@ function CreateContactModal({ open, onClose }: { open: boolean; onClose: () => v
         </>
       }
     >
-      <form id="create-contact" className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={submit}>
-        <Field label="First name">
+      <form id="create-contact" className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={submit} noValidate>
+        {create.error && !Object.keys(server).length ? <ErrorBanner error={create.error} className="sm:col-span-2" /> : null}
+        <Field label="First name" error={errorOf('firstName')}>
           <Input value={form.firstName} onChange={set('firstName')} />
         </Field>
-        <Field label="Last name">
+        <Field label="Last name" error={errorOf('lastName')}>
           <Input value={form.lastName} onChange={set('lastName')} />
         </Field>
-        <Field label="Email">
+        <Field label="Email" error={errorOf('email')}>
           <Input type="email" value={form.email} onChange={set('email')} />
         </Field>
-        <Field label="Phone" hint="Include the country code for numbers outside your default country.">
+        <Field label="Phone" hint="Include the country code for numbers outside your default country." error={errorOf('phone')}>
           <Input type="tel" value={form.phone} onChange={set('phone')} />
         </Field>
-        <Field label="Company" className="col-span-2">
+        <Field label="Company" className="col-span-2" error={errorOf('company')}>
           <Input value={form.company} onChange={set('company')} />
         </Field>
       </form>

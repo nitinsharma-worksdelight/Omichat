@@ -227,6 +227,8 @@ export function describeEvent(e: EventItem): string {
       return 'AI resumed the conversation';
     case 'conversation.closed':
       return 'Conversation closed';
+    case 'conversation.reopened':
+      return 'Conversation reopened by the team';
     case 'deal.created':
       return `Deal created: ${dealLine(p.deal)}`;
     case 'deal.updated': {

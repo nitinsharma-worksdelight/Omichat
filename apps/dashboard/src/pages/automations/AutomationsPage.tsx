@@ -30,6 +30,7 @@ import {
 } from '../../components/ui';
 import { ApiError, del, get, patch, post } from '../../lib/api';
 import { formatDateTime, humanize, pretty, slugify, timeAgo } from '../../lib/format';
+import { finalizeKey } from '../../lib/validate';
 import { useAction } from '../../lib/mutations';
 import { roleAtLeast, useCustomFields, useTags, useWorkflows } from '../../lib/queries';
 import { navigate, useRoute, withQuery } from '../../lib/router';
@@ -504,7 +505,7 @@ function WorkflowDialog({ workflow, onClose, onCreated }: { workflow?: Workflow;
   const setInput = (i: number, p: Partial<WorkflowInputField>) => set('inputFields', form.inputFields.map((f, j) => (j === i ? { ...f, ...p } : f)));
   // PATCH sends every field: the server fills omitted ones with defaults.
   const { key, ...rest } = form;
-  const save = useAction(() => (workflow ? patch<Workflow>(`/v1/workflows/${workflow.id}`, rest) : post<Workflow>('/v1/workflows', { key, ...rest })), {
+  const save = useAction(() => (workflow ? patch<Workflow>(`/v1/workflows/${workflow.id}`, rest) : post<Workflow>('/v1/workflows', { key: finalizeKey(key), ...rest })), {
     invalidate: [['workflows']],
     errorToast: false,
     success: workflow ? 'Workflow updated' : 'Workflow created',
@@ -522,7 +523,7 @@ function WorkflowDialog({ workflow, onClose, onCreated }: { workflow?: Workflow;
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" loading={save.isPending} disabled={!form.key || !form.name.trim() || !form.url.trim() || descTooShort} onClick={() => save.mutate()}>
+          <Button variant="primary" loading={save.isPending} disabled={!finalizeKey(form.key) || !form.name.trim() || !form.url.trim() || descTooShort} onClick={() => save.mutate()}>
             {workflow ? 'Save' : 'Create workflow'}
           </Button>
         </>
@@ -534,8 +535,16 @@ function WorkflowDialog({ workflow, onClose, onCreated }: { workflow?: Workflow;
           <Field label="Name" required>
             <Input value={form.name} maxLength={120} placeholder="Create CRM deal" onChange={(e) => set('name', e.target.value)} />
           </Field>
-          <Field label="Key" required hint={workflow ? 'The key cannot be changed.' : 'Lowercase letters, digits and underscores.'}>
-            <Input className="font-mono text-body-sm" value={form.key} disabled={Boolean(workflow)} maxLength={64} placeholder="create_deal" onChange={(e) => set('key', slugify(e.target.value))} />
+          <Field label="Key" required hint={workflow ? 'The key cannot be changed.' : <KeyHint value={form.key} fallback="Lowercase letters, digits and underscores." />}>
+            <Input
+              className="font-mono text-body-sm"
+              value={form.key}
+              disabled={Boolean(workflow)}
+              maxLength={64}
+              placeholder="create_deal"
+              onChange={(e) => set('key', slugify(e.target.value))}
+              onBlur={() => set('key', finalizeKey(form.key))}
+            />
           </Field>
         </div>
         <Field label="When should the assistant use it?" required hint="The assistant reads this to decide when to call the workflow (at least 10 characters)." error={form.description && descTooShort ? 'Describe it in at least 10 characters.' : null}>
@@ -917,6 +926,18 @@ function FieldsTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+/** Under a key being typed: the key as it will be saved, when that differs from what's in the box. */
+function KeyHint({ value, fallback }: { value: string; fallback: string }) {
+  const saved = finalizeKey(value);
+  return value && saved !== value ? (
+    <>
+      Saved as <span className="font-mono">{saved || '(empty)'}</span>
+    </>
+  ) : (
+    <>{fallback}</>
+  );
+}
+
 function FieldDialog({ field, onClose }: { field?: CustomFieldDef; onClose: () => void }) {
   const [form, setForm] = useState(() => ({
     key: field?.key ?? '',
@@ -930,7 +951,7 @@ function FieldDialog({ field, onClose }: { field?: CustomFieldDef; onClose: () =
   const { key, ...rest } = form;
   const body = { ...rest, options: form.type === 'select' ? form.options : [] };
   // PATCH sends every field: the server fills omitted ones with defaults.
-  const save = useAction(() => (field ? patch<CustomFieldDef>(`/v1/custom-fields/${field.id}`, body) : post<CustomFieldDef>('/v1/custom-fields', { key, ...body })), {
+  const save = useAction(() => (field ? patch<CustomFieldDef>(`/v1/custom-fields/${field.id}`, body) : post<CustomFieldDef>('/v1/custom-fields', { key: finalizeKey(key), ...body })), {
     invalidate: [['custom-fields']],
     errorToast: false,
     success: field ? 'Field updated' : 'Field created',
@@ -946,7 +967,7 @@ function FieldDialog({ field, onClose }: { field?: CustomFieldDef; onClose: () =
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" loading={save.isPending} disabled={!form.key || !form.label.trim() || (form.type === 'select' && form.options.length === 0)} onClick={() => save.mutate()}>
+          <Button variant="primary" loading={save.isPending} disabled={!finalizeKey(form.key) || !form.label.trim() || (form.type === 'select' && form.options.length === 0)} onClick={() => save.mutate()}>
             {field ? 'Save' : 'Create field'}
           </Button>
         </>
@@ -962,12 +983,20 @@ function FieldDialog({ field, onClose }: { field?: CustomFieldDef; onClose: () =
               placeholder="Service of interest"
               onChange={(e) => {
                 const label = e.target.value;
-                setForm((f) => ({ ...f, label, key: field || (f.key && f.key !== slugify(f.label)) ? f.key : slugify(label) }));
+                // The key follows the label until someone types their own.
+                setForm((f) => ({ ...f, label, key: field || (f.key && f.key !== finalizeKey(f.label)) ? f.key : finalizeKey(label) }));
               }}
             />
           </Field>
-          <Field label="Key" required hint={field ? 'The key cannot be changed.' : 'Used by the AI and in exports.'}>
-            <Input className="font-mono text-body-sm" value={form.key} disabled={Boolean(field)} maxLength={64} onChange={(e) => set('key', slugify(e.target.value))} />
+          <Field label="Key" required hint={field ? 'The key cannot be changed.' : <KeyHint value={form.key} fallback="Used by the AI and in exports." />}>
+            <Input
+              className="font-mono text-body-sm"
+              value={form.key}
+              disabled={Boolean(field)}
+              maxLength={64}
+              onChange={(e) => set('key', slugify(e.target.value))}
+              onBlur={() => set('key', finalizeKey(form.key))}
+            />
           </Field>
           <Field label="Type">
             <Select value={form.type} onChange={(e) => set('type', e.target.value as CustomFieldType)}>

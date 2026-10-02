@@ -24,6 +24,7 @@ export const EVENT_TYPES = [
   'conversation.assigned',
   'conversation.unanswered',
   'conversation.closed',
+  'conversation.reopened',
   'conversation.summarized',
   'message.outbound',
   'deal.created',

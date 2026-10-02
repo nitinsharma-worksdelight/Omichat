@@ -11,8 +11,9 @@ import { roleAtLeast, useBots, useCalendars, useCustomFields, useKnowledgeBases,
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
 import type { Bot, BotConfig, BotConfigSection, BotPreview } from '../../lib/types';
 import { EditorOverview, SaveBar, SaveErrors, SectionHeader, SettingsMenu, SettingsSearch, type SettingsTarget } from './editor';
-import { CONFIG_SECTIONS, essentials, isEditorView, sectionOfError, SECTIONS, type BotDraft, type EditorView, type SectionId } from './editorNav';
+import { businessProblems, CONFIG_SECTIONS, essentials, isEditorView, sectionOfError, SECTIONS, type BotDraft, type EditorView, type SectionId } from './editorNav';
 import { Playground } from './Playground';
+import { bookingAbilities, bookingCalendar, botWarnings } from './warnings';
 import {
   ActionsSection,
   BookingSection,
@@ -184,6 +185,12 @@ export function BotEditorPage({ botId }: { botId: string }) {
 
   const save = async () => {
     if (!dirty || !draft) return;
+    // Checked here first, so the fields to fix are listed (and marked in the menu) without a round trip.
+    const problems = businessProblems(draft.config.business, base?.config.business);
+    if (problems.length) {
+      setSaveError(new ApiError(400, 'validation_error', 'Request validation failed', problems));
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -231,6 +238,8 @@ export function BotEditorPage({ botId }: { botId: string }) {
     assistantName: draft.config.persona.assistantName.trim() || 'your assistant',
     members: members.data ?? [],
     pipelines: pipelines.data ?? [],
+    warnings: botWarnings(draft.config, calendars.data ?? []),
+    bookingCalendar: bookingCalendar(draft.config, calendars.data ?? []),
   };
   const setConfig = <K extends BotConfigSection>(key: K, value: BotConfig[K]) => setDraft((d) => (d ? { ...d, config: { ...d.config, [key]: value } } : d));
   /** Fills the persona and the main goal from a template; asks first if the business already wrote its own. */
@@ -384,6 +393,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
                   value={draft.config.conversationStarters}
                   onChange={(v) => setConfig('conversationStarters', v)}
                   handoffEnabled={draft.config.handoff.enabled}
+                  booking={bookingAbilities(draft.config)}
                 />
               )}
               {view === 'goals' && <GoalsSection value={draft.config.goals} onChange={(v) => setConfig('goals', v)} ctx={ctx} />}

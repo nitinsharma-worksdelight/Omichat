@@ -29,6 +29,8 @@ export async function createTestEnv(opts: { now?: Date; env?: Record<string, str
     AI_SUMMARY_IDLE_MINUTES: '0',
     STORAGE_LOCAL_DIR: `.data/test-uploads-${process.pid}`,
     LOG_LEVEL: 'silent',
+    // Tests talk to webhook, workflow and website servers on 127.0.0.1; the SSRF tests turn this off.
+    ALLOW_PRIVATE_URLS: 'true',
     ...opts.env,
   });
   env.REDIS_URL = undefined;

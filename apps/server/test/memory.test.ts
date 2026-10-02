@@ -214,7 +214,8 @@ describe('returning customers', () => {
     const idle = await createTestEnv({ env: { AI_SUMMARY_IDLE_MINUTES: '1' } });
     try {
       const org = await clinic(idle);
-      const key = await idle.app.inject({ method: 'POST', url: '/v1/api-keys', headers: authHeaders(org.token), payload: { name: 'n8n', scopes: ['conversations:write'] } });
+      // The integration vouches for the email (its own signed-in user), so the API links it to the website contact.
+      const key = await idle.app.inject({ method: 'POST', url: '/v1/api-keys', headers: authHeaders(org.token), payload: { name: 'n8n', scopes: ['conversations:write', 'contacts:verify'] } });
       const apiKey = key.json().key as string;
       script(
         idle,
@@ -236,7 +237,7 @@ describe('returning customers', () => {
           method: 'POST',
           url: '/v1/channels/api/messages',
           headers: { authorization: `Bearer ${apiKey}` },
-          payload: { externalUserId: 'crm-mira', content, wait: false, contact: { email: 'mira@example.com' } },
+          payload: { externalUserId: 'crm-mira', content, wait: false, contact: { email: 'mira@example.com', verified: true } },
         });
       expect((await post('Hello from our CRM')).statusCode).toBe(202);
       await idle.c.queue.drain();

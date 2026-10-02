@@ -12,6 +12,7 @@ import type {
   FirstTouch,
   MergeCandidateStatus,
 } from '../../db/schema';
+import { assertContactInOrg, assertConversationInOrg } from '../../db/ownership';
 import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import { sha256 } from '../../lib/crypto';
 import { badRequest, conflict, notFound } from '../../lib/errors';
@@ -20,7 +21,7 @@ import { canonicalTimezone } from '../../lib/timezone';
 import { queryBool } from '../../lib/validation';
 import { recordEvent } from '../automation/events';
 import { consentVersion, earlierTouch, normalizeTouch } from '../leads/attribution';
-import { coerceCustomField, displayName, isPlaceholder, normalizeEmail, normalizePhone, splitName } from '../leads/capture';
+import { coerceCustomField, displayName, isPlaceholder, normalizeEmail, normalizePhone, phoneError, splitName } from '../leads/capture';
 
 type ContactRow = typeof schema.contacts.$inferSelect;
 type Actor = 'ai' | 'user' | 'contact' | 'system';
@@ -132,7 +133,9 @@ export const CustomFieldDefSchema = z.object({
     .trim()
     .min(1)
     .max(64)
-    .regex(/^[a-z0-9_]+$/, 'use lowercase letters, digits and underscores'),
+    .regex(/^[a-z0-9_]+$/, 'use lowercase letters, digits and underscores')
+    // Keys can't be changed later (values, bots and webhooks refer to them), so they start out clean.
+    .refine((k) => !/^_|_$|__/.test(k), "can't start or end with an underscore, or have two in a row"),
   label: z.string().trim().min(1).max(100),
   type: z.enum(['text', 'number', 'boolean', 'date', 'select', 'email', 'phone', 'url']).default('text'),
   options: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
@@ -567,7 +570,7 @@ export class ContactsService {
       if (input.phone) {
         const phone = normalizePhone(input.phone, defaultCountry);
         if (phone) patch.phone = phone;
-        else errors.push(`"${input.phone}" is not a valid phone number (include the country code if outside ${defaultCountry})`);
+        else errors.push(phoneError(input.phone, defaultCountry));
       }
 
       let mergedIntoId: string | undefined;
@@ -578,21 +581,26 @@ export class ContactsService {
         claimed.push(key);
         await this.recordClaim(tx, orgId, { contactId: current.id, existingContactId: ownerId, field: key, value, conversationId: opts.conversationId }, actor);
       };
+      const owned: Array<{ key: 'email' | 'phone'; ownerId: string; value: string }> = [];
       for (const key of ['email', 'phone'] as const) {
         const value = patch[key];
         if (!value || value === current[key]) continue;
         const owner = await this.findByField(tx, orgId, key, value, current.id);
-        if (!owner) continue;
-        if (trust === 'unverified') {
-          // Typed in a chat, where anyone can type someone else's email: never link this visitor to that contact
-          // or show them its data. Staff decide whether they are the same person.
-          await claim(key, owner.id, value);
-          continue;
-        }
-        // A verified detail identifies an existing person: fold this contact into theirs.
-        await this.mergeInto(tx, orgId, owner.id, current.id);
-        mergedIntoId = owner.id;
-        current = await this.row(tx, orgId, owner.id);
+        if (owner) owned.push({ key, ownerId: owner.id, value });
+      }
+      const owners = new Set(owned.map((o) => o.ownerId));
+      if (trust === 'verified' && owners.size === 1) {
+        // A verified detail identifies an existing person: fold this contact into theirs (once, even when the email
+        // and the phone both belong to them).
+        const [ownerId] = owners;
+        await this.mergeInto(tx, orgId, ownerId!, current.id);
+        mergedIntoId = ownerId;
+        current = await this.row(tx, orgId, ownerId!);
+      } else {
+        // Typed in a chat, where anyone can type someone else's email: never link this visitor to that contact or show
+        // them its data. Staff decide whether they are the same person. Verified details that belong to two different
+        // people are reviewed too: merging into both would fold two unrelated contacts together.
+        for (const { key, ownerId, value } of owned) await claim(key, ownerId, value);
       }
 
       if (input.customFields && Object.keys(input.customFields).length) {
@@ -690,11 +698,11 @@ export class ContactsService {
       }
       if (input.email !== undefined) {
         patch.email = input.email ? normalizeEmail(input.email) : null;
-        if (input.email && !patch.email) throw badRequest('Invalid email address');
+        if (input.email && !patch.email) throw badRequest('Invalid email address', [{ path: 'email', message: 'Enter a valid email address' }]);
       }
       if (input.phone !== undefined) {
         patch.phone = input.phone ? normalizePhone(input.phone, defaultCountry) : null;
-        if (input.phone && !patch.phone) throw badRequest('Invalid phone number');
+        if (input.phone && !patch.phone) throw badRequest('Invalid phone number', [{ path: 'phone', message: 'Enter a valid phone number, with the country code if it is from another country' }]);
       }
       for (const key of ['email', 'phone'] as const) {
         const value = patch[key];
@@ -1029,6 +1037,7 @@ export class ContactsService {
     opts: { addedBy: 'ai' | 'user' | 'system'; allowCreate: boolean; allowed?: string[] },
   ): Promise<{ added: string[]; skipped: string[] }> {
     return inScope(this.tenantDb, scope, async (tx) => {
+      await assertContactInOrg(tx, scope.orgId, contactId);
       const added: string[] = [];
       const skipped: string[] = [];
       const allowed = (opts.allowed ?? []).map((a) => a.toLowerCase());
@@ -1123,6 +1132,7 @@ export class ContactsService {
    */
   async addNote(scope: Scope, contactId: string, body: string, source: 'ai' | 'user', authorUserId?: string, opts: { shareWithAssistant?: boolean } = {}) {
     return inScope(this.tenantDb, scope, async (tx) => {
+      await assertContactInOrg(tx, scope.orgId, contactId);
       const [row] = await tx
         .insert(schema.contactNotes)
         .values({ organizationId: scope.orgId, contactId, body: body.slice(0, 4000), source, authorUserId: authorUserId ?? null })
@@ -1190,6 +1200,8 @@ export class ContactsService {
     },
   ) {
     return inScope(this.tenantDb, scope, async (tx) => {
+      if (input.contactId) await assertContactInOrg(tx, scope.orgId, input.contactId);
+      if (input.conversationId) await assertConversationInOrg(tx, scope.orgId, input.conversationId);
       const [row] = await tx
         .insert(schema.tasks)
         .values({

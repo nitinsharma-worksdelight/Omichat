@@ -65,6 +65,21 @@ cross-tenant safety, the full capture → qualify → book tool loop, invalid-to
 protection, handoff (keyword, tool, refusal), human takeover mid-generation, burst debouncing, widget sessions
 + SSE streaming, allowed origins, API-key scopes, signed webhooks with retries, and n8n workflow calls.
 
+### Integration tier (real Postgres + Redis)
+
+`npm test` runs on embedded Postgres with one connection and in-process queues. The integration tier runs what
+those can't show — BullMQ job-id rules, real concurrency, Redis locks — against a real Postgres (with pgvector) and
+Redis. It is skipped unless both URLs are set:
+
+```bash
+docker compose up -d postgres redis   # or any Postgres 17 + pgvector and Redis
+INTEGRATION_DATABASE_URL=postgres://omni:omni@localhost:5432/postgres \
+INTEGRATION_REDIS_URL=redis://localhost:6379/15 \
+npm run test:integration
+```
+
+Each test file creates (and drops) its own database; the Redis database given is flushed, so use a spare one.
+
 ## How it fits together
 
 ```

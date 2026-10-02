@@ -6,6 +6,8 @@
  */
 
 import { clamp, fromSaved, isDrag, parseSaved, placement, toSaved, type Point, type SavedPosition, type Side } from './drag';
+import { announcesHandoff, headerLine, type Status } from './handoff';
+import { safeLink } from './links';
 import { startersToOffer, type Starter } from './starters';
 
 interface Theme {
@@ -36,7 +38,6 @@ interface PublicMessage {
   sources: Array<{ title: string; url: string }>;
 }
 
-type Status = 'ai_active' | 'human_active' | 'closed' | null;
 
 const script =
   (document.currentScript as HTMLScriptElement | null) ??
@@ -389,6 +390,13 @@ class ChatWidget {
   private visitorId: string | null = store('visitor');
   private conversationId: string | null = null;
   private status: Status = null;
+  /** The chat has loaded (history and status): a change of status from here on is news to the visitor. */
+  private ready = false;
+  /** A team member has replied since the chat passed to the team. */
+  private teamReplied = false;
+  private subtitle!: HTMLElement;
+  private aiChip!: HTMLElement;
+  private usualSubtitle = 'We typically reply in seconds';
   private readonly rendered = new Set<string>();
   private lastMessageId: string | null = null;
   private streamingBubble: HTMLDivElement | null = null;
@@ -439,8 +447,10 @@ class ChatWidget {
     const titles = el('div', 'titles');
     const title = el('div', 't', 'Chat with us');
     const byline = el('div', 's');
-    const subtitle = el('span', undefined, 'We typically reply in seconds');
-    byline.append(el('span', 'ai', 'AI'), subtitle);
+    const subtitle = el('span', undefined, this.usualSubtitle);
+    this.subtitle = subtitle;
+    this.aiChip = el('span', 'ai', 'AI');
+    byline.append(this.aiChip, subtitle);
     titles.append(title, byline);
     const close = el('button', 'x');
     close.type = 'button';
@@ -524,7 +534,8 @@ class ChatWidget {
       this.root.classList.toggle('right', this.side === 'right');
       title.textContent = this.displayName();
       this.panel.setAttribute('aria-label', `Chat with ${title.textContent}`);
-      subtitle.textContent = t.subtitle || `${this.config.assistantName} · usually replies instantly`;
+      this.usualSubtitle = t.subtitle || `${this.config.assistantName} · usually replies instantly`;
+      this.renderHeader();
       // The pictures and names drawn before the settings arrived (the header, or a chat restored with its history).
       this.root.querySelectorAll<HTMLElement>('.av.bot').forEach((av) => this.fillFace(av));
       this.root.querySelectorAll<HTMLElement>('.meta .name').forEach((name) => {
@@ -683,6 +694,10 @@ class ChatWidget {
       data.messages.forEach((m) => this.addBubble(m));
       // A chat already with the team (reload or another tab) says so after its history, as it did when it happened.
       if (data.status === 'human_active') this.showHandoffNotice();
+      const replies = data.messages.filter((m) => m.role !== 'user');
+      this.teamReplied = data.status === 'human_active' && replies.length > 0 && replies[replies.length - 1]!.role === 'agent';
+      this.ready = true;
+      this.renderHeader();
       this.sessionMessages ??= data.messages;
       this.showIntro();
       this.error('');
@@ -902,6 +917,10 @@ class ChatWidget {
 
   private addBubble(m: PublicMessage): HTMLElement | null {
     if (this.rendered.has(m.id)) return null;
+    if (m.role === 'agent' && this.status === 'human_active' && !this.teamReplied) {
+      this.teamReplied = true;
+      this.renderHeader();
+    }
     // A message of the visitor's from the server: they have written, so the starters are done.
     if (m.role === 'user' && !m.id.startsWith('local-')) this.removeStarters();
     // Replace the optimistic copy of our own message once the server echoes it.
@@ -932,9 +951,13 @@ class ChatWidget {
         const a = el('a');
         a.innerHTML = ICON_DOC;
         a.append(el('span', undefined, s.title.split(' › ').pop()));
-        a.href = s.url;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
+        // Any other kind of address shows the source's name without a link.
+        const href = safeLink(s.url);
+        if (href) {
+          a.href = href;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+        }
         wrap.appendChild(a);
       }
       col.insertBefore(wrap, meta);
@@ -1014,9 +1037,17 @@ class ChatWidget {
 
   private setStatus(status: Status) {
     if (status === this.status) return;
-    const previous = this.status;
+    const announce = announcesHandoff(this.status, status, this.ready);
     this.status = status;
-    if (status === 'human_active' && previous) this.showHandoffNotice();
+    if (status !== 'human_active') this.teamReplied = false;
+    if (announce) this.showHandoffNotice();
+    this.renderHeader();
+  }
+
+  /** The header's second line, and the AI tag only while the assistant answers. */
+  private renderHeader() {
+    this.subtitle.textContent = headerLine(this.status, this.teamReplied, this.usualSubtitle);
+    this.aiChip.style.display = this.status === 'human_active' ? 'none' : '';
   }
 
   private showHandoffNotice() {

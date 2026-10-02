@@ -4,10 +4,14 @@ Single source of truth for phase status. Plans: [`docs/IMPLEMENTATION_PLAN.md`](
 
 ## Current phase
 
-**F9 (Phase 18) — Analytics / Management** · **✅ Complete** (2026-10-01): F9a and F9b built and verified (269/269
-tests). Next: F7 (Phase 16) — Chat Widget, not started · updated 2026-10-01
+**H3 (Phase 21) — Message reliability** · **✅ Complete** (2026-10-02): 362/362 tests, integration tier 14/14, both
+audit failures re-checked live. Next: H4 (Phase 22) — Cost and abuse limits, awaiting approval · updated 2026-10-02
 
 Feature order (changed 2026-10-01): F1–F6 done → F9 → F7 → F8, then Phase 4. The hook tracks F1–F9 as phases 10–18.
+
+Production hardening track (added 2026-10-02, after the production-readiness audit): H1–H10, tracked by the hook as
+phases 19–28 and run before the remaining feature phases. Plan:
+[`docs/IMPLEMENTATION_PLAN.md` → Production hardening track](docs/IMPLEMENTATION_PLAN.md#production-hardening-track-h1h10).
 
 ## Phase status
 
@@ -33,6 +37,16 @@ Feature order (changed 2026-10-01): F1–F6 done → F9 → F7 → F8, then Phas
 | 16 | F7 · Chat Widget | ⏳ Not started | — |
 | 17 | F8 · Follow-ups | ⏳ Not started | — |
 | 18 | F9 · Analytics / Management | ✅ Complete (2026-10-01) | 2026-10-01 |
+| 19 | H1 · Queue semantics and test foundation | ✅ Complete (2026-10-02) | 2026-10-02 |
+| 20 | H2 · Security holes | ✅ Complete (2026-10-02) | 2026-10-02 |
+| 21 | H3 · Message reliability | ✅ Complete (2026-10-02) | 2026-10-02 |
+| 22 | H4 · Cost and abuse limits | 📝 Planned — awaiting approval | — |
+| 23 | H5 · Data integrity | 📝 Planned — awaiting approval | — |
+| 24 | H6 · Production guards and observability | 📝 Planned — awaiting approval | — |
+| 25 | H7 · Knowledge-base ingestion | 📝 Planned — awaiting approval | — |
+| 26 | H8 · Widget robustness, privacy and handoff UX | 📝 Planned — awaiting approval | — |
+| 27 | H9 · Summaries and analytics correctness | 📝 Planned — awaiting approval | — |
+| 28 | H10 · Remaining medium/low items | 📝 Planned — awaiting approval | — |
 <!-- phase-status:end -->
 
 Statuses: ⏭️ Skipped · ⏸️ Deferred · ⏳ Not started · 📝 Planned — awaiting approval · 🔨 In progress ·
@@ -61,6 +75,71 @@ tracks numbered phases; U phases are updated here by hand. Plan:
 | U7 | Operations + Settings — Appointments, Calendars, Automations, Settings | ✅ Complete (2026-10-02) | 2026-10-02 |
 | U8 | Responsive + polish — no fixed min width, phone/tablet, contrast and dark-mode pass | ✅ Complete (2026-10-02) | 2026-10-02 |
 | U9 | Dark mode switch and menu order (on request) | ✅ Complete (2026-10-02) | 2026-10-02 |
+
+## QA fix track (Q1–Q7)
+
+Fixes for the QA bug report (BUG-01–BUG-15, tested 2 Oct 2026; all 15 confirmed in the code). Kept outside the hook's
+table like the UI track and updated here by hand. Each Q phase is approved on its own. Plan and decisions:
+[`docs/IMPLEMENTATION_PLAN.md` → QA fix track](docs/IMPLEMENTATION_PLAN.md#qa-fix-track-q1q7).
+
+| Phase | Title | Bugs | Status | Last verified |
+|---|---|---|---|---|
+| Q1 | Bot honesty: booking, dates, hours, phone numbers | 01, 02, 03, 06 | ✅ Complete (2026-10-03) | 2026-10-03 |
+| Q2 | Demo page off the dashboard address | 15 | ✅ Complete (2026-10-03) | 2026-10-03 |
+| Q3 | Form validation | 04, 05, 08, 09, 12 | ✅ Complete (2026-10-03) | 2026-10-03 |
+| Q4 | Owner warnings | 01, 03, 06, 07 | ✅ Complete (2026-10-03) | 2026-10-03 |
+| Q5 | Handoff gaps | 13 | ✅ Complete (2026-10-03) | 2026-10-03 |
+| Q6 | Layout | 10, 11 | ✅ Complete (2026-10-03) | 2026-10-03 |
+| Q7 | Reply speed (code only) | 14 | 📝 Planned — awaiting approval | — |
+
+**Q1 verification (2026-10-03):** typecheck clean (server, dashboard, widget); `test/qa-honesty.test.ts` 15/15.
+Full suite before Q1: 362/362. After Q1: 375/377 in each of two full runs; the failures differed between runs and
+were 30 s test timeouts under full-suite load (memory fold, SSRF guard; then queue dispatch, prompt snapshot). All
+four of those files pass together (78/78). A third full run was stopped on request. The prompt snapshot was updated on
+purpose. A timed-out snapshot test can save its snapshot under the next test's name: a stray `limits > …` entry from
+that was removed. The older stale `company name > …` entry was left as it was. No live-model check was run. The
+full suite then passed with Q1 in it during Q2's verification (383/383).
+
+**Q2 verification (2026-10-03):** typecheck clean (server, dashboard, widget); `test/demo-page.test.ts` 6/6; full
+suite 383/383. Browser check on the local API (no chat message sent, so no model calls): `/demo?key=…` loads with
+the new headers and no console errors, shows the business's name and colour, the chat panel opens with its styles and
+avatar and the session starts; `localhost:5173/demo.html?key=…` forwards to `localhost:4000/demo` with the key; a link
+without a key shows the "missing its chat key" message. **Testers after deploy:** Settings → Website chat → the tester
+chat → allowed websites `https://omichat-api.onrender.com` (instead of the Vercel address); share
+`https://omichat-api.onrender.com/demo?key=pk_…`.
+
+**Q3 verification (2026-10-03):** typecheck clean (server, dashboard, widget); `test/qa-validation.test.ts` 12/12 and
+`test/dashboard-validate.test.ts` 8/8; full suite 403/403, with no existing test changed for the new messages. The
+dashboard's pure error helpers moved to `lib/errors.ts` (re-exported by `api.ts`) so the server suite can test them;
+the two Q3 files pass again after the move. No browser check was run for Q3.
+
+**Q4 verification (2026-10-03):** typecheck clean (server, dashboard, widget); `test/bot-warnings.test.ts` 11/11;
+`test/widget-visitor-ip.test.ts` 11/11 (3 new; the 6 recording tests now turn the setting on, since new organizations
+start with it off); full suite 417/417. After that run, `warnings.ts` stopped importing a type from `editorNav.ts`
+(the server typecheck reached browser-only files through it); `bot-warnings.test.ts` passes again. **Decision
+(2026-10-03):** visitor IP option A — organizations from before the setting keep recording; new ones start off. No
+browser check was run for Q4.
+
+**Q5 verification (2026-10-03):** typecheck clean (server, dashboard, widget); `test/handoff-gaps.test.ts` 8/8; full
+suite 425/425. The widget bundle was rebuilt (`npm run build -w @omni/widget`, untracked `apps/widget/dist`), so the
+local API serves the Q2.3 and Q5 widget changes. No browser check was run for Q5.
+
+**Q6 verification (2026-10-03):** typecheck clean; full suite 425/425 (no server changes). Browser check on the local
+dashboard, measured with element positions (screenshots weren't possible: the app window was minimized), no data
+changed:
+- Knowledge (18 documents): the last row's menu is drawn at page level, below its button and past the table's
+  bottom edge, all four options shown, right edge level with the button; with no room below it opens above; focus
+  moves to "View chunks"; Escape closes it and returns focus; "View chunks" opens its dialog; scrolling and an outside
+  click close it. "Add content", knowledge-base actions, Account and Notifications still open inside their parent
+  (the organization switcher is hidden at that window width; same unchanged path).
+- Appointments: the only upcoming appointment was a cancelled one ("Emails" button only), checked at 375, 768, 1024
+  and 1280 px; a booked row's four actions were simulated in the page (not saved, removed by reloading). Two problems
+  found and fixed during the check: on a phone the appointment column shrank to 114 px instead of the buttons
+  wrapping (now at least 12rem), and the full button group ran 140 px past the row (now no wider than the row). After
+  the fixes: no badge overlaps a button and nothing runs off the row at any width; buttons beside the appointment at
+  1024/1280 px, below it at 375/768 px.
+- Found and fixed during the knowledge check: focus didn't reach the menu (it was still hidden while being placed)
+  and the menu sat 15 px left of its button (the scrollbar's width).
 
 ## Completed work
 
@@ -826,6 +905,7 @@ tracks numbered phases; U phases are updated here by hand. Plan:
   - **Browser check** (your dev servers, last 30 days): median first reply 38 s, 83% handoff rate, 13 of 15 AI handoffs
     not answered yet, reasons led by "Customer asked for a person"; your three "Realtime check" chats from yesterday
     are in these figures. No sideways scrolling.
+
 - **2026-10-02 — F9 committed** (`f287473`, as asked before U1), separately from the UI redesign docs.
 - **2026-10-02 — U1 Foundations implemented and verified** (approved with self-hosted fonts). Design only; no
   feature, API, server, database, route, state or logic changes.
@@ -998,6 +1078,120 @@ tracks numbered phases; U phases are updated here by hand. Plan:
 - **2026-10-02 — Full-width pages** (on request). Overview and Analytics (`mx-auto max-w-[1360px]`) and Approvals
   (`mx-auto max-w-[880px]`) were capped and centred; their wrappers now match Bots (`px-4 sm:px-8 py-6`, keeping their
   own `space-y-*`). Checked at 1920 px: all five pages start at the menu edge with no max width. Typecheck clean.
+- **2026-10-02 — White light theme** (on request, option A). Light tokens only in `index.css` (`:root`; dark
+  untouched): `--bg` #ffffff, `--sidebar` #fafafa, cards stay white with `--border` #e4e4e7 and a slightly clearer
+  `--shadow-card`; `--surface-2` #f4f4f5, `--surface-3` #e4e4e7, `--border-strong` #d4d4d8 (no beige left). No
+  hardcoded copies existed elsewhere (the 8 `bg-[#…]` in Settings are the widget preview). Also fixed: with no stored
+  theme, a device theme change now updates every page, the login page included (`theme.tsx`). Checked Overview,
+  Knowledge, Conversations and Settings: computed backgrounds and borders show no beige; muted text 5.45–5.99:1.
+- **2026-10-02 — Production-readiness audit.** Static review of the 12 features plus 15 live scenarios (fresh
+  conversation each, gpt-4o-mini, $0.0136). 5 Critical issues, about 30 High; none of the features production-ready.
+  Confirmed live: a message sent mid-reply is never answered; a question asked during a handoff is never answered
+  after the AI takes back over; faked `X-Forwarded-For` bypasses the session rate limit (40/40 allowed). Plan:
+  hardening track H1–H10 (phases 19–28).
+- **2026-10-02 — H1 implemented and verified** (as approved).
+  - **Nudge jobs can no longer stop for good.** The outbox nudge (`dispatch`) and the booking-email nudge are
+    *coalesced*: adds merge while one waits, an add during a run queues the next run, and a failure never blocks the
+    next one (BullMQ: a Redis generation number in the job id, bumped as each run starts; failed nudges removed).
+    Re-embed and fold jobs forget their id when they fail, so they can be retried.
+  - **The in-process queue now follows BullMQ's job-id rules** (taken while waiting, retrying, running, and after a
+    final failure unless `removeOnFail`), so tests see what production does. No existing test needed changes.
+  - **Integration tier:** `npm run test:integration` (`apps/server/test-integration/`) against real Postgres +
+    Redis, skipped unless `INTEGRATION_DATABASE_URL` and `INTEGRATION_REDIS_URL` are set. Covers BullMQ job ids and
+    coalescing, the outbox after a failed dispatch, 8 concurrent bookings of one slot, the overlap rule refusing a
+    direct insert (23P01), row-level security, and the Redis lock across clients (one holder, renewal past the TTL,
+    wait timeout, lost-lock signal). Run locally on Homebrew Postgres 17 + pgvector 0.8.7 and Redis, started only
+    for the run in a temporary folder and stopped afterwards. README explains how to run it.
+  - **Tests:** `test/queue.test.ts` (8): job id taken while waiting, running, retrying and after failing;
+    `removeOnFail`; coalescing; the outbox delivers after a failed dispatch run.
+  - **Files:** `src/infra/queue.ts`, `src/container.ts`, `src/modules/automation/service.ts`,
+    `src/modules/knowledge/service.ts`, `src/modules/ai/orchestrator.ts`, `test/queue.test.ts`,
+    `test-integration/{helpers,queue.test,concurrency.test}.ts`, `vitest.integration.config.ts`, `package.json`
+    (server and root), `tsconfig.json`, `README.md`. No migrations, no API changes.
+  - **Verification:** typecheck clean (server, dashboard, widget); 277/277 tests (`verify:phase -- 19 --complete`);
+    integration tier 11/11, and all 11 skip cleanly without the URLs.
+- **2026-10-02 — H2 implemented and verified** (as approved).
+  - **SSRF:** one address check (`isPublicAddress`, `net.BlockList`) that judges IPv6 forms carrying an IPv4 address
+    (mapped `::ffff:7f00:1`, translated, compatible, NAT64, 6to4) by that address, and blocks Teredo, CGNAT,
+    documentation, benchmarking, multicast and reserved ranges. Tenant URL fetches (website documents, webhooks,
+    workflows) go through `undici` with a connect-time lookup that re-checks every resolved address, so DNS
+    rebinding can't get through; every redirect hop is checked too. Shown before the fix: the old guard allowed
+    `[::ffff:169.254.169.254]`, `[::ffff:7f00:1]`, `[64:ff9b::a9fe:a9fe]` and `[::ffff:0:7f00:1]`.
+  - **`ALLOW_PRIVATE_URLS`** (default off; refused in production) replaces "private URLs allowed unless
+    `NODE_ENV=production`". Local development that points knowledge-base URLs or webhooks at this machine needs
+    `ALLOW_PRIVATE_URLS=true` in `apps/server/.env`.
+  - **`TRUST_PROXY` defaults to off**, so a made-up `X-Forwarded-For` no longer changes the visitor's address or
+    dodges rate limits (shown before the fix: 40/40 sessions allowed; now 30 then 429). Production logs a warning
+    when it's unset. The widget embed code still follows the proxy's forwarded protocol and host (it's only shown to
+    the signed-in staff member), so it stays `https://` behind Render without `TRUST_PROXY`.
+  - **Public chat API:** `contact` details are unverified by default: a match with another contact becomes a
+    duplicate review, never a merge. `contact.verified: true` needs the new `contacts:verify` scope (or an admin
+    session), else 403 with nothing saved. A retried message (same `messageId`) records its details and consent
+    once, and the response returns the contact id after any merge. **Behaviour change for integrations that relied
+    on the auto-merge** (documented in `docs/API.md`); the scope is in Settings → API keys.
+  - **Verified capture merges at most once:** an email and phone owned by two different contacts go to review
+    instead of folding the two together.
+  - **Cross-org ids:** bookings, tags, notes and tasks check the contact (and conversation) belongs to the
+    organization first (foreign keys bypass row-level security); the event dispatcher only names a contact from the
+    event's own organization.
+  - **Rate limiter:** a Redis error lets requests through (logged) instead of failing every limited route.
+  - **Tests:** `test/security.test.ts` (50): blocked and allowed addresses, refused URL forms, connect-time refusal
+    with a control that reaches the same server unguarded, mixed DNS answers, env defaults and the production
+    refusal, knowledge-base and webhook URLs over HTTP, the `TRUST_PROXY` default and rate limit, the public API
+    (review not merge, scope check, retry, admin), merge-once, and cross-org writes. Updated: `memory.test.ts`
+    (the API test now sends `verified` with the new scope).
+  - **Files:** `src/lib/net.ts`, `src/db/ownership.ts` (new), `src/config/env.ts`, `src/main.ts`, `src/container.ts`,
+    `src/http/app.ts`, `src/http/routes/{channels,public-api}.ts`, `src/modules/{auth,contacts,scheduling,automation}/service.ts`,
+    `src/modules/knowledge/extract.ts`, `apps/server/package.json` (`undici`), `.env.example`, `docs/API.md`,
+    dashboard `lib/types.ts` and `pages/settings/SettingsPage.tsx` (the new scope), tests above. No migrations.
+  - **Verification:** typecheck clean (server, dashboard, widget); 327/327 tests (`verify:phase -- 20 --complete`);
+    integration tier 11/11 on Postgres 17 + Redis.
+- **2026-10-02 — H3 implemented and verified** (as approved).
+  - **A message sent while the AI is replying now gets its own reply.** Each AI reply records
+    `metadata.answersThrough` (the customer message it answered); notices (the "our team hasn't replied" fallback)
+    are tagged `notice` and answer nothing; older rows without the marker keep the old position rule. One shared rule,
+    `pendingInbound` (`modules/conversations/pending.ts`), is used by the reply job, the sweeper and the "back to the
+    AI" path. The model sees waiting messages after the reply they arrived during (history = everything not pending).
+    Messages are read in `(created_at, id)` order.
+  - **Jobs don't queue for the lock in vain:** a reply job whose message is already answered or has a newer one
+    behind it leaves before taking the conversation lock; the lock wait is capped at one turn's length + 15 s.
+  - **No customer left in silence after the last attempt:** an error before the model call, a lock timeout or a lost
+    lock now apologizes, hands the chat to the team and alerts staff (only if the message is still unanswered and
+    the chat still the AI's). A temporary error (Postgres connection/serialization/deadlock codes, network resets) is
+    retried like a provider error instead of handing over at once (`lib/transient.ts`).
+  - **A retried request re-queues its reply** when the first request saved the message but couldn't queue the job
+    (the reply job forgets its id when it fails for good, so the same message can be queued again).
+  - **Unanswered-message sweeper** (every 60 s, `modules/ai/sweeper.ts`): AI-run chats in an enabled org with an
+    active bot whose latest customer message is 2 min – 24 h old, unanswered under the same rule, with no reply
+    attempt for it in the last 3 min, are queued again (`reply_<id>_sweep`, deduplicated across workers; logs
+    `ai.unanswered_recovered`). No new index needed.
+  - **Handing a chat back to the AI answers what was asked meanwhile** (staff resume, or the watcher's fallback).
+  - **Status races:** `setStatus` locks the conversation row (two simultaneous takeovers → one change, one event) and
+    takes `onlyFrom` (the AI's handoff never reopens a closed chat). Every AI message (reply, follow-ups, handoff
+    message, apology) goes through `addOutboundIf`, which checks the status with the row locked, so a takeover or
+    close a moment earlier is never talked over. Staff can't reply in a closed conversation (409). The handoff
+    watcher re-checks under the lock before alerting or running its fallback; if the fallback fails the claim is
+    released and the retry doesn't alert twice (`metadata.overdueAlerted`, cleared on any status change).
+  - **Silence cases:** an empty model reply is retried, then apologized for; early exits (AI off, bot inactive,
+    deleted bot) publish `ai.done` and a deleted bot now raises the `no_bot` alert (the job is queued for any
+    `ai_active` chat); `POST /widget/v1/messages` returns `aiQueued` (the widget doesn't use it yet — H8).
+  - **Tests:** `test/message-reliability.test.ts` (35): the rule, mid-reply message (and a check that it fails with
+    the old rule), burst, the pre-lock check, last-attempt recovery (early error, lock timeout, blip vs hard error),
+    empty replies, retry re-queue, sweeper (picks up, skips fresh/answered/AI-off/staff-answered, mid-reply case),
+    resume and fallback answers, takeover/close racing delivery, closed-chat reply, simultaneous takeovers, watcher
+    re-check and retry, no-bot/AI-off alerts, `aiQueued`. Integration (`test-integration/messages.test.ts`, 3):
+    four simultaneous takeovers → one event; the AI-message-vs-takeover race on real row locks; the sweeper SQL.
+    Updated: none (one watcher test exposed its own clock artifacts, not a defect).
+  - **Live re-check (approved, $0.0022):** the two audit failures, fresh conversation each. Mid-reply: both
+    questions answered in order (2 AI replies; `aiQueued: true`). Handoff: the question asked while waiting was
+    answered right after the fallback put the AI back.
+  - **Files:** `modules/conversations/{pending.ts (new),service.ts}`, `modules/ai/{orchestrator.ts,sweeper.ts (new)}`,
+    `modules/handoff/service.ts`, `lib/transient.ts (new)`, `container.ts`, `http/routes/widget.ts`, `docs/API.md`,
+    the two test files above. No migrations.
+  - **Not changed (left to later phases):** the widget still shows "typing" after every send (H8 uses `aiQueued` and
+    `ai.done`); a partial failure between the handoff message and the status change is only caught by the
+    sweeper if the chat stays `ai_active` (H8/H10 if it matters).
+  - **Verification:** typecheck clean; 362/362 tests (`verify:phase -- 21 --complete`); integration tier 14/14.
 
 ## Remaining issues
 
@@ -2186,6 +2380,9 @@ tracks numbered phases; U phases are updated here by hand. Plan:
 ### Verification log
 
 <!-- verification-log:start -->
+- 2026-10-02 21:19 · Phase 21 · ✅ PASS · typecheck ok · tests 362/362 passed · 138s · marked complete
+- 2026-10-02 14:57 · Phase 20 · ✅ PASS · typecheck ok · tests 327/327 passed · 135s · marked complete
+- 2026-10-02 02:50 · Phase 19 · ✅ PASS · typecheck ok · tests 277/277 passed · 211s · marked complete
 - 2026-10-01 19:17 · Phase 18 · ✅ PASS · typecheck ok · tests 269/269 passed · 127s · marked complete
 - 2026-10-01 19:14 · Phase 18 · ✅ PASS · typecheck ok · tests 269/269 passed · 130s
 - 2026-10-01 19:11 · Phase 18 · ❌ FAIL · typecheck FAILED · tests 269/269 passed · 128s

@@ -4,6 +4,7 @@ import type { Container } from '../../container';
 import { badRequest } from '../../lib/errors';
 import { parseInput } from '../../lib/validation';
 import { convChannel, type MessageView, type RealtimeEvent } from '../../modules/conversations/service';
+import { requireRole, requireScope } from '../../modules/auth/service';
 import { requireAccess } from '../auth';
 
 /** After a message of the turn, how long to wait for more (a follow-up, the status change) if `ai.done` never comes. */
@@ -29,6 +30,12 @@ export async function registerPublicApiRoutes(app: FastifyInstance, c: Container
             name: z.string().max(200).optional(),
             email: z.string().max(254).optional(),
             phone: z.string().max(40).optional(),
+            /**
+             * Your app proved this person owns the email/phone (e.g. they are signed in). Only then does a match merge
+             * this customer into the existing contact; otherwise it becomes a duplicate review for staff. Needs the
+             * `contacts:verify` scope (or an admin session).
+             */
+            verified: z.boolean().default(false),
             /** E.g. a form's opt-in checkbox: its answer and its label (the label is required for a yes). */
             marketingConsent: z.object({ granted: z.boolean(), text: z.string().trim().max(1000).optional() }).optional(),
           })
@@ -42,6 +49,10 @@ export async function registerPublicApiRoutes(app: FastifyInstance, c: Container
       }),
       req.body,
     );
+    if (input.contact?.verified) {
+      if (auth.kind === 'api_key') requireScope(auth, 'contacts:verify');
+      else requireRole(auth, 'admin');
+    }
     const consent = input.contact?.marketingConsent;
     if (consent?.granted && !consent.text) throw badRequest('marketingConsent.text is required for a yes: send the wording the customer agreed to');
     const channel = await c.channels.ensureSystemChannel(auth.orgId, 'api');
@@ -59,15 +70,18 @@ export async function registerPublicApiRoutes(app: FastifyInstance, c: Container
       timezone: input.timezone,
     });
     let contactId = result.contactId;
-    if (input.contact && (input.contact.name || input.contact.email || input.contact.phone)) {
-      // Sent by an authenticated integration, so a matching email/phone merges into the existing contact.
-      const { name, email, phone } = input.contact;
-      contactId = (await c.contacts.captureDetails(scope, contactId, { name, email, phone }, 'contact', { trust: 'verified', conversationId: result.conversationId })).contactId;
+    // A retried message (same messageId) was handled the first time: don't record its details or consent again.
+    if (!result.duplicate && input.contact && (input.contact.name || input.contact.email || input.contact.phone)) {
+      // Form fields are typed by the customer, so an email/phone someone else owns only merges when the app vouches
+      // for it; otherwise staff review the match, and this customer never sees the other contact's data.
+      const { name, email, phone, verified } = input.contact;
+      const trust = verified ? 'verified' : 'unverified';
+      contactId = (await c.contacts.captureDetails(scope, contactId, { name, email, phone }, 'contact', { trust, conversationId: result.conversationId })).contactId;
     }
-    if (consent) {
+    if (!result.duplicate && consent) {
       await c.contacts.recordConsent(scope, contactId, { purpose: 'marketing', granted: consent.granted, text: consent.text, source: 'api', conversationId: result.conversationId });
     }
-    const base = { conversationId: result.conversationId, contactId: result.contactId, message: result.message };
+    const base = { conversationId: result.conversationId, contactId, message: result.message };
     if (!input.wait || !result.aiQueued) return reply.status(202).send({ ...base, reply: null, replies: [] });
 
     // The reply job is debounced, so subscribing now cannot miss it. A turn's messages (the reply, a follow-up such

@@ -24,6 +24,7 @@ import { ChannelRegistry } from './modules/channels/adapter';
 import { ChannelsService } from './modules/channels/service';
 import { ContactsService } from './modules/contacts/service';
 import { AnalyticsService } from './modules/analytics/service';
+import { UnansweredSweeper } from './modules/ai/sweeper';
 import { HandoffWatcher } from './modules/handoff/service';
 import { ConversationsService } from './modules/conversations/service';
 import { DealsService } from './modules/deals/service';
@@ -94,7 +95,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   const prices = overrides.prices ?? PriceBook.fromEnv(env, (model) =>
     logger.warn({ model }, 'No price configured for this model: its AI cost is recorded as $0 and budgets cannot be enforced (set LLM_PRICE_* or LLM_MODEL_PRICES)'),
   );
-  const allowPrivateUrls = env.NODE_ENV !== 'production';
+  const allowPrivateUrls = env.ALLOW_PRIVATE_URLS;
   const clock = overrides.clock;
 
   const tokens = new TokenService(env);
@@ -113,7 +114,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   await knowledge.init(db);
   // Emails a booking change planned go out right after it commits; a timer catches reminders as they come due.
   const scheduling = new SchedulingService(tenantDb, new CalendarProviderRegistry(), clock, () =>
-    void queue.add('appointment-email', {}, { jobId: 'appointment-email-now', delayMs: 250, attempts: 1 }).catch((err) => logger.error({ err }, 'could not queue appointment emails')),
+    void queue.add('appointment-email', {}, { jobId: 'appointment-email-now', delayMs: 250, attempts: 1, coalesce: true }).catch((err) => logger.error({ err }, 'could not queue appointment emails')),
   );
   const appointmentEmails = new AppointmentEmailSender(db, email, logger, clock);
   const automation = new AutomationService(db, tenantDb, queue, secrets, email, logger, {
@@ -127,6 +128,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
     onEventRecorded: () => automation.kick(),
   });
   const handoffWatcher = new HandoffWatcher(db, tenantDb, conversations, logger, () => automation.kick(), clock);
+  const unansweredSweeper = new UnansweredSweeper(db, conversations, logger, clock);
   const analytics = new AnalyticsService(tenantDb, clock);
   const toolExecutor = new ToolExecutor(createTools({ contacts, qualification, knowledge, scheduling, automation, deals }), tenantDb, logger);
   const orchestrator = new AiOrchestrator({
@@ -186,6 +188,8 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
       // Reminders (and any email whose send failed and is waiting to retry) every minute.
       // Handed-off chats nobody has answered within their bot's limit, every minute.
       timers.push(setInterval(() => void handoffWatcher.escalateOverdue().catch((err) => logger.error({ err }, 'handoff watch failed')), 60_000));
+      // Customer messages the AI never answered (nothing queued, or the job died): queued again every minute.
+      timers.push(setInterval(() => void unansweredSweeper.run().catch((err) => logger.error({ err }, 'unanswered-message sweep failed')), 60_000));
       timers.push(setInterval(() => void appointmentEmails.sendDue().catch((err) => logger.error({ err }, 'appointment email run failed')), 60_000));
     }
   }
@@ -201,6 +205,8 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   return {
     env,
     logger,
+    /** The current time (fixed in tests). */
+    now: clock ?? (() => new Date()),
     database,
     db,
     tenantDb,
@@ -225,6 +231,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
     scheduling,
     appointmentEmails,
     handoffWatcher,
+    unansweredSweeper,
     analytics,
     automation,
     conversations,

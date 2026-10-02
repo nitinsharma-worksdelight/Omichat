@@ -29,6 +29,7 @@ import { ApiError, del, get, patch, post } from '../../lib/api';
 import { displayValue, formatDate, formatDateTime, timeAgo } from '../../lib/format';
 import { timezones } from '../../lib/hooks';
 import { useAction } from '../../lib/mutations';
+import { todayLocal } from '../../lib/validate';
 import { roleAtLeast, useBots, useCustomFields, useOrg, useTags } from '../../lib/queries';
 import { Link, navigate } from '../../lib/router';
 import { ContactDeals } from '../deals/DealsPage';
@@ -904,6 +905,9 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
   const [title, setTitle] = useState('');
   const [dueAt, setDueAt] = useState('');
   const [priority, setPriority] = useState<Task['priority']>('normal');
+  // The date input's own value (YYYY-MM-DD) against today where the user is; today itself is always fine.
+  const today = todayLocal();
+  const dueError = dueAt && dueAt < today ? "Due date can't be in the past" : null;
   const create = useAction(
     () => post<Task>('/v1/tasks', { title: title.trim(), contactId, priority, dueAt: dueAt ? new Date(`${dueAt}T09:00:00`).toISOString() : null }),
     {
@@ -924,14 +928,14 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
           className="flex items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (title.trim()) create.mutate();
+            if (title.trim() && !dueError) create.mutate();
           }}
         >
           <Field label="New task" className="flex-1">
             <Input value={title} maxLength={200} placeholder="Call back about pricing" onChange={(e) => setTitle(e.target.value)} />
           </Field>
-          <Field label="Due">
-            <Input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+          <Field label="Due" error={dueError}>
+            <Input type="date" value={dueAt} min={today} onChange={(e) => setDueAt(e.target.value)} />
           </Field>
           <Field label="Priority">
             <Select value={priority} onChange={(e) => setPriority(e.target.value as Task['priority'])}>
@@ -940,7 +944,7 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
               <option value="high">High</option>
             </Select>
           </Field>
-          <Button type="submit" icon={<Plus className="size-4" />} loading={create.isPending} disabled={!title.trim()}>
+          <Button type="submit" icon={<Plus className="size-4" />} loading={create.isPending} disabled={!title.trim() || Boolean(dueError)}>
             Add
           </Button>
         </form>

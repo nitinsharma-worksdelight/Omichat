@@ -32,19 +32,17 @@ if (!document.documentElement.dataset.theme) applyTheme(resolvedTheme());
 
 const listeners = new Set<() => void>();
 
+// With no choice stored, follow the device when its setting changes — on every page, the login page included.
+systemDark().addEventListener('change', () => {
+  if (storedTheme()) return;
+  applyTheme(resolvedTheme());
+  listeners.forEach((listener) => listener());
+});
+
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  const list = systemDark();
-  // With no choice stored, follow the device when its setting changes.
-  const onSystemChange = () => {
-    if (storedTheme()) return;
-    applyTheme(resolvedTheme());
-    listener();
-  };
-  list.addEventListener('change', onSystemChange);
   return () => {
     listeners.delete(listener);
-    list.removeEventListener('change', onSystemChange);
   };
 }
 

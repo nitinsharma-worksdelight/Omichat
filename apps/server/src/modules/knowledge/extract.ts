@@ -73,7 +73,7 @@ export async function extractFromUrl(startUrl: string, opts: UrlExtractOptions):
       page = await fetchLimited(pageUrl, {
         timeoutMs: 15_000,
         maxBytes: 5_000_000,
-        validate: (u) => assertSafeUrl(u, { allowPrivate: opts.allowPrivate }),
+        allowPrivate: opts.allowPrivate,
       });
     } catch (err) {
       if (pageUrl === queue[0] || sections.length === 0) throw err;

@@ -28,6 +28,8 @@ export const API_KEY_SCOPES = [
   'conversations:write',
   'contacts:read',
   'contacts:write',
+  /** Public chat API: `contact.verified` — the app vouches for the email/phone, so a match merges contacts. */
+  'contacts:verify',
   'appointments:read',
   'appointments:write',
   'deals:read',

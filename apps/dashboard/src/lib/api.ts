@@ -2,6 +2,7 @@
  * Thin fetch wrapper for the Omni API: base URL, bearer token, org header, JSON errors.
  * Errors from the server look like `{ error: { code, message, details? } }`.
  */
+import { ApiError, normalizeDetails } from './errors';
 
 export const API_URL = String(import.meta.env.VITE_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
 
@@ -46,49 +47,7 @@ export const session = {
   },
 };
 
-export interface ErrorDetail {
-  path: string;
-  message: string;
-}
-
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-  readonly details: ErrorDetail[];
-
-  constructor(status: number, code: string, message: string, details: ErrorDetail[] = []) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
-
-function normalizeDetails(raw: unknown): ErrorDetail[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((d) => {
-    if (typeof d === 'string') return { path: '', message: d };
-    const o = (d ?? {}) as { path?: unknown; message?: unknown };
-    return { path: typeof o.path === 'string' ? o.path : '', message: String(o.message ?? '') };
-  });
-}
-
-/** Human-readable message for any thrown value, including validation details. */
-export function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    if (err.details.length) {
-      const first = err.details
-        .slice(0, 3)
-        .map((d) => (d.path && d.path !== 'config' ? `${d.path}: ${d.message}` : d.message))
-        .join('; ');
-      return `${err.message} — ${first}${err.details.length > 3 ? ` (+${err.details.length - 3} more)` : ''}`;
-    }
-    return err.message;
-  }
-  if (err instanceof Error) return err.message;
-  return 'Something went wrong';
-}
+export { ApiError, errorMessage, fieldErrors, fieldLabel, type ErrorDetail } from './errors';
 
 const unauthorizedListeners = new Set<() => void>();
 

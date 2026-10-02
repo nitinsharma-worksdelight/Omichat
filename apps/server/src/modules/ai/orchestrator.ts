@@ -6,6 +6,7 @@ import type { TenantDb } from '../../db/tenant';
 import type { LockService } from '../../infra/lock';
 import type { QueueDriver } from '../../infra/queue';
 import type { Logger } from '../../lib/logger';
+import { isTransientError } from '../../lib/transient';
 import { approvalState } from '../approvals/service';
 import type { AutomationService } from '../automation/service';
 import type { OrgSettings } from '../../db/schema';
@@ -15,7 +16,8 @@ import type { BotsService, BotView } from '../bots/service';
 import type { ChannelRegistry } from '../channels/adapter';
 import { openingGreeting } from '../channels/service';
 import type { ContactsService } from '../contacts/service';
-import { toMessageView, type ConversationsService, type MessageView } from '../conversations/service';
+import { toMessageView, type ConversationRow, type ConversationsService, type MessageView } from '../conversations/service';
+import { answers, pendingInbound } from '../conversations/pending';
 import type { DealsService } from '../deals/service';
 import type { KnowledgeService, RetrievedChunk } from '../knowledge/service';
 import type { QualificationService } from '../leads/qualification';
@@ -70,10 +72,47 @@ export class AiOrchestrator {
 
   /** Queue handler. One reply at a time per conversation; a burst of messages gets one reply. */
   async handle(job: ReplyJob, meta: { attempt: number; maxAttempts: number }): Promise<void> {
-    // The lock renews itself while the reply runs, so a short TTL only matters if this worker dies.
-    await this.deps.locks.withLock(`conv_${job.conversationId}`, { ttlMs: 60_000, waitMs: 90_000 }, (lockLost) =>
-      this.reply(job, meta, lockLost),
-    );
+    try {
+      // Before queueing up for the conversation's lock: a job whose message already has a newer one behind it, or an
+      // answer, would only hold a worker slot while it waits to find that out.
+      if (await this.superseded(job)) return;
+      // The lock renews itself while the reply runs, so a short TTL only matters if this worker dies. Waiting longer
+      // than one reply can take only means the holder is stuck.
+      await this.deps.locks.withLock(
+        `conv_${job.conversationId}`,
+        { ttlMs: 60_000, waitMs: Math.min(90_000, this.deps.env.AI_TURN_TIMEOUT_MS + 15_000) },
+        (lockLost) => this.reply(job, meta, lockLost),
+      );
+    } catch (err) {
+      // Earlier attempts are retried by the queue. After the last one the customer must not be left in silence.
+      if (meta.attempt < meta.maxAttempts) throw err;
+      this.deps.logger.error({ err, orgId: job.orgId, conversationId: job.conversationId }, 'AI reply failed outside the model call');
+      await this.giveUp(job);
+    }
+  }
+
+  /** Whether this job's message is no longer the latest one waiting for an answer (answered, or a newer one came). */
+  private async superseded(job: ReplyJob): Promise<boolean> {
+    const rows = await this.deps.conversations.recentRows({ orgId: job.orgId }, job.conversationId, 60);
+    return pendingInbound(rows).at(-1)?.id !== job.triggerMessageId;
+  }
+
+  /** The last attempt failed before or after the model call: apologize and hand the chat to the team, with an alert. */
+  private async giveUp(job: ReplyJob): Promise<void> {
+    const scope = { orgId: job.orgId };
+    try {
+      if (await this.superseded(job)) return;
+      const conv = await this.deps.tenantDb.run(job.orgId, (tx) => this.deps.conversations.row(tx, job.orgId, job.conversationId));
+      const bot = conv.botId ? await this.deps.bots.get(scope, conv.botId).catch(() => null) : null;
+      await this.handoff(scope, conv.id, bot, 'The assistant hit an error', "Sorry — I'm having trouble right now. A member of our team will reply here shortly.", {
+        alwaysNotify: true,
+        answersThrough: job.triggerMessageId,
+      });
+      await this.deps.conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId: '', messageId: null });
+    } catch (err) {
+      // The unanswered-message sweeper looks at this conversation again.
+      this.deps.logger.error({ err, orgId: job.orgId, conversationId: job.conversationId }, 'could not hand the conversation to the team');
+    }
   }
 
   private async reply(job: ReplyJob, meta: { attempt: number; maxAttempts: number }, lockLost: AbortSignal): Promise<void> {
@@ -91,7 +130,12 @@ export class AiOrchestrator {
       // The history shows up to twice the history size, plus room for a burst of new messages.
       const limit = this.deps.env.AI_HISTORY_MESSAGES * 2 + 20;
       const rows = (
-        await tx.select().from(schema.messages).where(eq(schema.messages.conversationId, conv.id)).orderBy(desc(schema.messages.createdAt)).limit(limit)
+        await tx
+          .select()
+          .from(schema.messages)
+          .where(eq(schema.messages.conversationId, conv.id))
+          .orderBy(desc(schema.messages.createdAt), desc(schema.messages.id))
+          .limit(limit)
       ).reverse();
       // Web chat: the greeting the widget showed before the first message, and the page of the latest one.
       const [account] =
@@ -103,6 +147,8 @@ export class AiOrchestrator {
         conv,
         org: org!,
         recent: rows.map(toMessageView),
+        /** The customer messages nobody has answered yet (see `pendingInbound`). */
+        pendingIds: new Set(pendingInbound(rows).map((r) => r.id)),
         /** Every message was loaded, so the first one is the conversation's first. */
         fromStart: rows.length < limit,
         channelConfig: account?.config ?? null,
@@ -112,31 +158,46 @@ export class AiOrchestrator {
       };
     });
     const { conv, org } = state;
-    const lastOutboundIdx = state.recent.map((m) => m.direction).lastIndexOf('outbound');
-    const pending = state.recent.slice(lastOutboundIdx + 1).filter((m) => m.direction === 'inbound');
+    // What the customer wrote that nobody answered, and everything else in order. A message that arrived while an
+    // earlier reply was being written stays pending, and the model sees it after that reply.
+    const pending = state.recent.filter((m) => state.pendingIds.has(m.id));
+    const answered = state.recent.filter((m) => !state.pendingIds.has(m.id));
     const latestInbound = pending[pending.length - 1];
     if (!latestInbound || latestInbound.id !== job.triggerMessageId) {
       // Either already answered or a newer message arrived; its own job will reply.
       return;
     }
-    if (conv.status !== 'ai_active' || !conv.botId) return;
+    if (conv.status !== 'ai_active') return;
+    // Nobody will answer: tell the team, and tell the widget to stop showing "typing".
+    const unanswered = (reason: 'ai_disabled' | 'bot_inactive' | 'no_bot') =>
+      this.deps.automation
+        .reportUnanswered(scope, { reason, contactId: conv.contactId, conversationId: conv.id })
+        .then(() => this.deps.conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId: '', messageId: null }));
+    if (!conv.botId) {
+      log.warn('conversation has no bot; not replying');
+      await unanswered('no_bot');
+      return;
+    }
     if (!org.aiEnabled) {
       log.info('AI disabled for organization; not replying');
-      await this.deps.automation.reportUnanswered(scope, { reason: 'ai_disabled', contactId: conv.contactId, conversationId: conv.id });
+      await unanswered('ai_disabled');
       return;
     }
     const bot = await this.deps.bots.get(scope, conv.botId).catch(() => null);
-    if (!bot?.isActive) {
-      if (bot) await this.deps.automation.reportUnanswered(scope, { reason: 'bot_inactive', contactId: conv.contactId, conversationId: conv.id });
+    if (!bot) {
+      await unanswered('no_bot');
+      return;
+    }
+    if (!bot.isActive) {
+      await unanswered('bot_inactive');
       return;
     }
     const handoffMessage = this.handoffMessage(bot, org);
 
     const pendingText = pending.map((m) => m.content).join('\n');
-    const answered = state.recent.slice(0, lastOutboundIdx + 1);
     const { history, unsummarized } = selectHistory(
       state.recent,
-      answered.length,
+      state.pendingIds,
       conv.summarizedThroughMessageId,
       conv.messageCount,
       this.deps.env.AI_HISTORY_MESSAGES,
@@ -146,30 +207,31 @@ export class AiOrchestrator {
     // A "talk to the team" starter counts only while it's still one of this bot's enabled starters.
     const chosen = handoffStarter(bot.config, pending.map((m) => state.starterOf.get(m.id)));
     if (chosen) {
-      await this.handoff(scope, conv.id, bot, `Customer chose "${chosen.label}"`, handoffMessage);
+      await this.handoff(scope, conv.id, bot, `Customer chose "${chosen.label}"`, handoffMessage, { answersThrough: job.triggerMessageId });
       return;
     }
     // Each message on its own, so the end of one and the start of the next can't make a phrase together.
     if (bot.config.handoff.enabled && pending.some((m) => matchesHandoffKeyword(m.content, bot.config.handoff.keywords))) {
-      await this.handoff(scope, conv.id, bot, 'Customer asked for a person', handoffMessage);
+      await this.handoff(scope, conv.id, bot, 'Customer asked for a person', handoffMessage, { answersThrough: job.triggerMessageId });
       return;
     }
     // With handoff switched off the assistant never passes a chat to the team, so the cap doesn't apply
     // (the monthly budget still bounds the cost).
     if (bot.config.handoff.enabled && conv.aiReplyCount >= bot.config.guardrails.maxAiRepliesPerConversation) {
-      await this.handoff(scope, conv.id, bot, 'AI reply limit reached for this conversation', handoffMessage);
+      await this.handoff(scope, conv.id, bot, 'AI reply limit reached for this conversation', handoffMessage, { answersThrough: job.triggerMessageId });
       return;
     }
     if (org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(tenantDb, job.orgId, org.timezone, this.now())) >= Number(org.monthlyAiBudgetUsd)) {
       log.warn('monthly AI budget exhausted');
       // Like an error, this stops the AI everywhere, so staff always hear about it.
-      await this.handoff(scope, conv.id, bot, 'Monthly AI budget reached', handoffMessage, { alwaysNotify: true });
+      await this.handoff(scope, conv.id, bot, 'Monthly AI budget reached', handoffMessage, { alwaysNotify: true, answersThrough: job.triggerMessageId });
       return;
     }
 
     // ---- 3. Context ----
     let contactId = conv.contactId;
-    const [toolSchemaCtx, contact, earlierConversations, earlierActions, knowledgeLanguages, pastAppointments] = await Promise.all([
+    const calendarId = bot.config.booking.enabled ? bot.config.booking.calendarId : null;
+    const [toolSchemaCtx, contact, earlierConversations, earlierActions, knowledgeLanguages, pastAppointments, upcoming, calendarTimezone] = await Promise.all([
       this.deps.tools.schemaContext(job.orgId, bot),
       this.deps.contacts.getForConversation(scope, contactId),
       this.earlierConversations(job.orgId, conv.id, conv.contactId),
@@ -177,6 +239,14 @@ export class AiOrchestrator {
       this.deps.knowledge.languagesOf(scope, bot.knowledgeBaseIds),
       // Their latest visits, whether or not this bot books: continuity ("how did the cleaning go?").
       this.deps.scheduling.pastForContact(scope, contactId, { limit: MEMORY_LIMITS.pastAppointments, sinceDays: 365 }),
+      // Shown whether or not this bot books (the team may have booked them), so a settled booking is never re-opened.
+      this.deps.scheduling.listForContact(scope, contactId, { upcomingOnly: true }),
+      calendarId
+        ? this.deps.scheduling.getCalendar(scope, calendarId).then(
+            (cal) => cal.timezone,
+            () => null,
+          )
+        : null,
     ]);
     // Greetings and thanks need no documents (the model can still search itself when it must).
     const searchable = bot.knowledgeBaseIds.length > 0 && !isSmallTalk(pendingText);
@@ -188,7 +258,6 @@ export class AiOrchestrator {
             return null;
           })
       : null;
-    const upcoming = bot.config.booking.enabled ? await this.deps.scheduling.listForContact(scope, contactId, { upcomingOnly: true }) : [];
     const activeTools = this.deps.tools.prepare(toolSchemaCtx).specs.map((s) => s.name);
     // CRM actions: the owner and open deals are shown only to bots that can change them.
     const owner = activeTools.includes('assign_owner') ? await this.ownerName(job.orgId, contact.ownerUserId, toolSchemaCtx.owners) : undefined;
@@ -210,6 +279,7 @@ export class AiOrchestrator {
     const contextBlock = buildContextBlock({
       now: this.now(),
       timezone: org.timezone,
+      calendarTimezone: activeTools.includes('book_appointment') ? calendarTimezone : null,
       channel: conv.channel,
       contact,
       customFieldLabels,
@@ -243,7 +313,8 @@ export class AiOrchestrator {
         ? openingGreeting(state.channelConfig, bot)
         : null;
     const messages: LlmMessage[] = buildHistory(history, { summary: conv.summary, earlierConversations, timezone: org.timezone, opening });
-    const previousAt = answered[answered.length - 1]?.createdAt;
+    // The message before the customer's first waiting one (a reply written while it arrived doesn't count).
+    const previousAt = answered.filter((m) => m.createdAt < pending[0]!.createdAt).at(-1)?.createdAt;
     const gap = previousAt ? gapNote(previousAt, pending[0]!.createdAt, org.timezone) : null;
     const turn = { type: 'text' as const, text: `${contextBlock}\n\n${gap ? `${gap}\n` : ''}${escapeTags(pendingText)}` };
     // A new conversation may open with memory alone: the customer's message joins that first turn.
@@ -365,6 +436,11 @@ export class AiOrchestrator {
       }
       // Without the lock, someone else may be answering now: never send.
       if (lockLost.aborted) throw new TurnStopped();
+      // A model that returns nothing (or only stops at its token limit while writing a tool call) would leave the
+      // customer in silence with a "completed" run: treat it like any other temporary failure.
+      if (outcome === 'completed' && !handoffReason && followUps.length === 0 && !texts.join('').trim()) {
+        throw new LlmError('unavailable', true, 'The model returned no reply text', this.deps.llm.info.provider);
+      }
     } catch (err) {
       await delta.flush().catch(() => {});
       // The time limit and a lost lock are retried like a temporary provider error (the retry replays done actions).
@@ -373,7 +449,9 @@ export class AiOrchestrator {
         ? new LlmError('unavailable', true, 'Lost the conversation lock', provider)
         : deadline.aborted
           ? new LlmError('unavailable', true, `No reply within ${this.deps.env.AI_TURN_TIMEOUT_MS} ms`, provider)
-          : err;
+          : isTransientError(err)
+            ? new LlmError('unavailable', true, `Temporary error: ${err instanceof Error ? err.message : String(err)}`, provider)
+            : err;
       error = failure instanceof Error ? failure.message : String(failure);
       await this.finishRun(job.orgId, runId, { status: 'failed', usage, iterations, stopReason, model: servedModel, started, error });
       await conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId, messageId: null });
@@ -386,39 +464,57 @@ export class AiOrchestrator {
       }
       await this.handoff(scope, conv.id, bot, 'The assistant hit an error', "Sorry — I'm having trouble right now. A member of our team will reply here shortly.", {
         alwaysNotify: true,
+        answersThrough: job.triggerMessageId,
       });
       return;
     }
 
     // ---- 5. Deliver ----
+    // Every message goes out only while the conversation is still the AI's, checked with the row locked: a person who
+    // took over (or closed it) a moment ago is never talked over. Each carries which customer message it answers.
     let messageId: string | null = null;
+    const aiActive = (c: ConversationRow) => c.status === 'ai_active';
+    const answerMeta = answers(job.triggerMessageId);
     if (outcome !== 'skipped') {
       const finalText = texts.join('\n\n').trim() || (handoffReason ? handoffMessage : '');
-      // Re-check right before sending: never talk over a human who just took over.
-      if (!handoffReason && !(await this.stillAiActive(job.orgId, conv.id))) {
-        outcome = 'skipped';
-      } else if (finalText) {
-        const message = await conversations.addOutbound(scope, {
-          conversationId: conv.id,
-          senderType: 'ai',
-          content: finalText,
-          aiRunId: runId,
-          citations: [...citations.values()].slice(0, 8).map<Citation>((c) => ({ chunkId: c.id, documentId: c.documentId, title: c.title, url: c.url })),
-        });
-        messageId = message.id;
+      if (finalText) {
+        const message = await conversations.addOutboundIf(
+          scope,
+          {
+            conversationId: conv.id,
+            senderType: 'ai',
+            content: finalText,
+            aiRunId: runId,
+            metadata: answerMeta,
+            citations: [...citations.values()].slice(0, 8).map<Citation>((c) => ({ chunkId: c.id, documentId: c.documentId, title: c.title, url: c.url })),
+          },
+          aiActive,
+        );
+        if (message) messageId = message.id;
+        else outcome = 'skipped';
       }
       // Not after a handoff (the team takes it from here) or when a human took over.
       if (outcome !== 'skipped' && !handoffReason) {
         for (const f of followUps) {
-          await conversations.addOutbound(scope, { conversationId: conv.id, senderType: 'ai', content: f.content, aiRunId: runId, metadata: f.metadata });
+          const sent = await conversations.addOutboundIf(
+            scope,
+            { conversationId: conv.id, senderType: 'ai', content: f.content, aiRunId: runId, metadata: answers(job.triggerMessageId, f.metadata) },
+            aiActive,
+          );
+          if (!sent) {
+            outcome = 'skipped';
+            break;
+          }
         }
       }
-      if (handoffReason) {
+      if (outcome !== 'skipped' && handoffReason) {
         outcome = 'handoff';
         await conversations.setStatus(scope, conv.id, 'human_active', {
           actor: 'ai',
           reason: handoffReason,
           notifyTeam: bot.config.handoff.notifyTeam,
+          // Never reopens a conversation that was closed while the reply was being written.
+          onlyFrom: ['ai_active'],
         });
       }
     }
@@ -442,20 +538,27 @@ export class AiOrchestrator {
     return row?.status === 'ai_active';
   }
 
+  /** The AI hands the chat to the team: says so, then changes the status — unless the chat stopped being the AI's meanwhile. */
   private async handoff(
     scope: { orgId: string },
     conversationId: string,
-    bot: BotView,
+    bot: BotView | null,
     reason: string,
     message: string,
-    opts: { alwaysNotify?: boolean } = {},
+    opts: { alwaysNotify?: boolean; answersThrough: string },
   ) {
-    await this.deps.conversations.addOutbound(scope, { conversationId, senderType: 'ai', content: message });
+    const sent = await this.deps.conversations.addOutboundIf(
+      scope,
+      { conversationId, senderType: 'ai', content: message, metadata: answers(opts.answersThrough) },
+      (c) => c.status === 'ai_active',
+    );
+    if (!sent) return;
     await this.deps.conversations.setStatus(scope, conversationId, 'human_active', {
       actor: 'ai',
       reason,
       // An error handoff always alerts staff: nobody else would know the AI stopped answering.
-      notifyTeam: opts.alwaysNotify || bot.config.handoff.notifyTeam,
+      notifyTeam: opts.alwaysNotify || (bot?.config.handoff.notifyTeam ?? true),
+      onlyFrom: ['ai_active'],
     });
     await this.deps.automation.kick();
   }
@@ -556,24 +659,26 @@ export class AiOrchestrator {
   private async maybeFold(orgId: string, conversationId: string, through: string | null, unsummarized: number) {
     if (unsummarized <= this.deps.env.AI_HISTORY_MESSAGES + FOLD_AFTER) return;
     const job: SummaryJob = { orgId, conversationId, mode: 'fold' };
-    // Triggers collapse into one pending fold per summary state and 10-message step. The step matters
-    // with Redis: a failed job keeps its id, so without it one failure would block every later fold.
+    // Triggers collapse into one pending fold per summary state and 10-message step. A failed fold forgets its id
+    // (a kept failed job would block that id), so the next trigger can try again.
     const step = Math.floor(unsummarized / FOLD_AFTER);
-    await this.deps.queue.add('summary', job, { jobId: `fold_${conversationId}_${through ?? 'start'}_${step}`, attempts: 2 });
+    await this.deps.queue.add('summary', job, { jobId: `fold_${conversationId}_${through ?? 'start'}_${step}`, attempts: 2, removeOnFail: true });
   }
 }
 
 /**
  * The summary covers the conversation up to `through`; the model sees every answered message after
- * it — at least `min` (recent turns stay verbatim even when summarized), at most twice that.
+ * it — at least `min` (recent turns stay verbatim even when summarized), at most twice that. Messages still waiting
+ * for an answer are not history: they are this turn.
  */
-function selectHistory(recent: MessageView[], answeredCount: number, through: string | null, messageCount: number, min: number) {
+function selectHistory(recent: MessageView[], pendingIds: Set<string>, through: string | null, messageCount: number, min: number) {
   const idx = through ? recent.findIndex((m) => m.id === through) : -1;
   // Unsummarized overall: past the summary point, or everything loaded when that point is older still.
   const unsummarized = idx >= 0 ? recent.length - 1 - idx : through ? recent.length : messageCount;
-  const unsummarizedAnswered = idx >= 0 ? Math.max(0, answeredCount - 1 - idx) : answeredCount;
+  const answered = recent.filter((m) => !pendingIds.has(m.id));
+  const unsummarizedAnswered = idx >= 0 ? recent.slice(idx + 1).filter((m) => !pendingIds.has(m.id)).length : answered.length;
   const size = Math.min(Math.max(unsummarizedAnswered, min), min * 2);
-  return { history: recent.slice(0, answeredCount).slice(-size), unsummarized };
+  return { history: answered.slice(-size), unsummarized };
 }
 
 // Words that close or greet (at least one must appear), and the fillers that may come with them.
@@ -633,7 +738,7 @@ function missingLeadFields(
       const v = contact.customFields[f.field];
       return v === undefined || v === null || v === '';
     })
-    .map((f) => `${f.field === 'name' ? 'name' : (labels.get(f.field) ?? f.field)}${f.required ? ' (required)' : ''}`);
+    .map((f) => `${f.field === 'name' ? 'name' : (labels.get(f.field) ?? f.field)}${f.required ? ' (required)' : ' (optional)'}`);
 }
 
 /** Picks up chunks returned by search_knowledge_base so they are cited on the reply too. */

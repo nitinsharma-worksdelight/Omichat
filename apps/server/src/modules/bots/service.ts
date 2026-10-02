@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { schema, type Db } from '../../db/client';
 import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import { badRequest, notFound } from '../../lib/errors';
+import { friendlyError } from '../../lib/validation';
 import { DEFAULT_LIFECYCLE_STAGES } from '../tenancy/bootstrap';
-import { BotConfigSchema, EffortSchema, STANDARD_LEAD_FIELDS, validateBotConfig, type BotConfig, type Effort } from './config';
+import { BotConfigSchema, businessContactProblems, EffortSchema, STANDARD_LEAD_FIELDS, validateBotConfig, type BotConfig, type Effort } from './config';
 
 /**
  * A model id for the configured provider. Deliberately not tied to any vendor's naming: the provider
@@ -75,6 +76,7 @@ export class BotsService {
 
   async create(scope: Scope, input: z.infer<typeof BotCreateSchema>): Promise<BotView> {
     const config = this.parseConfig(input.config ?? {});
+    this.checkBusinessContact(config);
     return inScope(this.tenantDb, scope, async (tx) => {
       await this.checkReferences(tx, scope.orgId, config, input.knowledgeBaseIds ?? []);
       const [row] = await tx
@@ -101,6 +103,7 @@ export class BotsService {
     return inScope(this.tenantDb, scope, async (tx) => {
       const current = await this.load(tx, scope.orgId, id);
       const config = input.config ? this.parseConfig({ ...current.config, ...input.config }) : current.config;
+      if (input.config) this.checkBusinessContact(config, current.config);
       const kbIds = input.knowledgeBaseIds ?? current.knowledgeBaseIds;
       await this.checkReferences(tx, scope.orgId, config, kbIds);
       await tx
@@ -131,7 +134,7 @@ export class BotsService {
   }
 
   private parseConfig(raw: unknown): BotConfig {
-    const parsed = BotConfigSchema.safeParse(raw);
+    const parsed = BotConfigSchema.safeParse(raw, { error: friendlyError });
     if (!parsed.success) {
       throw badRequest(
         'Invalid bot configuration',
@@ -141,6 +144,11 @@ export class BotsService {
     const problems = validateBotConfig(parsed.data);
     if (problems.length) throw badRequest('Invalid bot configuration', problems.map((message) => ({ path: 'config', message })));
     return parsed.data;
+  }
+
+  private checkBusinessContact(config: BotConfig, previous?: BotConfig) {
+    const problems = businessContactProblems(config.business, previous?.business);
+    if (problems.length) throw badRequest('Invalid bot configuration', problems);
   }
 
   private async checkReferences(tx: Db, orgId: string, config: BotConfig, kbIds: string[]) {

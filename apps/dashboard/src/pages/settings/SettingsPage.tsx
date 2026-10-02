@@ -92,6 +92,7 @@ interface OrgForm {
   notificationEmails: string[];
   lifecycleStages: string[];
   teamHours: Organization['settings']['teamHours'];
+  recordVisitorIp: boolean;
 }
 
 function toOrgForm(o: Organization): OrgForm {
@@ -105,6 +106,7 @@ function toOrgForm(o: Organization): OrgForm {
     notificationEmails: [...o.settings.notificationEmails],
     lifecycleStages: [...o.settings.lifecycleStages],
     teamHours: structuredClone(o.settings.teamHours ?? { enabled: false, weekly: {} }),
+    recordVisitorIp: o.settings.recordVisitorIp,
   };
 }
 
@@ -142,6 +144,7 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
         if (changed('defaultCountry')) settings.defaultCountry = next.defaultCountry.trim().toUpperCase();
         if (changed('currency')) settings.currency = next.currency;
         if (changed('teamHours')) settings.teamHours = next.teamHours;
+        if (changed('recordVisitorIp')) settings.recordVisitorIp = next.recordVisitorIp;
         if (Object.keys(settings).length) body.settings = settings;
       }
       return patch<Organization>('/v1/org', body);
@@ -229,6 +232,13 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
           <Field label="Notification emails" hint="Who gets emailed about handoffs, qualified leads and bookings.">
             <ChipsInput value={form.notificationEmails} disabled={!isAdmin} onChange={(v) => set('notificationEmails', v)} placeholder="frontdesk@example.com" normalize={(s) => s.toLowerCase()} />
           </Field>
+          <Toggle
+            label="Record visitors' IP addresses"
+            description="Saved with each website chat and shown to admins only. It's personal data: turn it on only if you need it. When off, new addresses aren't saved and stored ones aren't shown."
+            checked={form.recordVisitorIp}
+            disabled={!isAdmin}
+            onChange={(v) => set('recordVisitorIp', v)}
+          />
           <fieldset>
             <legend className="mb-1 text-body font-semibold text-fg">Team hours</legend>
             <p className="mb-3 text-body-sm text-muted">
@@ -792,6 +802,8 @@ const SCOPE_HELP: Record<string, string> = {
   'conversations:write': 'Chat as your customers through the chat API, and read their replies',
   'contacts:read': 'Read contacts, their history, notes, tasks, tags and custom fields',
   'contacts:write': 'Create and update contacts, and add notes and tasks',
+  'contacts:verify':
+    'Chat API: mark a customer’s email or phone as verified by your app, so it links them to the existing contact (without this, matches go to staff review)',
   'appointments:read': 'Read calendars, availability and appointments',
   'appointments:write': 'Book, move and cancel appointments (customers are emailed as for staff bookings)',
   'deals:read': 'Read deals and pipelines',

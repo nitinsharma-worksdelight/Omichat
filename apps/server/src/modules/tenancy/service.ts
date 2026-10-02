@@ -29,6 +29,7 @@ export const OrgUpdateSchema = z.object({
         .refine((c) => Intl.supportedValuesOf('currency').includes(c), 'unknown currency (use an ISO 4217 code such as USD, EUR or INR)')
         .optional(),
       teamHours: z.object({ enabled: z.boolean(), weekly: WeeklyHoursSchema }).optional(),
+      recordVisitorIp: z.boolean().optional(),
     })
     .optional(),
 });
@@ -48,6 +49,7 @@ function toOrgView(row: typeof schema.organizations.$inferSelect) {
       lifecycleStages: row.settings.lifecycleStages ?? DEFAULT_LIFECYCLE_STAGES,
       defaultCountry: row.settings.defaultCountry ?? 'US',
       teamHours: row.settings.teamHours ?? { enabled: false, weekly: {} },
+      recordVisitorIp: row.settings.recordVisitorIp !== false,
     },
     createdAt: row.createdAt,
   };
@@ -79,7 +81,8 @@ export class TenancyService {
           name: input.name,
           slug: slugify(input.name),
           timezone,
-          settings: { lifecycleStages: DEFAULT_LIFECYCLE_STAGES },
+          // Visitors' IP addresses are personal data: a new organization turns recording on itself if it wants it.
+          settings: { lifecycleStages: DEFAULT_LIFECYCLE_STAGES, recordVisitorIp: false },
         })
         .returning();
       await tx.insert(schema.memberships).values({ organizationId: org!.id, userId: input.ownerUserId, role: 'owner' });

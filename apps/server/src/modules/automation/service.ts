@@ -364,7 +364,7 @@ export class AutomationService {
 
   /** Nudge the dispatcher (it also runs on a timer, so nothing is lost if this is missed). */
   async kick(): Promise<void> {
-    await this.queue.add('events', {}, { jobId: 'dispatch', delayMs: 200, attempts: 1 });
+    await this.queue.add('events', {}, { jobId: 'dispatch', delayMs: 200, attempts: 1, coalesce: true });
   }
 
   /**
@@ -391,7 +391,13 @@ export class AutomationService {
       const contactIds = [...new Set(rows.map((r) => r.contactId).filter((id): id is string => Boolean(id)))];
       const contactRows = contactIds.length
         ? await tx
-            .select({ id: schema.contacts.id, firstName: schema.contacts.firstName, lastName: schema.contacts.lastName, isTest: schema.contacts.isTest })
+            .select({
+              id: schema.contacts.id,
+              organizationId: schema.contacts.organizationId,
+              firstName: schema.contacts.firstName,
+              lastName: schema.contacts.lastName,
+              isTest: schema.contacts.isTest,
+            })
             .from(schema.contacts)
             .where(inArray(schema.contacts.id, contactIds))
         : [];
@@ -401,7 +407,9 @@ export class AutomationService {
       const emails: Array<{ to: string[]; subject: string; text: string }> = [];
 
       for (const event of rows) {
-        const contact = event.contactId ? contactsById.get(event.contactId) : undefined;
+        // Runs across organizations: only the event's own organization's contact may name it.
+        const found = event.contactId ? contactsById.get(event.contactId) : undefined;
+        const contact = found?.organizationId === event.organizationId ? found : undefined;
         // Playground/test traffic never reaches external systems or staff inboxes.
         if (contact?.isTest) continue;
         for (const ep of endpoints) {
@@ -520,11 +528,11 @@ export class AutomationService {
 
   private async post(url: string, secret: string, body: unknown, timeoutMs: number, headers: Record<string, string>) {
     const json = JSON.stringify(body);
-    await assertSafeUrl(url, { allowPrivate: this.opts.allowPrivateUrls });
     const res = await fetchLimited(url, {
       timeoutMs,
       maxBytes: 256_000,
       maxRedirects: 0,
+      allowPrivate: this.opts.allowPrivateUrls,
       method: 'POST',
       body: json,
       headers: { ...headers, 'content-type': 'application/json', 'x-omni-signature': signWebhook(secret, json) },

@@ -159,16 +159,18 @@ function Agenda() {
             </h2>
             <Card className="divide-y divide-border">
               {list.map((a) => (
-                <div key={a.id} className={cx('flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 sm:flex-nowrap', a.status === 'cancelled' && 'opacity-60')}>
+                // One line only on wide screens; narrower, the buttons drop below the appointment instead of squeezing it.
+                <div key={a.id} className={cx('flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 xl:flex-nowrap', a.status === 'cancelled' && 'opacity-60')}>
                   <div className="w-20 shrink-0 border-r border-border pr-3">
                     <p className="font-display text-heading font-semibold text-fg tabular-nums">{formatLocalTime(a.localStart)}</p>
                     <p className="truncate text-label text-muted" title={a.timezone}>
                       {a.timezone.split('/').pop()?.replace(/_/g, ' ')}
                     </p>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-2 text-body-sm font-medium text-fg">
-                      {a.title}
+                  {/* At least 12rem: with less room the buttons go to the next line rather than squeeze it. */}
+                  <div className="min-w-48 flex-1">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm font-medium text-fg">
+                      <span className="min-w-0 break-words">{a.title}</span>
                       <AppointmentStatusBadge status={a.status} />
                       <Badge tone={a.createdBy === 'ai' ? 'ai' : a.createdBy === 'user' ? 'human' : 'slate'}>{a.createdBy === 'ai' ? 'Booked by AI' : a.createdBy === 'user' ? 'Booked by team' : 'Booked by contact'}</Badge>
                     </p>
@@ -182,25 +184,28 @@ function Agenda() {
                     {a.notes && <p className="mt-0.5 truncate text-caption text-fg-2">{a.notes}</p>}
                     {a.cancelReason && <p className="mt-0.5 text-caption text-danger-text">Cancelled: {a.cancelReason}</p>}
                   </div>
-                  <Button size="xs" variant="ghost" icon={<Mail className="size-3" />} onClick={() => setEmailsOf(a)} aria-label={`Emails to the customer about ${a.title}`}>
-                    Emails
-                  </Button>
-                  {canAct && a.status === 'booked' && (
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Button size="xs" onClick={() => setRescheduling(a)}>
-                        Reschedule
-                      </Button>
-                      <Button size="xs" variant="ghost" icon={<Check className="size-3" />} onClick={() => setApptStatus.mutate({ id: a.id, status: 'completed' })}>
-                        Completed
-                      </Button>
-                      <Button size="xs" variant="ghost" icon={<UserX className="size-3" />} onClick={() => setApptStatus.mutate({ id: a.id, status: 'no_show' })}>
-                        No-show
-                      </Button>
-                      <Button size="xs" variant="danger-ghost" icon={<X className="size-3" />} onClick={() => setCancelling(a)}>
-                        Cancel
-                      </Button>
-                    </div>
-                  )}
+                  {/* Never wider than the row: on a narrow screen the buttons wrap inside it instead of running off. */}
+                  <div className="flex max-w-full flex-wrap items-center gap-1">
+                    <Button size="xs" variant="ghost" icon={<Mail className="size-3" />} onClick={() => setEmailsOf(a)} aria-label={`Emails to the customer about ${a.title}`}>
+                      Emails
+                    </Button>
+                    {canAct && a.status === 'booked' && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Button size="xs" onClick={() => setRescheduling(a)}>
+                          Reschedule
+                        </Button>
+                        <Button size="xs" variant="ghost" icon={<Check className="size-3" />} onClick={() => setApptStatus.mutate({ id: a.id, status: 'completed' })}>
+                          Completed
+                        </Button>
+                        <Button size="xs" variant="ghost" icon={<UserX className="size-3" />} onClick={() => setApptStatus.mutate({ id: a.id, status: 'no_show' })}>
+                          No-show
+                        </Button>
+                        <Button size="xs" variant="danger-ghost" icon={<X className="size-3" />} onClick={() => setCancelling(a)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </Card>

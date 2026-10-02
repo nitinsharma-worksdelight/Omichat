@@ -1,9 +1,10 @@
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { rowsOf, schema, type Db } from '../../db/client';
 import type { TenantDb } from '../../db/tenant';
 import { HandoffSchema } from '../bots/config';
 import { recordEvent } from '../automation/events';
 import type { ConversationsService } from '../conversations/service';
+import { notice } from '../conversations/pending';
 import type { Logger } from '../../lib/logger';
 
 /** Said to a customer who has waited past the bot's limit. */
@@ -67,22 +68,53 @@ export class HandoffWatcher {
   private async escalate(row: OverdueRow): Promise<void> {
     const scope = { orgId: row.organization_id };
     const fallback = HandoffSchema.shape.fallback.catch('keep_waiting').parse(row.fallback);
-    await this.tenantDb.run(row.organization_id, async (tx) => {
-      const [conv] = await tx.select().from(schema.conversations).where(sql`${schema.conversations.id} = ${row.id}`);
-      if (!conv) return;
-      await recordEvent(tx, {
-        orgId: row.organization_id,
-        type: 'conversation.handoff_overdue',
-        actor: 'system',
-        contactId: conv.contactId,
-        conversationId: conv.id,
-        payload: { waitedMinutes: row.wait_minutes, fallback, reason: conv.handoffReason },
-      });
+    const c = schema.conversations;
+    // Claimed a moment ago, but a person may have replied, closed it or taken it back since: look again with the row
+    // locked, and only then alert. A retry after a failed fallback doesn't alert twice.
+    const stillWaiting = await this.tenantDb.run(row.organization_id, async (tx) => {
+      const [conv] = await tx.select().from(c).where(eq(c.id, row.id)).for('update');
+      if (!conv || conv.status !== 'human_active' || conv.firstStaffReplyAt) return false;
+      // Set when an earlier run alerted but its fallback failed: this retry only redoes the fallback.
+      if (conv.metadata.overdueAlerted !== true) {
+        await recordEvent(tx, {
+          orgId: row.organization_id,
+          type: 'conversation.handoff_overdue',
+          actor: 'system',
+          contactId: conv.contactId,
+          conversationId: conv.id,
+          payload: { waitedMinutes: row.wait_minutes, fallback, reason: conv.handoffReason },
+        });
+      }
+      return true;
     });
+    if (!stillWaiting) return;
     await this.onEvent();
     if (fallback === 'keep_waiting') return;
-    await this.conversations.addOutbound(scope, { conversationId: row.id, senderType: 'ai', content: FALLBACK_MESSAGES[fallback] });
-    // The chat goes back to the assistant; staff can still take it over again at any time.
-    await this.conversations.setStatus(scope, row.id, 'ai_active', { actor: 'system', reason: `Nobody replied within ${row.wait_minutes} minutes` });
+    try {
+      // Said only while nobody has replied (checked with the row locked), and not an answer to the customer's questions.
+      const said = await this.conversations.addOutboundIf(
+        scope,
+        { conversationId: row.id, senderType: 'ai', content: FALLBACK_MESSAGES[fallback], metadata: notice() },
+        (conv) => conv.status === 'human_active' && !conv.firstStaffReplyAt,
+      );
+      if (!said) return;
+      // The chat goes back to the assistant (which answers what was asked meanwhile); staff can still take it over again.
+      await this.conversations.setStatus(scope, row.id, 'ai_active', {
+        actor: 'system',
+        reason: `Nobody replied within ${row.wait_minutes} minutes`,
+        onlyFrom: ['human_active'],
+      });
+    } catch (err) {
+      // Release the claim so the next run tries again (without alerting the team a second time).
+      await this.tenantDb
+        .run(row.organization_id, (tx) =>
+          tx
+            .update(c)
+            .set({ handoffEscalatedAt: null, metadata: sql`${c.metadata} || '{"overdueAlerted": true}'::jsonb` })
+            .where(eq(c.id, row.id)),
+        )
+        .catch(() => {});
+      throw err;
+    }
   }
 }

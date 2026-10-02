@@ -12,6 +12,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
+  RotateCcw,
   Send,
   Sparkles,
   X,
@@ -23,7 +24,7 @@ import { AiAvatar, PersonAvatar } from '../../components/avatar';
 import { useToast } from '../../components/feedback-context';
 import { ChannelBadge, ConversationStatusBadge, QualificationBadge, TagChip, TierBadge } from '../../components/status';
 import { Badge, Button, Checkbox, cx, DefinitionList, EmptyState, ErrorBanner, IconButton, Kbd, PageHeader, Select, Spinner, SkeletonRows, type Tone } from '../../components/ui';
-import { API_URL, authHeaders, get, post } from '../../lib/api';
+import { API_URL, authHeaders, fieldErrors, get, post } from '../../lib/api';
 import { formatDateTime, formatTime, SUMMARY_TRIGGER, timeAgo } from '../../lib/format';
 import { useAction } from '../../lib/mutations';
 import { roleAtLeast, useMembers, usePipelines } from '../../lib/queries';
@@ -314,6 +315,14 @@ function Thread({ conversationId }: { conversationId: string }) {
     success: (_d, action) => (action === 'takeover' ? 'You took over — the AI is paused' : action === 'resume' ? 'AI resumed' : 'Conversation closed'),
   });
 
+  // Its own action: a reopened chat isn't a handoff. Refused when the customer already has a newer open conversation.
+  const reopen = useAction(() => post<unknown>(`/v1/conversations/${conversationId}/status`, { action: 'reopen' }), {
+    invalidate: [['conversation', conversationId], ['conversations'], ['timeline', conversationId]],
+    success: 'Conversation reopened — you can reply',
+    errorToast: false,
+  });
+  const newerConversationId = fieldErrors(reopen.error).openConversationId;
+
   const sendReply = useAction((content: string) => post<Message>(`/v1/conversations/${conversationId}/messages`, { content }), {
     onSuccess: (m) => {
       qc.setQueryData<Message[]>(['messages', conversationId], (list) => mergeMessages(list, [m]));
@@ -386,6 +395,11 @@ function Thread({ conversationId }: { conversationId: string }) {
             {canReply && conv.status === 'human_active' && (
               <Button size="sm" icon={<Sparkles className="size-3.5 text-ai" />} loading={setStatus.isPending && setStatus.variables === 'resume'} onClick={() => setStatus.mutate('resume')}>
                 Resume AI
+              </Button>
+            )}
+            {canReply && conv.status === 'closed' && (
+              <Button size="sm" icon={<RotateCcw className="size-3.5" />} loading={reopen.isPending} onClick={() => reopen.mutate()}>
+                Reopen
               </Button>
             )}
             {canReply && conv.status !== 'closed' && (
@@ -478,7 +492,22 @@ function Thread({ conversationId }: { conversationId: string }) {
             </div>
           </form>
         ) : conv.status === 'closed' ? (
-          <p className="border-t border-border bg-surface-2/60 px-5 py-4 text-center text-body-sm text-muted">This conversation is closed. A new message from the visitor starts a new conversation.</p>
+          <div className="border-t border-border bg-surface-2/60 px-5 py-4 text-center text-body-sm text-muted">
+            {reopen.error ? (
+              <p role="alert" className="mb-2 text-danger-text">
+                {reopen.error instanceof Error ? reopen.error.message : "Couldn't reopen this conversation"}
+                {newerConversationId && (
+                  <>
+                    {' '}
+                    <Link to={`/conversations/${newerConversationId}`} className="font-semibold underline">
+                      Open the newer conversation
+                    </Link>
+                  </>
+                )}
+              </p>
+            ) : null}
+            <p>This conversation is closed. {canReply ? 'Reopen it to reply, or a' : 'A'} new message from the visitor starts a new conversation.</p>
+          </div>
         ) : null}
       </div>
 
@@ -489,7 +518,9 @@ function Thread({ conversationId }: { conversationId: string }) {
           preset={{
             contact: { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone },
             conversationId: conv.id,
-            title: (conv.summaryDetails?.intent ?? '').slice(0, 200),
+            // A short title; what they want (one sentence from the summary) is shown under it instead.
+            title: contact.name ? `${contact.name} deal`.slice(0, 200) : 'New deal',
+            wants: conv.summaryDetails?.intent || undefined,
           }}
           onClose={() => setDealOpen(false)}
         />

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeEmail } from '../leads/capture';
 
 /**
  * Bot (AI agent) configuration. Stored as JSONB on `bots.config`, validated here on every write,
@@ -113,7 +114,7 @@ export const LeadCaptureSchema = z.object({
     { field: 'phone', required: false, timing: 'natural' },
   ]),
   /** Shown/said when collecting details, e.g. a privacy notice. */
-  consentNotice: z.string().max(500).default(''),
+  consentNotice: z.string().trim().max(500).default(''),
   /**
    * The exact marketing opt-in question, posted verbatim by the server once the bot has an email or phone
    * (empty = don't ask). The customer's answer is recorded as consent, with their reply as evidence.
@@ -277,6 +278,7 @@ export type QualificationConfig = z.infer<typeof QualificationSchema>;
 export type QualificationQuestion = z.infer<typeof QualificationQuestionSchema>;
 export type QualificationRule = z.infer<typeof QualificationRuleSchema>;
 export type ConversationStarter = BotConfig['conversationStarters'][number];
+export type BusinessProfile = z.infer<typeof BusinessProfileSchema>;
 
 /** What the website chat shows: the enabled starters, in order, each with the exact text a click sends. */
 export function offeredStarters(config: BotConfig): Array<{ id: string; label: string; message: string }> {
@@ -296,6 +298,42 @@ export const EffortSchema = z.enum(['low', 'medium', 'high']);
 export type Effort = z.infer<typeof EffortSchema>;
 
 /** Cross-field checks zod can't express per field. Returns human-readable problems. */
+/** A business website as an owner types it: with or without https://, a dotted host name and no spaces. */
+export function isWebsite(value: string): boolean {
+  const v = value.trim();
+  if (!v || /\s/.test(v)) return false;
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : `https://${v}`);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && /^[^.]+(\.[^.]+)+$/.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** A phone number as a business writes it: phone characters only (an extension is fine) and at least 6 digits. */
+export function isPhoneLike(value: string): boolean {
+  const v = value.trim();
+  return /^[+\d()\-.\s/]*(?:(?:ext\.?|x)\s*\d+)?$/i.test(v) && (v.match(/\d/g) ?? []).length >= 6;
+}
+
+const BUSINESS_CONTACT = {
+  website: { check: isWebsite, message: 'Enter a valid website, e.g. https://example.com' },
+  email: { check: (v: string) => normalizeEmail(v) !== null, message: 'Enter a valid email address' },
+  phone: { check: isPhoneLike, message: 'Enter a valid phone number' },
+} as const;
+
+/**
+ * Business info the bot hands out (website, email, phone) must be usable. Only values that changed are checked, so
+ * a bot already storing an older, unchecked value still loads and can save its other sections.
+ */
+export function businessContactProblems(next: BusinessProfile, previous?: BusinessProfile): Array<{ path: string; message: string }> {
+  return (Object.keys(BUSINESS_CONTACT) as Array<keyof typeof BUSINESS_CONTACT>).flatMap((key) => {
+    const value = next[key].trim();
+    if (!value || (previous && previous[key].trim() === value)) return [];
+    return BUSINESS_CONTACT[key].check(value) ? [] : [{ path: `business.${key}`, message: BUSINESS_CONTACT[key].message }];
+  });
+}
+
 export function validateBotConfig(config: BotConfig): string[] {
   const problems: string[] = [];
   const questionKeys = new Set<string>();

@@ -195,6 +195,7 @@ function EssentialCard({ item, onOpen }: { item: Essential; onOpen: (section: Se
       <div className="space-y-1">
         <h4 className="text-body font-semibold text-fg">{item.title}</h4>
         <p className="text-body-sm leading-5 text-muted">{item.summary}</p>
+        {item.warning && <p className="text-body-sm leading-5 font-medium text-warning-text">{item.warning}</p>}
       </div>
       <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1">
         {item.done ? (
@@ -279,6 +280,30 @@ export function EditorOverview({
           ))}
         </div>
       </section>
+
+      {ctx.warnings.length > 0 && (
+        <section aria-labelledby="checking-title" className="space-y-3">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <h3 id="checking-title" className="text-body font-semibold text-fg">
+              Worth checking
+            </h3>
+            <p className="text-body-sm text-muted">Saving still works; these are what visitors could be told wrong.</p>
+          </div>
+          <ul className="space-y-2 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3">
+            {ctx.warnings.map((w) => (
+              <li key={w.id} className="flex items-start gap-3 text-body-sm leading-5 text-warning-text">
+                <span className="min-w-0 flex-1">
+                  <span className="font-semibold">{sectionInfo(w.section).label} · </span>
+                  {w.message}
+                </span>
+                <button type="button" onClick={() => onOpen(w.section)} className="shrink-0 font-semibold hover:underline">
+                  Go to it
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section aria-labelledby="more-title" className="space-y-3">
         <div className="flex flex-wrap items-baseline gap-x-2">

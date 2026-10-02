@@ -93,7 +93,7 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
           (ctx.customFields.some((f) => f.aiWritable) ? ', and custom fields' : '') +
           ').',
         'Call this immediately whenever the customer gives any of these details — even partially, even mid-conversation — rather than waiting until the end.',
-        'Pass values exactly as the customer gave them; they are validated and normalized server-side, and any invalid value comes back as an error you should ask the customer to correct.',
+        'Pass values exactly as the customer gave them; they are validated and normalized server-side. An invalid value comes back as an error: ask the customer once to correct it, and don\'t insist on optional details.',
       ].join(' '),
     enabled: () => true,
     schema: (ctx) => {
@@ -187,8 +187,12 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
       });
       let guidance: string;
       if (result.status === 'qualified') {
+        // Without the booking tool the bot can't book, so it never offers to.
+        const canBook = bookingEnabled(ctx.schema) && !ctx.bot.config.actions.disabledTools.includes('book_appointment');
         guidance = {
-          offer_booking: 'Qualification complete: this lead is a good fit. Offer to book an appointment next.',
+          offer_booking: canBook
+            ? 'Qualification complete: this lead is a good fit. Offer to book an appointment next.'
+            : 'Qualification complete: this lead is a good fit. Make sure you have their contact details so the team can arrange an appointment.',
           collect_contact: 'Qualification complete: this lead is a good fit. Make sure you have their contact details so the team can follow up.',
           handoff: 'Qualification complete: this lead is a good fit. Transfer the conversation to the team now.',
           none: 'Qualification complete. Continue helping the customer.',
@@ -537,7 +541,14 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
         priority: input.priority,
         createdBy: 'ai',
       });
-      return { ok: true, data: { task_id: task.id, created: true } };
+      return {
+        ok: true,
+        data: {
+          task_id: task.id,
+          created: true,
+          note: "An internal to-do for the team: nothing is booked, confirmed or done for the customer yet. Tell them the team will follow up; don't say it's done.",
+        },
+      };
     },
   });
 
@@ -561,7 +572,13 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
         contactId: ctx.contactId,
         conversationId: ctx.conversationId,
       });
-      return { ok: true, data: { notified: true } };
+      return {
+        ok: true,
+        data: {
+          notified: true,
+          note: "The team was alerted: nothing is booked, confirmed or done for the customer yet. Tell them the team will follow up; don't say it's done.",
+        },
+      };
     },
   });
 

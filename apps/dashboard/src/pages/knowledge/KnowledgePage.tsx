@@ -321,6 +321,7 @@ function DocumentsCard({ kb, isAdmin, onDialog }: { kb: KnowledgeBase; isAdmin: 
                   <TD className="whitespace-nowrap text-muted">{timeAgo(d.updatedAt)}</TD>
                   <TD className="text-right">
                     <Popover
+                      portal
                       label={`Actions for ${d.title}`}
                       trigger={({ toggle, open, id }) => (
                         <IconButton label={`Actions for ${d.title}`} size="sm" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={toggle}>
