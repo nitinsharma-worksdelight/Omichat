@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifyWebhookSignature } from '../src/lib/crypto';
+import { convChannel } from '../src/modules/conversations/service';
 import { authHeaders, createOrg, createTestEnv, text, tools, type TestEnv } from './helpers';
 
 let t: TestEnv;
@@ -155,6 +156,46 @@ describe('website widget', () => {
     expect(streamed).toBe('Here are some times that work well for you.');
     const final = events.find((e) => e.event === 'message' && e.data.message.role === 'assistant');
     expect(final?.data.message.content).toBe('Here are some times that work well for you.');
+  });
+
+  it("doesn't show the visitor record-keeping like \"Saving your details…\"; staff still get it, and the details are saved", async () => {
+    const org = await createOrg(t.c);
+    const session = await fetch(`${baseUrl}/widget/v1/sessions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: org.webchat.publicKey }),
+    }).then((r) => r.json() as Promise<any>);
+    const auth = { authorization: `Bearer ${session.token}` };
+    t.llm.setScript([text('Hi! How can I help?')]);
+    const first = await fetch(`${baseUrl}/widget/v1/messages`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'hi' }),
+    }).then((r) => r.json() as Promise<any>);
+    await t.c.queue.drain();
+
+    const stream = await fetch(`${baseUrl}/widget/v1/stream?conversationId=${first.conversationId}`, { headers: auth });
+    // What staff are sent: every event on the conversation's channel.
+    const staff: Array<{ type: string; label?: string; internal?: boolean }> = [];
+    const unsubscribe = t.c.pubsub.subscribe(convChannel(first.conversationId), (e) => staff.push(e as (typeof staff)[number]));
+    t.llm.setScript([tools({ name: 'save_contact_details', input: { name: 'Ana Silva', email: 'ana@example.com' } }), text('Thanks, Ana!')]);
+    await fetch(`${baseUrl}/widget/v1/messages`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ content: "I'm Ana Silva, ana@example.com" }),
+    });
+    const events = await readSse(stream, (e) => e === 'ai.done');
+    unsubscribe();
+
+    const types = events.map((e) => e.event);
+    expect(types).not.toContain('ai.activity');
+    expect(JSON.stringify(events)).not.toContain('Saving your details');
+    expect(types).toContain('ai.typing');
+    expect(events.find((e) => e.event === 'message' && e.data.message.role === 'assistant')?.data.message.content).toBe('Thanks, Ana!');
+    expect(staff).toContainEqual(expect.objectContaining({ type: 'ai.activity', label: 'Saving your details…', internal: true }));
+
+    const contact = await t.c.contacts.get(org.scope, (await t.c.conversations.get(org.scope, first.conversationId)).contactId);
+    expect(contact).toMatchObject({ firstName: 'Ana', lastName: 'Silva', email: 'ana@example.com' });
   });
 
   it('enforces the allowed-origins list', async () => {

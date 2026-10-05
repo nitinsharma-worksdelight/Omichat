@@ -8,7 +8,7 @@ import type { DealsService, DealView } from '../deals/service';
 import type { KnowledgeService } from '../knowledge/service';
 import { consentVersion, isPlainNo } from '../leads/attribution';
 import type { QualificationService } from '../leads/qualification';
-import { parseLocalStart } from '../scheduling/availability';
+import { parseLocalStart, weeklyHoursLabel } from '../scheduling/availability';
 import { changePolicy, customerTime, type CustomerEmailOutcome } from '../scheduling/notifications';
 import type { SchedulingService } from '../scheduling/service';
 import { defineTool, type ToolContext, type ToolDefinition, type ToolOutcome, type ToolSchemaContext } from './types';
@@ -87,6 +87,7 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
   const saveContactDetails = defineTool({
     key: 'save_contact_details',
     activity: 'Saving your details…',
+    activityInternal: true,
     description: (ctx) =>
       [
         'Save contact details the customer has shared (name, email, phone, company' +
@@ -156,6 +157,7 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
   const recordQualification = defineTool({
     key: 'record_qualification_answers',
     activity: 'Noting that…',
+    activityInternal: true,
     description: () =>
       'Record the customer\'s answers to the qualification questions listed in your instructions. Call it as soon as an answer is given (several answers can go in one call). The result tells you which question to ask next and what to do once qualification is complete. Never reveal scores or that the customer is being scored.',
     enabled: (ctx) => ctx.bot.config.qualification.enabled && ctx.bot.config.qualification.questions.length > 0,
@@ -192,8 +194,8 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
         guidance = {
           offer_booking: canBook
             ? 'Qualification complete: this lead is a good fit. Offer to book an appointment next.'
-            : 'Qualification complete: this lead is a good fit. Make sure you have their contact details so the team can arrange an appointment.',
-          collect_contact: 'Qualification complete: this lead is a good fit. Make sure you have their contact details so the team can follow up.',
+            : 'Qualification complete: this lead is a good fit. Make sure you have their required contact details (never ask for optional ones) so the team can arrange an appointment.',
+          collect_contact: 'Qualification complete: this lead is a good fit. Make sure you have their required contact details (never ask for optional ones) so the team can follow up.',
           handoff: 'Qualification complete: this lead is a good fit. Transfer the conversation to the team now.',
           none: 'Qualification complete. Continue helping the customer.',
         }[config.qualifiedNextStep];
@@ -292,6 +294,8 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
               available: false,
               searched: { from, to },
               next_available: next.map(slot),
+              weekly_hours: weeklyHoursLabel(calendar.weeklyHours),
+              note: "No bookable times in this range. Opening hours in the business facts or documents don't make a day bookable: offer only next_available.",
             },
           };
         }
@@ -309,6 +313,8 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
             ...(theirs && theirs !== calendar.timezone ? { customer_timezone: theirs } : {}),
             duration_minutes: calendar.slotMinutes,
             available: true,
+            // The calendar's usual bookable hours: the only weekdays that can be booked.
+            weekly_hours: weeklyHoursLabel(calendar.weeklyHours),
             days: [...byDay.entries()].slice(0, 5).map(([date, times]) => ({ date, times })),
             note: 'Offer two or three of these options rather than reading out the whole list. Pass the chosen "start" value to book_appointment.',
           },

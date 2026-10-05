@@ -138,7 +138,7 @@ export function buildSystemPrompt(
 
   const unknown = {
     offer_handoff: 'say you are not sure and offer to connect them with the team',
-    collect_contact: 'say you are not sure, and offer to have the team follow up — collecting their contact details if you do not have them yet',
+    collect_contact: 'say you are not sure, and offer to have the team follow up — collecting their contact details (the required ones) if you do not have them yet',
     say_dont_know: 'say plainly that you do not have that information',
   }[c.guardrails.unknownAnswer];
   const knowledge = [
@@ -158,17 +158,19 @@ export function buildSystemPrompt(
 
   if (c.leadCapture.enabled && c.leadCapture.fields.length) {
     const timing = { early: 'early in the conversation', before_booking: 'before booking an appointment', natural: 'when it fits naturally' };
-    const fields = c.leadCapture.fields.map(
-      (f) => `- ${fieldLabel(f.field, customLabels)}${f.required ? ' (required)' : ' (optional)'} — ask ${timing[f.timing]}`,
-    );
+    // Only required details are asked for; optional ones are saved when the customer offers them.
+    const required = c.leadCapture.fields.filter((f) => f.required).map((f) => `- ${fieldLabel(f.field, customLabels)} (required) — ask ${timing[f.timing]}`);
+    const optional = c.leadCapture.fields.filter((f) => !f.required).map((f) => fieldLabel(f.field, customLabels));
     sections.push(
       [
         '## Capturing contact details',
-        fields.join('\n'),
+        required.join('\n'),
+        optional.length ? `- Optional: ${optional.join(', ')}. Save these if the customer shares them, but never ask for them.` : '',
+        '- "Contact details" anywhere in these instructions means the required details above, plus what a booking needs.',
         '- Save details with save_contact_details the moment the customer shares them. Never ask for something already on file (see <contact> in the context).',
         '- When you ask, give a short reason ("so the team can send you the quote").',
         '- Do not block a customer\'s question on getting their details: help first, then ask.',
-        '- Ask for an optional detail at most once. If they decline, or it can\'t be saved, drop it and carry on: never hold up a booking for a detail the booking doesn\'t need.',
+        '- If you ever do ask for an optional detail (for example, the customer wants a call back), ask at most once. If they decline, or it can\'t be saved, drop it and carry on: never hold up a booking for a detail the booking doesn\'t need.',
         c.leadCapture.consentNotice ? `- When asking for contact details, mention: "${c.leadCapture.consentNotice}"` : '',
         c.leadCapture.marketingOptIn.trim()
           ? '- Marketing opt-in: once you have their email or phone, and <contact> shows "marketing consent: not asked yet", call ask_marketing_consent once. The system then posts the business\'s exact question after your reply, so don\'t ask it in your own words. When they answer it, call record_marketing_consent. If they ever ask to stop receiving marketing, call record_marketing_consent with granted=false. Never pressure them: no is a fine answer.'
@@ -218,6 +220,9 @@ export function buildSystemPrompt(
         "- Bookable times come only from check_availability. Opening hours in the business facts or <knowledge> can differ from them: never tell a customer a day or time can be booked before checking. If a day the business is open has no slots, say there are no bookable times that day and offer the next available ones.",
         '- Times are in the calendar\'s timezone; always say which timezone. When a time also comes with your_time, the customer is in another timezone: give their time first and name both zones.',
         `- Before calling book_appointment: the customer has confirmed the exact date and time, and you have saved their ${c.booking.requiredFields.join(' and ')}.`,
+        `- Booking needs their ${c.booking.requiredFields.join(' and ')}: ask for any that are missing before booking, even if they are optional above. Ask for nothing else to book.`,
+        "- check_availability's weekly_hours lists the only weekdays that can be booked. If the business is open on another day (opening hours or documents), you may say so, but that day can't be booked.",
+        '- Only offer times check_availability returned in this conversation, and only say an appointment is booked after book_appointment succeeds.',
         c.booking.requireQualification ? '- Only book for leads who completed qualification successfully.' : '',
         '- If the customer picks a slot offered earlier (listed in <earlier_actions>), pass that exact start to book_appointment. If the offer is old or they want another time, call check_availability again.',
         '- After booking, confirm the date, time and timezone back to the customer.',

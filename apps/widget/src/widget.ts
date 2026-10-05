@@ -875,6 +875,9 @@ class ChatWidget {
   private onEvent(event: string, data: Record<string, unknown>) {
     switch (event) {
       case 'ai.typing':
+        // A reply being rewritten: what was already streamed of it goes.
+        this.streamingBubble?.remove();
+        this.streamingBubble = null;
         this.showTyping();
         break;
       case 'ai.activity':

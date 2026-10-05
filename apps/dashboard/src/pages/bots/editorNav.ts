@@ -402,9 +402,10 @@ export function askedFor(lc: LeadCapture, customFields: CustomFieldDef[]): strin
     (STANDARD_LEAD_FIELDS as readonly string[]).includes(key) ? key : (customFields.find((f) => f.key === key)?.label.toLowerCase() ?? key);
   const required = lc.fields.filter((f) => f.required).map((f) => fieldName(f.field));
   const optional = lc.fields.filter((f) => !f.required).map((f) => fieldName(f.field));
+  // Optional details are saved when shared, never asked for.
   return required.length
-    ? `Asks for ${joinAnd(required)}${optional.length ? `; ${joinAnd(optional)} ${optional.length === 1 ? 'is' : 'are'} optional` : ''}.`
-    : `Asks for ${joinAnd(optional)} when it fits.`;
+    ? `Asks for ${joinAnd(required)}${optional.length ? `; saves ${joinAnd(optional)} if shared` : ''}.`
+    : `Asks for nothing; saves ${joinAnd(optional)} if shared.`;
 }
 
 const TONE_WORDS: Record<BotConfig['persona']['tone'], string> = {

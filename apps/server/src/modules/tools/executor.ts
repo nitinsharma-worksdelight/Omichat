@@ -209,7 +209,7 @@ export class ToolExecutor {
             status = 'pending';
             output = { waiting_for_team: true, request_id: request.id, ...(request.created ? {} : { already_asked: true }), note: WAITING };
           } else {
-            if (def.activity) await tctx.activity(def.activity).catch(() => {});
+            if (def.activity) await tctx.activity(def.activity, { internal: def.activityInternal }).catch(() => {});
             try {
               const outcome = await withTimeout(def.run(parsed.data, tctx), TOOL_TIMEOUT_MS, `${call.name} timed out`);
               output = outcome.ok ? outcome.data : { error: outcome.error, ...(outcome.data ?? {}) };

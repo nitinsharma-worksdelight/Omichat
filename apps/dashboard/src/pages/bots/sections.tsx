@@ -597,6 +597,7 @@ export function BusinessSection({ value, onChange, ctx }: SectionProps<BusinessP
   const set = <K extends keyof BusinessProfile>(key: K, v: string) => onChange({ ...value, [key]: v });
   return (
     <>
+      <SectionWarnings warnings={ctx.warnings} section="business" />
       <SettingsCard title="About your business" description="In your own words. Short and specific works best.">
         <Setting id="business.description">
           <Field label="What you do">
@@ -700,13 +701,20 @@ export function LeadCaptureSection({ value, onChange, ctx }: SectionProps<LeadCa
                       ))}
                     </Select>
                     <Toggle checked={f.required} onChange={(v) => setField(i, { required: v })} id={`lc-req-${i}`} ariaLabel={`${f.field} required`} />
-                    <Select aria-label="When to ask" value={f.timing} onChange={(e) => setField(i, { timing: e.target.value as LeadTiming })}>
-                      {TIMINGS.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </Select>
+                    {f.required ? (
+                      <Select aria-label="When to ask" value={f.timing} onChange={(e) => setField(i, { timing: e.target.value as LeadTiming })}>
+                        {TIMINGS.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : (
+                      // Optional details aren't asked for, so there's no "when" (the saved timing is kept for if it's made required).
+                      <Select aria-label="When to ask" value="shared" disabled>
+                        <option value="shared">Only if shared</option>
+                      </Select>
+                    )}
                     <IconButton label="Remove field" size="sm" onClick={() => onChange({ ...value, fields: value.fields.filter((_, j) => j !== i) })}>
                       <Trash2 className="size-4" />
                     </IconButton>
@@ -728,6 +736,10 @@ export function LeadCaptureSection({ value, onChange, ctx }: SectionProps<LeadCa
               </Link>
             </div>
           </Card>
+          <p className="mt-2 text-caption text-muted">
+            Required details are asked for. Optional ones are saved when visitors share them; {ctx.assistantName} doesn't ask for them. A booking asks for the details it
+            needs (Booking tab).
+          </p>
         </Setting>
       </FeatureCard>
       <SettingsCard title="Privacy and consent" description="Both are optional: leave a box empty to skip it.">

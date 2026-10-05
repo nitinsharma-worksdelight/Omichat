@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, Eye, PanelRightClose, PanelRightOpen, Save, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
@@ -9,7 +9,7 @@ import { ApiError, get, patch } from '../../lib/api';
 import { formatNumber, TOOL_LABELS } from '../../lib/format';
 import { roleAtLeast, useBots, useCalendars, useCustomFields, useKnowledgeBases, useMembers, useOrg, usePipelines, useTags, useWorkflows } from '../../lib/queries';
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
-import type { Bot, BotConfig, BotConfigSection, BotPreview } from '../../lib/types';
+import type { Bot, BotConfig, BotConfigSection, BotPreview, KbDocument } from '../../lib/types';
 import { EditorOverview, SaveBar, SaveErrors, SectionHeader, SettingsMenu, SettingsSearch, type SettingsTarget } from './editor';
 import { businessProblems, CONFIG_SECTIONS, essentials, isEditorView, sectionOfError, SECTIONS, type BotDraft, type EditorView, type SectionId } from './editorNav';
 import { Playground } from './Playground';
@@ -85,6 +85,10 @@ export function BotEditorPage({ botId }: { botId: string }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<unknown>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // The bot's knowledge documents (shared with the Knowledge page), so their opening hours can be checked against booking.
+  const documents = useQueries({
+    queries: (draft?.knowledgeBaseIds ?? []).map((id) => ({ queryKey: ['documents', id], queryFn: () => get<KbDocument[]>(`/v1/knowledge-bases/${id}/documents`) })),
+  }).flatMap((q) => q.data ?? []);
   const [testChatOpen, setTestChatOpen] = useState(() => window.innerWidth >= 1280);
   // On narrow screens the test chat is an overlay: Escape closes it.
   useEffect(() => {
@@ -238,7 +242,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
     assistantName: draft.config.persona.assistantName.trim() || 'your assistant',
     members: members.data ?? [],
     pipelines: pipelines.data ?? [],
-    warnings: botWarnings(draft.config, calendars.data ?? []),
+    warnings: botWarnings(draft.config, calendars.data ?? [], documents),
     bookingCalendar: bookingCalendar(draft.config, calendars.data ?? []),
   };
   const setConfig = <K extends BotConfigSection>(key: K, value: BotConfig[K]) => setDraft((d) => (d ? { ...d, config: { ...d.config, [key]: value } } : d));

@@ -56,6 +56,26 @@ export function formatSlotLabel(start: DateTime): string {
  * Open slots between two calendar-local dates (inclusive). Pure: the caller supplies busy intervals
  * (booked appointments plus any external-calendar busy time) and the current time.
  */
+const SHORT_DAY: Record<Weekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
+
+/**
+ * A calendar's usual weekly hours in a line, consecutive days with the same hours grouped: "Mon–Fri 9:00–17:00,
+ * Sat 10:00–14:00". Days missing here are never bookable (date overrides may still change single dates).
+ */
+export function weeklyHoursLabel(hours: WeeklyHours): string {
+  const ranges = (d: Weekday) => (hours[d] ?? []).map((r) => `${r.start.replace(/^0(\d)/, '$1')}–${r.end.replace(/^0(\d)/, '$1')}`).join(', ');
+  const groups: Array<{ from: Weekday; to: Weekday; label: string }> = [];
+  for (const d of WEEKDAYS) {
+    const label = ranges(d);
+    if (!label) continue;
+    const last = groups[groups.length - 1];
+    if (last && last.label === label && WEEKDAYS.indexOf(last.to) === WEEKDAYS.indexOf(d) - 1) last.to = d;
+    else groups.push({ from: d, to: d, label });
+  }
+  if (!groups.length) return 'no bookable days';
+  return groups.map((g) => `${g.from === g.to ? SHORT_DAY[g.from] : `${SHORT_DAY[g.from]}–${SHORT_DAY[g.to]}`} ${g.label}`).join(', ');
+}
+
 export function computeSlots(
   rules: CalendarRules,
   busy: Interval[],

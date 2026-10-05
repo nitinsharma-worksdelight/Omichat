@@ -234,11 +234,12 @@ describe('phone numbers and optional details (Q1.4)', () => {
     expect(good).toMatchObject({ isError: false, content: { saved: ['phone'] } });
   });
 
-  it('marks optional details and asks for them at most once', async () => {
+  it('lists only required details as still needed, and keeps the at-most-once fallback for optional ones', async () => {
     const org = await createOrg(t.c, 'Optional Clinic'); // default fields: name and email required, phone optional
     const req = await (await widget(org)).send('hi');
-    expect(latestContext(req.messages)).toContain('still needed: name (required), email (required), phone (optional)');
-    expect(req.system).toContain('Ask for an optional detail at most once');
+    expect(latestContext(req.messages)).toContain('still needed: name (required), email (required)\n');
+    expect(latestContext(req.messages)).not.toContain('phone (optional)');
+    expect(req.system).toContain('If you ever do ask for an optional detail (for example, the customer wants a call back), ask at most once.');
     expect(req.tools.find((s) => s.name === 'save_contact_details')!.description).toContain("ask the customer once to correct it, and don't insist on optional details");
   });
 });
@@ -249,5 +250,167 @@ describe('bot preview', () => {
     const org = await createOrg(t.c, 'Preview Clinic');
     const res = await t.app.inject({ method: 'GET', url: `/v1/bots/${org.bot.id}/preview`, headers: authHeaders(org.token) });
     expect((res.json() as { system: string }).system).toContain("You can't book, move or cancel appointments in this chat");
+  });
+});
+
+// ---------- Follow-up: BUG-03 (the calendar decides what can be offered) and BUG-06 (optional details aren't asked for) ----------
+
+/** The model's script for a reply that uses the slot check_availability just returned (the first one). */
+const offerFirstSlot = (say: (time: string, day: string) => string) => (req: LlmRequest) => {
+  // The latest tool result in the conversation (a corrective round ends with the system check, not the result).
+  const result = req.messages
+    .flatMap((m) => m.content)
+    .filter((b): b is Extract<typeof b, { type: 'tool_result' }> => b.type === 'tool_result')
+    .at(-1)!;
+  const data = JSON.parse(result.content) as { days?: Array<{ times: Array<{ start: string }> }>; next_available?: Array<{ start: string }> };
+  const start = (data.days?.[0]?.times[0] ?? data.next_available![0]!).start;
+  const [h, m] = start.slice(11, 16).split(':').map(Number) as [number, number];
+  const time = `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  const day = new Date(`${start.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  return text(say(time, day))();
+};
+
+describe('calendar facts for the bot (BUG-03)', () => {
+  it("check_availability says which weekdays can be booked, and that opening hours don't add any", async () => {
+    const org = await createOrg(t.c, 'Weekly Hours Clinic');
+    await withBooking(org);
+    const visitor = await widget(org);
+    await visitor.send('Can I come Saturday?', [tools({ name: 'check_availability', input: { date_from: '2026-10-03', date_to: '2026-10-03' } }), text('Saturday has no slots.')]);
+    const [saturday] = lastToolResults(t.llm);
+    expect(saturday!.content).toMatchObject({ available: false, weekly_hours: 'Mon–Fri 9:00–17:00' });
+    expect((saturday!.content as { note: string }).note).toContain("Opening hours in the business facts or documents don't make a day bookable");
+
+    await visitor.send('And Monday?', [tools({ name: 'check_availability', input: { date_from: '2026-10-05', date_to: '2026-10-05' } }), text('Monday works.')]);
+    expect(lastToolResults(t.llm)[0]!.content).toMatchObject({ available: true, weekly_hours: 'Mon–Fri 9:00–17:00' });
+    expect(t.llm.requests.at(-1)!.system).toContain("check_availability's weekly_hours lists the only weekdays that can be booked");
+    expect(t.llm.requests.at(-1)!.system).toContain('Only offer times check_availability returned in this conversation');
+  });
+});
+
+describe('the reply check (BUG-03)', () => {
+  const statusEvents = () => {
+    const seen: string[] = [];
+    const original = t.c.conversations.publish.bind(t.c.conversations);
+    t.c.conversations.publish = (async (orgId: string, event: { type: string }) => {
+      seen.push(event.type);
+      return original(orgId, event as never);
+    }) as typeof t.c.conversations.publish;
+    return { seen, restore: () => (t.c.conversations.publish = original) };
+  };
+  const lastAiMessage = async (org: Org, conversationId: string) =>
+    (await t.c.conversations.messages(org.scope, conversationId)).filter((m) => m.senderType === 'ai').at(-1)!.content;
+
+  it('a "booked" without a booking gets one corrective round, and only the corrected reply is sent', async () => {
+    const org = await createOrg(t.c, 'Check Booked Clinic');
+    await withBooking(org);
+    const visitor = await widget(org);
+    const events = statusEvents();
+    await visitor.send('Book me Saturday 11 AM', [text("You're all booked for Saturday at 11 AM!"), text("Nothing is booked yet: let me check what's open.")]);
+    events.restore();
+
+    expect(t.llm.requests.length).toBe(2);
+    const note = allText(t.llm.requests.at(-1)!.messages);
+    expect(note).toContain("[System check, not from the customer: Your reply says an appointment is booked, but book_appointment didn't succeed");
+    expect(await lastAiMessage(org, (await t.c.conversations.list(org.scope, { sort: 'recent', limit: 1, offset: 0 }))[0]!.id)).toBe("Nothing is booked yet: let me check what's open.");
+    // "typing" again before the rewrite, so what was streamed of the draft is cleared.
+    expect(events.seen.filter((e) => e === 'ai.typing')).toHaveLength(2);
+  });
+
+  it("QA's case: a Saturday time the calendar didn't return is corrected to what it did return", async () => {
+    const org = await createOrg(t.c, 'Check Saturday Clinic');
+    await withBooking(org);
+    const visitor = await widget(org);
+    await visitor.send('Saturday 11 AM please', [
+      tools({ name: 'check_availability', input: { date_from: '2026-10-03', date_to: '2026-10-03' } }),
+      text('Saturday at 11 AM is available. Shall I book it?'),
+      offerFirstSlot((time, day) => `Saturday has no slots. ${day} at ${time} is available. Shall I book it?`),
+    ]);
+    expect(t.llm.requests.length).toBe(3);
+    expect(allText(t.llm.requests.at(-1)!.messages)).toContain("Your reply offers 11:00, which check_availability didn't return.");
+    const conv = (await t.c.conversations.list(org.scope, { sort: 'recent', limit: 1, offset: 0 }))[0]!;
+    expect(await lastAiMessage(org, conv.id)).toMatch(/^Saturday has no slots\. Monday at \d{1,2}:\d{2} [AP]M is available\. Shall I book it\?$/);
+  });
+
+  it('a reply offering a time the calendar returned is sent as written, with no extra model call', async () => {
+    const org = await createOrg(t.c, 'Check Fine Clinic');
+    await withBooking(org);
+    const visitor = await widget(org);
+    await visitor.send('Monday please', [
+      tools({ name: 'check_availability', input: { date_from: '2026-10-05', date_to: '2026-10-05' } }),
+      offerFirstSlot((time, day) => `${day} at ${time} is available. Would you like it?`),
+    ]);
+    expect(t.llm.requests.length).toBe(2);
+    expect(allText(t.llm.requests.at(-1)!.messages)).not.toContain('[System check');
+  });
+
+  it('a reply still wrong after the correction is sent rather than leaving the customer waiting, with no third try', async () => {
+    const org = await createOrg(t.c, 'Check Twice Clinic');
+    await withBooking(org);
+    const visitor = await widget(org);
+    await visitor.send('Book me in', [text("You're booked!"), text("You're booked for real!")]);
+    expect(t.llm.requests.length).toBe(2);
+    const conv = (await t.c.conversations.list(org.scope, { sort: 'recent', limit: 1, offset: 0 }))[0]!;
+    expect(await lastAiMessage(org, conv.id)).toBe("You're booked for real!");
+  });
+
+  it("doesn't run for a bot that can't book", async () => {
+    const org = await createOrg(t.c, 'Check Off Clinic'); // booking off
+    await (await widget(org)).send('hi', [text('I can do 11 AM tomorrow if you like.')]);
+    expect(t.llm.requests.length).toBe(1);
+  });
+});
+
+describe('optional details are never asked for (BUG-06)', () => {
+  it('lists only required details to ask for, and optional ones to save if shared', async () => {
+    const org = await createOrg(t.c, 'Never Ask Clinic'); // name and email required, phone optional
+    const req = await (await widget(org)).send('hi');
+    expect(req.system).toContain('- full name (required) — ask when it fits naturally\n- email (required) — ask when it fits naturally');
+    expect(req.system).toContain('- Optional: phone. Save these if the customer shares them, but never ask for them.');
+    expect(req.system).not.toContain('phone (optional)');
+    expect(req.system).toContain('"Contact details" anywhere in these instructions means the required details above, plus what a booking needs.');
+    expect(req.system).toContain('collecting their contact details (the required ones)');
+  });
+
+  it('asks for what booking needs before booking, even when lead capture has it optional; booking without it is refused', async () => {
+    const org = await createOrg(t.c, 'Booking Phone Clinic');
+    await withBooking(org, { requiredFields: ['name', 'phone'] });
+    const visitor = await widget(org);
+    const req = await visitor.send('hi');
+    expect(req.system).toContain('- Booking needs their name and phone: ask for any that are missing before booking, even if they are optional above. Ask for nothing else to book.');
+    expect(latestContext(req.messages)).not.toMatch(/still needed: [^\n]*phone/);
+
+    await visitor.send("I'm Ana, Monday 9 AM please", [
+      tools({ name: 'save_contact_details', input: { name: 'Ana' } }, { name: 'book_appointment', input: { start: '2026-10-05T09:00', customer_confirmed: true } }),
+      text('What phone number can we reach you on?'),
+    ]);
+    const [, booked] = lastToolResults(t.llm);
+    expect(booked).toMatchObject({ isError: true });
+    expect(JSON.stringify(booked!.content)).toContain('phone');
+  });
+
+  it('keeps the booking rule when lead capture is off', async () => {
+    const org = await createOrg(t.c, 'No Lead Capture Clinic');
+    await t.c.bots.update(org.scope, org.bot.id, { config: { leadCapture: { ...org.bot.config.leadCapture, enabled: false }, booking: { enabled: true, calendarId: org.calendar.id } } });
+    const req = await (await widget(org)).send('hi');
+    expect(req.system).not.toContain('## Capturing contact details');
+    expect(req.system).toContain('- Booking needs their name and email: ask for any that are missing before booking');
+  });
+
+  it("qualification's next step asks only for required details", async () => {
+    const org = await createOrg(t.c, 'Qualify Required Clinic');
+    await t.c.bots.update(org.scope, org.bot.id, {
+      config: {
+        qualification: {
+          enabled: true,
+          questions: [{ key: 'treatment', question: 'Which treatment?', type: 'select', options: ['Invisalign', 'Cleaning'], required: true, saveToCustomField: null }],
+          rules: [{ questionKey: 'treatment', operator: 'equals', value: 'Invisalign', points: 80, disqualify: false }],
+          thresholds: { hot: 70, warm: 40 },
+          qualifyAt: 60,
+          qualifiedNextStep: 'collect_contact',
+        },
+      },
+    });
+    await (await widget(org)).send('Invisalign', [tools({ name: 'record_qualification_answers', input: { answers: [{ question_key: 'treatment', value: 'Invisalign' }] } }), text('Great!')]);
+    expect((lastToolResults(t.llm)[0]!.content as { guidance: string }).guidance).toContain('required contact details (never ask for optional ones)');
   });
 });

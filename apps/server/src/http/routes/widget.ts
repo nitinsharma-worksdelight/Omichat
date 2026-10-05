@@ -134,9 +134,11 @@ function widgetEvent(event: RealtimeEvent): { type: string; data: unknown } | nu
       return { type: 'message', data: { type: 'message', message: publicMessage(event.message) } };
     case 'conversation.status':
       return { type: event.type, data: { type: event.type, conversationId: event.conversationId, status: event.status } };
+    case 'ai.activity':
+      // Record-keeping ("Saving your details…") is for staff: the visitor just sees the typing dots.
+      return event.internal ? null : { type: event.type, data: event };
     case 'ai.typing':
     case 'ai.delta':
-    case 'ai.activity':
     case 'ai.done':
       return { type: event.type, data: event };
     default:

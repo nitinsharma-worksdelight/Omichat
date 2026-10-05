@@ -83,7 +83,7 @@ export type RealtimeEvent =
   | { type: 'message'; conversationId: string; message: MessageView }
   | { type: 'ai.typing'; conversationId: string; runId: string }
   | { type: 'ai.delta'; conversationId: string; runId: string; text: string }
-  | { type: 'ai.activity'; conversationId: string; runId: string; label: string }
+  | { type: 'ai.activity'; conversationId: string; runId: string; label: string; internal?: boolean }
   | { type: 'ai.done'; conversationId: string; runId: string; messageId: string | null }
   | { type: 'conversation.status'; conversationId: string; status: ConversationStatus; reason?: string | null }
   /** Staff only: who looks after the conversation changed. */

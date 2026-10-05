@@ -28,6 +28,7 @@ import { monthSpendUsd } from './budget';
 import { LlmError, textOf, type LlmMessage, type LlmProvider, type LlmUsage } from './llm/types';
 import { addUsage, type PriceBook } from './pricing';
 import { buildContextBlock, buildHistory, buildSystemPrompt, escapeTags, gapNote, MEMORY_LIMITS, type EarlierAction, type EarlierConversation } from './prompt';
+import { checkReply, slotsOf, type ReplyFacts } from './reply-check';
 import type { SummaryJob } from './summary';
 
 export interface ReplyJob {
@@ -349,6 +350,14 @@ export class AiOrchestrator {
     let handoffReason: string | null = null;
     let usage = EMPTY_USAGE;
     let iterations = 0;
+    // The reply check, for bots that book: what this turn booked, and the slots the calendar returned (this turn's and
+    // the latest still-fresh earlier ones). A reply it flags gets one corrective round.
+    const checksReplies = activeTools.includes('book_appointment');
+    let bookedThisTurn = false;
+    let corrected = false;
+    const offered: ReplyFacts['offered'] = recentSlots(earlierActions, latestInbound.createdAt);
+    const replyFacts = (): ReplyFacts => ({ bookedThisTurn, hasUpcoming: upcoming.length > 0, offered, known: upcoming.map((a) => a.label) });
+    let rounds = this.deps.env.AI_MAX_TOOL_ROUNDS + 1;
     let stopReason: string | null = null;
     let servedModel = bot.model ?? this.deps.llm.info.model;
     const texts: string[] = [];
@@ -373,7 +382,8 @@ export class AiOrchestrator {
       requestHandoff: (reason) => {
         handoffReason = reason;
       },
-      activity: (label) => conversations.publish(job.orgId, { type: 'ai.activity', conversationId: conv.id, runId, label }),
+      activity: (label, opts) =>
+        conversations.publish(job.orgId, { type: 'ai.activity', conversationId: conv.id, runId, label, ...(opts?.internal ? { internal: true } : {}) }),
       postAfterReply: (message) => {
         followUps.push(message);
       },
@@ -384,9 +394,9 @@ export class AiOrchestrator {
     let outcome: Outcome = 'completed';
     let error: string | null = null;
     try {
-      for (let round = 0; round < this.deps.env.AI_MAX_TOOL_ROUNDS + 1; round++) {
+      for (let round = 0; round < rounds; round++) {
         iterations++;
-        const lastRound = round === this.deps.env.AI_MAX_TOOL_ROUNDS || handoffReason !== null;
+        const lastRound = round === rounds - 1 || handoffReason !== null;
         const response = await this.deps.llm.generate(
           {
             tier: 'reply',
@@ -414,7 +424,29 @@ export class AiOrchestrator {
           break;
         }
         const calls = response.content.filter((b) => b.type === 'tool_use');
-        if (response.stopReason !== 'tool_use' || calls.length === 0 || lastRound) break;
+        if (response.stopReason !== 'tool_use' || calls.length === 0 || lastRound) {
+          const problem = checksReplies && !corrected && !handoffReason && !stop.aborted ? checkReply(texts.join('\n\n'), replyFacts()) : null;
+          if (!problem) break;
+          // Says it booked when it didn't, or offers times the calendar didn't return: one more go, tools included.
+          // The draft goes back as text only (a tool call without its result would be refused by the provider), and
+          // "typing" clears what was already streamed of it.
+          corrected = true;
+          log.info({ problem }, 'reply check: asking the model to correct its reply');
+          messages.push({ role: 'assistant', content: response.content.filter((b) => b.type === 'text') });
+          messages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `[System check, not from the customer: ${problem} Rewrite your reply using only check_availability results, and don't say an appointment is booked unless book_appointment succeeded.]`,
+              },
+            ],
+          });
+          texts.length = 0;
+          rounds = round + 3; // room for one round of tools, then the answer
+          await conversations.publish(job.orgId, { type: 'ai.typing', conversationId: conv.id, runId });
+          continue;
+        }
 
         // Out of time, or the lock is gone: don't start acting (the catch below retries the turn).
         if (stop.aborted) throw new TurnStopped();
@@ -429,10 +461,20 @@ export class AiOrchestrator {
         const results = [];
         for (const call of calls) results.push(await prepared.execute({ id: call.id, name: call.name, input: call.input }, toolCtx));
         for (const r of results) collectCitations(r.content, citations);
+        results.forEach((r, i) => {
+          const name = calls[i]!.name;
+          if (r.isError) return;
+          if (name === 'book_appointment' || name === 'reschedule_appointment') bookedThisTurn = true;
+          if (name === 'check_availability') offered.push(...slotsOf(parseJson(r.content)));
+        });
         messages.push({
           role: 'user',
           content: results.map((r) => ({ type: 'tool_result' as const, toolUseId: r.toolCallId, content: r.content, isError: r.isError })),
         });
+      }
+      if (corrected && outcome === 'completed' && !handoffReason) {
+        const still = checkReply(texts.join('\n\n'), replyFacts());
+        if (still) log.warn({ problem: still }, 'reply_check_failed: sending the corrected reply anyway');
       }
       // Without the lock, someone else may be answering now: never send.
       if (lockLost.aborted) throw new TurnStopped();
@@ -731,15 +773,35 @@ function missingLeadFields(
   labels: Map<string, string>,
 ): string[] {
   if (!bot.config.leadCapture.enabled) return [];
+  // Only what must be asked for: optional details are saved when offered, never asked for.
   return bot.config.leadCapture.fields
+    .filter((f) => f.required)
     .filter((f) => {
       if (f.field === 'name') return !contact.firstName;
       if ((STANDARD_LEAD_FIELDS as readonly string[]).includes(f.field)) return !contact[f.field as 'email' | 'phone' | 'company'];
       const v = contact.customFields[f.field];
       return v === undefined || v === null || v === '';
     })
-    .map((f) => `${f.field === 'name' ? 'name' : (labels.get(f.field) ?? f.field)}${f.required ? ' (required)' : ' (optional)'}`);
+    .map((f) => `${f.field === 'name' ? 'name' : (labels.get(f.field) ?? f.field)} (required)`);
 }
+
+/** Slots offered by this conversation's latest check_availability, while still fresh enough to book. */
+function recentSlots(actions: EarlierAction[], turnAt: Date): ReplyFacts['offered'] {
+  const check = actions
+    .filter((a) => a.toolName === 'check_availability')
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+    .at(-1);
+  if (!check || new Date(turnAt).getTime() - new Date(check.at).getTime() > MEMORY_LIMITS.slotsMaxAgeHours * 3_600_000) return [];
+  return slotsOf(check.output);
+}
+
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
 
 /** Picks up chunks returned by search_knowledge_base so they are cited on the reply too. */
 function collectCitations(toolContent: string, into: Map<string, RetrievedChunk>) {

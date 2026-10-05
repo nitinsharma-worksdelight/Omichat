@@ -16,7 +16,8 @@ export interface ToolContext {
   now: Date;
   setContactId(id: string): void;
   requestHandoff(reason: string): void;
-  activity(label: string): Promise<void>;
+  /** `internal`: bookkeeping the customer doesn't need to see (staff still do). */
+  activity(label: string, opts?: { internal?: boolean }): Promise<void>;
   /** Posts a message of the server's own right after the model's reply (e.g. a consent question, verbatim). */
   postAfterReply(message: { content: string; metadata?: Record<string, unknown> }): void;
   /** What this turn's tool schemas were built from (owner names, the deal pipeline), so a call maps back exactly. */
@@ -80,6 +81,8 @@ export interface ToolDefinition<S extends z.ZodType = z.ZodType> {
   enabled(ctx: ToolSchemaContext): boolean;
   /** Short progress label streamed to the widget while the tool runs. */
   activity?: string;
+  /** The label is record-keeping (saving details, noting answers): shown to staff, not to the customer. */
+  activityInternal?: boolean;
   /**
    * Set on tools whose effect must not happen twice (a note, a task, an alert, a workflow call). When a turn is
    * retried, the Nth such call replays the Nth earlier result instead of running again; calls are matched by this

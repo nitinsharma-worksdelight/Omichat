@@ -1,4 +1,4 @@
-import { WEEKDAYS, type BotConfig, type BotConfigSection, type Calendar, type ConversationStarter, type LeadCapture, type Weekday, type WeeklyHours } from '../../lib/types';
+import { WEEKDAYS, type BotConfig, type BotConfigSection, type Calendar, type ConversationStarter, type KbDocument, type LeadCapture, type Weekday, type WeeklyHours } from '../../lib/types';
 
 /**
  * Things worth checking in a bot's settings: they don't stop a save, but the assistant would tell visitors something
@@ -55,7 +55,7 @@ const OFF = 'Booking is off, so the assistant passes this to your team instead. 
 
 const DAY_NAMES: Record<Weekday, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 const SHORT: Record<Weekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
-const DAY = String.raw`(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)`;
+const DAY = String.raw`(mon(?:days?)?|tue(?:s(?:days?)?)?|wed(?:nesdays?)?|thu(?:r(?:s(?:days?)?)?)?|fri(?:days?)?|sat(?:urdays?)?|sun(?:days?)?)`;
 const DAY_RE = new RegExp(String.raw`\b${DAY}\b`, 'gi');
 const RANGE_RE = new RegExp(String.raw`\b${DAY}\b\.?\s*(?:-|–|—|to|through|thru|until|till)\s*\b${DAY}\b`, 'gi');
 
@@ -123,6 +123,51 @@ export function hoursMismatch(config: BotConfig, calendars: Calendar[]): { calen
   return days.length ? { calendar, days: WEEKDAYS.filter((d) => days.includes(d)) } : null;
 }
 
+// ---------- Opening hours in the bot's documents ----------
+
+/** A sentence about when the business is open: an hours word or a time range. */
+const HOURS_TALK = /\b(open|opens|opening|hours)\b|\b\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?\s*(?:-|–|—|to|until|till)\s*\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?\b|\b\d{1,2}(?::\d{2})?\s*[ap]\.?m\b/i;
+const NOT_OPEN = /\b(closed|shut|not open|no appointments)\b/i;
+const sentencesOf = (text: string) => text.split(/(?<=[.!?])\s+|\n+/);
+
+/** The days a document says the business is open: FAQ answers (with their question, which often names the day) and plain-text documents. */
+function openDaysInDocument(doc: Pick<KbDocument, 'sourceType' | 'content' | 'faq'>): Set<Weekday> {
+  const days = new Set<Weekday>();
+  const add = (text: string) => openDaysIn(text).forEach((d) => days.add(d));
+  if (doc.sourceType === 'faq') {
+    for (const item of doc.faq ?? []) {
+      if (!HOURS_TALK.test(item.answer) || NOT_OPEN.test(item.answer)) continue;
+      add(openDaysIn(item.answer).size ? item.answer : `${item.question} ${item.answer}`);
+    }
+  } else if (doc.sourceType === 'text') {
+    for (const sentence of sentencesOf(doc.content ?? '')) if (HOURS_TALK.test(sentence)) add(sentence);
+  }
+  return days;
+}
+
+/** FAQ and plain-text documents that say the business is open on a day the booking calendar has no hours for. */
+export function documentHoursMismatch(
+  config: BotConfig,
+  calendars: Calendar[],
+  documents: Array<Pick<KbDocument, 'id' | 'title' | 'sourceType' | 'content' | 'faq'>>,
+): BotWarning[] {
+  const calendar = bookingCalendar(config, calendars);
+  if (!calendar) return [];
+  return documents.flatMap((doc) => {
+    const open = openDaysInDocument(doc);
+    const days = WEEKDAYS.filter((d) => open.has(d) && !(calendar.weeklyHours[d] ?? []).length);
+    if (!days.length) return [];
+    const names = listOf(days.map((d) => DAY_NAMES[d]));
+    return [
+      {
+        id: `hours-document-${doc.id}`,
+        section: 'business' as const,
+        message: `Your ${doc.sourceType === 'faq' ? 'FAQ' : 'document'} “${doc.title}” says you're open ${names}, but ${calendar.name} has no ${names} hours: visitors may hear you're open but can't book then.`,
+      },
+    ];
+  });
+}
+
 const listOf = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : (items[0] ?? ''));
 
 // ---------- Privacy ----------
@@ -135,7 +180,8 @@ export function privacyNoticeMissing(lc: LeadCapture): boolean {
 
 const DETAIL: Record<string, string> = { name: 'name', email: 'email address', phone: 'phone number' };
 
-export function botWarnings(config: BotConfig, calendars: Calendar[]): BotWarning[] {
+/** `documents`: the bot's knowledge documents, when loaded (the editor); without them their hours aren't checked. */
+export function botWarnings(config: BotConfig, calendars: Calendar[], documents: Array<Pick<KbDocument, 'id' | 'title' | 'sourceType' | 'content' | 'faq'>> = []): BotWarning[] {
   const can = bookingAbilities(config);
   const out: BotWarning[] = [];
 
@@ -194,6 +240,8 @@ export function botWarnings(config: BotConfig, calendars: Calendar[]): BotWarnin
       }
     }
   }
+
+  out.push(...documentHoursMismatch(config, calendars, documents));
 
   if (privacyNoticeMissing(config.leadCapture)) {
     out.push({

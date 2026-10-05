@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BotConfig, Calendar, WeeklyHours } from '../../dashboard/src/lib/types';
-import { bookingAbilities, botWarnings, hoursSummary, openDaysIn, starterProblem } from '../../dashboard/src/pages/bots/warnings';
+import { bookingAbilities, botWarnings, documentHoursMismatch, hoursSummary, openDaysIn, starterProblem } from '../../dashboard/src/pages/bots/warnings';
 import { BotConfigSchema } from '../src/modules/bots/config';
 
 /**
@@ -124,4 +124,55 @@ it('a bot with nothing to flag has no warnings', () => {
     x.conversationStarters = [starter('Book an appointment')];
   });
   expect(botWarnings(c, [calendar()])).toEqual([]);
+});
+
+describe('opening hours in the bot’s documents (BUG-03 follow-up)', () => {
+  const faq = (items: Array<[string, string]>, title = 'Visits, hours and booking FAQs') => ({
+    id: title,
+    title,
+    sourceType: 'faq' as const,
+    faq: items.map(([question, answer]) => ({ question, answer })),
+  });
+  const textDoc = (content: string) => ({ id: 'office', title: 'Office hours', sourceType: 'text' as const, content });
+  const booking = config((c) => (Object.assign(c.booking, { enabled: true, calendarId: CAL }), (c.leadCapture.consentNotice = 'We only use your details to reply.')));
+
+  it("reads plural day names (QA's FAQ said “On Saturdays”)", () => {
+    expect([...openDaysIn('On Saturdays, we open at 10 AM')]).toEqual(['sat']);
+    expect([...openDaysIn('Mondays to Fridays 9–5')].sort()).toEqual(['fri', 'mon', 'thu', 'tue', 'wed']);
+  });
+
+  it("flags QA's FAQ answer against a Mon–Fri calendar, naming the document", () => {
+    const docs = [faq([['What time do you open on Saturday and how much is a consultation?', 'On Saturdays, we open at 10 AM and close at 2 PM (India time). A 20-minute general consultation costs Rs 500.']])];
+    expect(documentHoursMismatch(booking, [calendar()], docs)).toEqual([
+      {
+        id: 'hours-document-Visits, hours and booking FAQs',
+        section: 'business',
+        message:
+          "Your FAQ “Visits, hours and booking FAQs” says you're open Saturday, but Main calendar has no Saturday hours: visitors may hear you're open but can't book then.",
+      },
+    ]);
+    // And it's among the bot's warnings when the documents are passed in.
+    expect(botWarnings(booking, [calendar()], docs).map((w) => w.id)).toContain('hours-document-Visits, hours and booking FAQs');
+  });
+
+  it('takes the day from the question when the answer only gives the hours', () => {
+    expect(documentHoursMismatch(booking, [calendar()], [faq([['Are you open on Sunday?', 'Yes, 10 AM to 1 PM.']])])[0]?.message).toContain('open Sunday');
+  });
+
+  it("doesn't flag a document that says the day is closed, or a calendar that has the day", () => {
+    expect(documentHoursMismatch(booking, [calendar()], [faq([['Are you open on Saturdays?', "No, we're closed on Saturdays and Sundays."]])])).toEqual([]);
+    expect(documentHoursMismatch(booking, [calendar({ ...WEEKDAYS_9_5, sat: [{ start: '10:00', end: '14:00' }] })], [faq([['Saturday hours?', 'On Saturdays we open 10 AM–2 PM.']])])).toEqual([]);
+  });
+
+  it('reads plain-text documents sentence by sentence, only sentences about opening times', () => {
+    const doc = textDoc('We are a family clinic founded in 1990. Our office is open Monday to Saturday, 9 am to 5 pm. Parking is free on Sundays.');
+    const [w] = documentHoursMismatch(booking, [calendar()], [doc]);
+    expect(w?.message).toBe("Your document “Office hours” says you're open Saturday, but Main calendar has no Saturday hours: visitors may hear you're open but can't book then.");
+  });
+
+  it('checks nothing when the bot can’t book, and skips URL and file documents', () => {
+    const docs = [faq([['Saturday?', 'On Saturdays we open at 10 AM.']])];
+    expect(documentHoursMismatch(config(), [calendar()], docs)).toEqual([]);
+    expect(documentHoursMismatch(booking, [calendar()], [{ id: 'site', title: 'Website', sourceType: 'url' as const }])).toEqual([]);
+  });
 });
