@@ -6,6 +6,7 @@ import { Button, Card, CardHeader, cx, ErrorBanner, Field, IconButton, Input, Nu
 import { ApiError, del, get, patch } from '../../lib/api';
 import { addDays, formatDayHeading, formatLocalTime, isoDay } from '../../lib/format';
 import { timezones } from '../../lib/hooks';
+import { currentTimezoneName } from '../../lib/timezones';
 import { useAction } from '../../lib/mutations';
 import { useOrg } from '../../lib/queries';
 import { navigate } from '../../lib/router';
@@ -38,7 +39,7 @@ function toInput(c: Calendar): CalendarInput {
   return {
     name: c.name,
     description: c.description,
-    timezone: c.timezone,
+    timezone: currentTimezoneName(c.timezone),
     slotMinutes: c.slotMinutes,
     slotIntervalMinutes: c.slotIntervalMinutes,
     bufferMinutes: c.bufferMinutes,
@@ -135,7 +136,7 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
       <Card>
         <CardHeader
           title={calendar.name}
-          description={`${calendar.timezone} · ${calendar.slotMinutes}-minute slots`}
+          description={`${currentTimezoneName(calendar.timezone)} · ${calendar.slotMinutes}-minute slots`}
           actions={
             <>
               <Button

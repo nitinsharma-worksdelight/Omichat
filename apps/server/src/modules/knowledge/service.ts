@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { rowsOf, schema, type Db } from '../../db/client';
 import type { DocumentCategory } from '../../db/schema';
@@ -6,7 +6,7 @@ import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import type { QueueDriver } from '../../infra/queue';
 import type { StorageDriver } from '../../infra/storage';
 import { sha256 } from '../../lib/crypto';
-import { badRequest, notFound } from '../../lib/errors';
+import { badRequest, conflict, notFound } from '../../lib/errors';
 import type { Logger } from '../../lib/logger';
 import { assertSafeUrl } from '../../lib/net';
 import { chunkFaq, chunkSections, type Chunk } from './chunker';
@@ -250,9 +250,26 @@ export class KnowledgeService {
   async createKnowledgeBase(scope: Scope, input: z.infer<typeof KnowledgeBaseInputSchema>) {
     this.assertLanguage(input.language);
     return inScope(this.tenantDb, scope, async (tx) => {
+      await this.assertNameFree(tx, scope.orgId, input.name);
       const [row] = await tx.insert(schema.knowledgeBases).values({ organizationId: scope.orgId, ...input }).returning();
       return row!;
     });
+  }
+
+  /** Names are unique per organization, ignoring case ("General" and "general" would be told apart by nobody). */
+  private async assertNameFree(tx: Db, orgId: string, name: string, exceptId?: string) {
+    const [same] = await tx
+      .select({ id: schema.knowledgeBases.id })
+      .from(schema.knowledgeBases)
+      .where(
+        and(
+          eq(schema.knowledgeBases.organizationId, orgId),
+          sql`lower(btrim(${schema.knowledgeBases.name})) = lower(${name.trim()})`,
+          exceptId ? ne(schema.knowledgeBases.id, exceptId) : undefined,
+        ),
+      )
+      .limit(1);
+    if (same) throw conflict('A knowledge base with this name already exists', [{ path: 'name', message: 'You already have a knowledge base with this name' }]);
   }
 
   async updateKnowledgeBase(scope: Scope, id: string, input: Partial<z.infer<typeof KnowledgeBaseInputSchema>>) {
@@ -261,6 +278,7 @@ export class KnowledgeService {
       const where = and(eq(schema.knowledgeBases.id, id), eq(schema.knowledgeBases.organizationId, scope.orgId));
       const [before] = await tx.select({ language: schema.knowledgeBases.language }).from(schema.knowledgeBases).where(where).for('update');
       if (!before) throw notFound('Knowledge base');
+      if (input.name !== undefined) await this.assertNameFree(tx, scope.orgId, input.name, id);
       const [row] = await tx.update(schema.knowledgeBases).set(input).where(where).returning();
       if (input.language !== undefined && input.language !== before.language) {
         // Keyword search reads each chunk in its knowledge base's language: re-read this one's (no re-embedding).

@@ -109,7 +109,8 @@ export async function registerOrgRoutes(app: FastifyInstance, c: Container) {
 
   /**
    * Month-to-date headline numbers for the Overview, in the organization's timezone. Test chats and merged duplicates
-   * are left out; `ai` (all spend, Test chats included, as the monthly budget counts it) is for admins only.
+   * are left out; `aiCostUsd` is the same AI cost the Analytics page shows, and `ai` (all spend, Test chats included, as
+   * the monthly budget counts it) is for admins only.
    */
   app.get('/usage', async (req) => {
     const auth = await requireUser(c, req);
@@ -118,6 +119,7 @@ export async function registerOrgRoutes(app: FastifyInstance, c: Container) {
     const r = await c.analytics.monthToDate(auth.orgId, org.timezone, { includeCost: isAdmin });
     return {
       since: r.since,
+      aiCostUsd: r.cost,
       ai: r.spend,
       aiReplies: r.totals.aiReplies,
       conversations: { total: r.totals.conversations, handedOff: r.totals.handoffs },

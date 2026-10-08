@@ -1,3 +1,4 @@
+import { serverNow } from './clock';
 import type { EventItem } from './types';
 
 const dateTimeFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -41,9 +42,12 @@ export function initialsOf(name: string): string {
 export function timeAgo(value: string | Date | null | undefined): string {
   const d = toDate(value);
   if (!d) return '—';
-  const diff = (Date.now() - d.getTime()) / 1000;
+  // On the server's clock (see clock.ts): the times shown come from it.
+  const diff = (serverNow() - d.getTime()) / 1000;
   if (diff < 0) {
     const ahead = -diff;
+    // A few seconds ahead is the clocks' small disagreement, not the future.
+    if (ahead < 15) return 'just now';
     if (ahead < 3600) return `in ${Math.max(1, Math.round(ahead / 60))}m`;
     if (ahead < 86400) return `in ${Math.round(ahead / 3600)}h`;
     return formatDate(d);

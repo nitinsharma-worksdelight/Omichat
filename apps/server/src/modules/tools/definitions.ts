@@ -334,11 +334,18 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
         'Before calling: the customer must have explicitly confirmed the exact date and time, and you must have saved their',
         ctx.bot.config.booking.requiredFields.join(', ') + '.',
         'Set customer_confirmed=true only after they confirmed.',
+        `If they named the kind of appointment (a check-up, a consultation), pass it as service; otherwise it is titled "${ctx.bot.config.booking.appointmentTitle}".`,
       ].join(' '),
     enabled: bookingEnabled,
     schema: () =>
       z.object({
         start: z.string().regex(LOCAL_DATETIME).describe('Slot start exactly as returned by check_availability (YYYY-MM-DDTHH:mm, calendar timezone)'),
+        service: z
+          .string()
+          .trim()
+          .max(80)
+          .optional()
+          .describe('The kind of appointment the customer asked for, in their words, e.g. "Check-up" or "Teeth whitening". Leave out if they did not name one.'),
         notes: z.string().max(1000).optional().describe('What the appointment is about, in a sentence'),
         customer_confirmed: z.boolean(),
       }),
@@ -364,7 +371,8 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
           contactId: ctx.contactId,
           conversationId: ctx.conversationId,
           start,
-          title: `${booking.appointmentTitle}${contact.name ? ` with ${contact.name}` : ''}`,
+          // What the customer asked for names the appointment; the bot's default title is for when they didn't say.
+          title: `${input.service || booking.appointmentTitle}${contact.name ? ` with ${contact.name}` : ''}`,
           notes: input.notes,
           createdBy: 'ai',
         });

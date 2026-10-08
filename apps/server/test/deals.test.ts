@@ -143,7 +143,8 @@ describe('deals', () => {
       pipelineId: sales!.id,
       stageId: stage(sales!, 'New'),
       value: 4500,
-      currency: 'USD',
+      // A Toronto business starts in Canadian dollars (its timezone says where it is).
+      currency: 'CAD',
       status: 'open',
       expectedCloseOn: '2026-10-15',
       createdBy: 'user',
@@ -151,9 +152,9 @@ describe('deals', () => {
     });
 
     expect((await call('PATCH', '/v1/org', as(org.token), { settings: { currency: 'eur' } })).statusCode).toBe(200);
-    expect((await newDeal(org, { title: 'Whitening', contactId, value: 450 })).currency).toBe('EUR');
+    expect((await newDeal(org, { title: 'Whitening', contactId: await newContact(org, 'Wes'), value: 450 })).currency).toBe('EUR');
     expect((await call('PATCH', '/v1/org', as(org.token), { settings: { currency: 'XYZ' } })).statusCode).toBe(400);
-    expect((await newDeal(org, { title: 'Big', contactId, value: 999_999_999_999.99 })).value).toBe(999_999_999_999.99);
+    expect((await newDeal(org, { title: 'Big', contactId: await newContact(org, 'Bea'), value: 999_999_999_999.99 })).value).toBe(999_999_999_999.99);
     expect((await call('POST', '/v1/deals', as(org.token), { title: 'Too big', contactId, value: 1_000_000_000_000 })).statusCode).toBe(400);
 
     const other = (await call('POST', '/v1/pipelines', as(org.token), { name: 'Partnerships', stages: [{ name: 'Intro' }] })).json() as Pipeline;
@@ -212,22 +213,23 @@ describe('deals', () => {
   it('the board summary counts deals and totals their values per stage', async () => {
     const org = await createOrg(t.c, 'Board Clinic');
     const [sales] = await pipelinesOf(org);
+    // A contact has one open deal per pipeline, so each of these is for someone else.
     const contactId = await newContact(org, 'Bo');
     await newDeal(org, { title: 'A', contactId, value: 1000 });
-    await newDeal(org, { title: 'B', contactId, value: 2500 });
-    await newDeal(org, { title: 'C', contactId, stageId: stage(sales!, 'Qualified') });
-    const done = await newDeal(org, { title: 'D', contactId, value: 9999 });
+    await newDeal(org, { title: 'B', contactId: await newContact(org, 'Cy'), value: 2500 });
+    await newDeal(org, { title: 'C', contactId: await newContact(org, 'Di'), stageId: stage(sales!, 'Qualified') });
+    const done = await newDeal(org, { title: 'D', contactId: await newContact(org, 'Ed'), value: 9999 });
     await call('PATCH', `/v1/deals/${done.id}`, as(org.token), { status: 'won' });
 
     const summary = (await call('GET', `/v1/deals/summary?pipelineId=${sales!.id}&status=open`, as(org.token))).json() as Array<{ stageId: string; count: number; totals: Array<{ currency: string; value: number }> }>;
-    expect(summary.find((s) => s.stageId === stage(sales!, 'New'))).toMatchObject({ count: 2, totals: [{ currency: 'USD', value: 3500 }] });
+    expect(summary.find((s) => s.stageId === stage(sales!, 'New'))).toMatchObject({ count: 2, totals: [{ currency: 'CAD', value: 3500 }] });
     expect(summary.find((s) => s.stageId === stage(sales!, 'Qualified'))).toMatchObject({ count: 1, totals: [] });
 
     const page = await call('GET', `/v1/deals?pipelineId=${sales!.id}&stageId=${stage(sales!, 'New')}&status=open&limit=1`, as(org.token));
     expect(page.json()).toHaveLength(1);
     expect(page.headers['x-total-count']).toBe('2');
     const mine = (await call('GET', `/v1/contacts/${contactId}/deals`, as(org.token))).json() as Deal[];
-    expect(mine.map((d) => d.title).sort()).toEqual(['A', 'B', 'C', 'D']);
+    expect(mine.map((d) => d.title)).toEqual(['A']);
   });
 
   it('merging contacts moves their deals; deleting a contact deletes them', async () => {
@@ -262,7 +264,7 @@ describe('access', () => {
     expect((await call('GET', '/v1/deals', reader)).statusCode).toBe(200);
     expect((await call('GET', '/v1/pipelines', reader)).statusCode).toBe(200);
     expect((await call('POST', '/v1/deals', reader, body)).statusCode).toBe(403);
-    const viaKey = await call('POST', '/v1/deals', writer, body);
+    const viaKey = await call('POST', '/v1/deals', writer, { ...body, contactId: await newContact(org, 'Sal') });
     expect(viaKey.statusCode).toBe(201);
     expect(viaKey.json()).toMatchObject({ createdBy: 'api' });
     expect((await call('PATCH', `/v1/pipelines/${sales!.id}`, writer, { name: 'X' })).statusCode).toBe(401);

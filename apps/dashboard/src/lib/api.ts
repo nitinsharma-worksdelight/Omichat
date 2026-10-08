@@ -2,6 +2,7 @@
  * Thin fetch wrapper for the Omni API: base URL, bearer token, org header, JSON errors.
  * Errors from the server look like `{ error: { code, message, details? } }`.
  */
+import { noteServerTime } from './clock';
 import { ApiError, normalizeDetails } from './errors';
 
 export const API_URL = String(import.meta.env.VITE_API_URL || 'http://localhost:4000').replace(/\/+$/, '');
@@ -115,8 +116,11 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
   const method = opts.method ?? (body !== undefined ? 'POST' : 'GET');
 
   let res: Response;
+  const sentAt = Date.now();
   try {
     res = await fetch(buildUrl(path, opts.query), { method, headers, body, signal: opts.signal });
+    const serverTime = res.headers.get('x-server-time');
+    if (serverTime) noteServerTime(Number(serverTime), sentAt, Date.now());
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
     throw new ApiError(0, 'network_error', `Can't reach the API at ${API_URL}. Check that the server is running.`);

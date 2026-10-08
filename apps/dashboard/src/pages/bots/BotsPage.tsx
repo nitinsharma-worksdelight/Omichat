@@ -54,6 +54,9 @@ export function BotsPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {bots.data.map((bot) => {
               const usedBy = (channels.data ?? []).filter((c) => c.botId === bot.id && c.channel === 'webchat');
+              // "On" means it replies; it is only live where a channel (a website chat, the API) uses it. The playground doesn't count.
+              const reachable = (channels.data ?? []).some((c) => c.botId === bot.id && c.channel !== 'playground' && c.status === 'active');
+              const waitingForChannel = bot.isActive && channels.data !== undefined && !reachable;
               const warnings = botWarnings(bot.config, calendars.data ?? []);
               return (
                 <Card key={bot.id} className="flex flex-col p-5 transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-raise">
@@ -70,9 +73,11 @@ export function BotsPage() {
                         </p>
                       </div>
                     </Link>
-                    <Badge tone={bot.isActive ? 'green' : 'slate'} dot>
-                      {bot.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
+                    <span title={waitingForChannel ? "On, but no website chat or channel uses this bot yet, so visitors can't reach it. Add it to a website chat in Settings." : undefined}>
+                      <Badge tone={!bot.isActive ? 'slate' : waitingForChannel ? 'amber' : 'green'} dot>
+                        {!bot.isActive ? 'Inactive' : waitingForChannel ? 'Not live yet' : 'Active'}
+                      </Badge>
+                    </span>
                   </div>
                   <div className="mt-3 mb-4 flex flex-wrap gap-1.5">
                     <FeatureBadge on={bot.config.leadCapture.enabled} label="Lead capture" />

@@ -64,7 +64,7 @@ describe('personality', () => {
     const personality = 'Warm and reassuring, a little playful, like our front desk.';
     expect((await patchBot(org, { persona: { ...org.bot.config.persona, personality } })).statusCode).toBe(200);
     expect(await promptOf(org)).toContain(
-      `- Tone: warm and friendly. Keep replies short: one to three sentences unless the customer needs more detail.\n- Personality: ${personality}`,
+      `- Tone: warm and friendly. Keep replies short: one or two sentences. This is a limit, not a target: go past two only when the customer asks for detail or a list.\n- Personality: ${personality}`,
     );
   });
 });

@@ -47,3 +47,24 @@ export function finalizeKey(value: string): string {
     .slice(0, 64)
     .replace(/_+$/, '');
 }
+
+/** The longest period a report covers (the server's limit). */
+export const MAX_REPORT_DAYS = 366;
+
+/** Why a report period (YYYY-MM-DD dates, both ends included) can't be shown, or null. */
+export function reportRangeProblem(from: string, to: string): string | null {
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  if (Number.isNaN(start) || Number.isNaN(end)) return 'Enter both dates.';
+  if (end < start) return 'The end date must be on or after the start date.';
+  if ((end - start) / 86_400_000 + 1 > MAX_REPORT_DAYS) return `Pick a period of ${MAX_REPORT_DAYS} days or less.`;
+  return null;
+}
+
+/** Why a website can't be on a chat's allowed list ("https://example.com", no page path), or null. Same rule as the server's. */
+export function originProblem(origin: string): string | null {
+  const o = origin.trim().replace(/\/+$/, '');
+  if (/^https?:\/\/[^/\s]+$/.test(o)) return null;
+  if (/^https?:\/\/[^/\s]+\//.test(o)) return `“${origin.trim()}” has a page in it: use just the website, like https://www.example.com`;
+  return `“${origin.trim()}” isn't a website address: use something like https://www.example.com`;
+}

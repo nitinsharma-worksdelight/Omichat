@@ -238,11 +238,12 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+      {/* The chat keeps a usable height whatever the window: when there's not room for it and "What the AI did", this scrolls. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
         {/* The chat as visitors see it on the website. */}
         <section
           aria-label={chatName ? `Chat with ${chatName}` : 'Chat'}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_10px_30px_-14px_rgb(15_23_42/0.22)]"
+          className="flex min-h-[22rem] flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_10px_30px_-14px_rgb(15_23_42/0.22)]"
         >
           <div className="flex items-center gap-3 border-b border-border px-4 py-3">
             <span className="relative shrink-0">
@@ -347,7 +348,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
         </section>
 
         {/* What happened behind each reply: tool calls, captured details and events. Open, it never takes more than 40%, so the chat keeps its message box. */}
-        <section className={cx('flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface', debugOpen && 'max-h-[40%] min-h-0')}>
+        <section className={cx('flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface', debugOpen && 'max-h-[min(40%,18rem)] min-h-0')}>
           <button
             type="button"
             aria-expanded={debugOpen}

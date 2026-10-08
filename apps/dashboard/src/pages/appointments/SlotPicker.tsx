@@ -42,7 +42,7 @@ export function SlotPicker({ calendarId, value, onChange, days = 7 }: { calendar
       ) : groups.length === 0 ? (
         <EmptyState title="No open slots in this range" description="Try later dates, or widen the calendar's opening hours." className="py-6" />
       ) : (
-        <div className="max-h-72 space-y-3 overflow-y-auto pr-1" role="radiogroup" aria-label="Available times">
+        <div className="space-y-3" role="radiogroup" aria-label="Available times">
           {groups.map(([day, slots]) => (
             <div key={day}>
               <p className="mb-1.5 text-caption font-medium text-muted">{formatDayHeading(day)}</p>

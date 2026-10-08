@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Download, CalendarCheck, CircleDollarSign, Hand, Handshake, MessagesSquare, Sparkles, Star, UserPlus } from 'lucide-react';
+import { Download, CalendarCheck, CircleAlert, CircleDollarSign, Hand, Handshake, MessagesSquare, Sparkles, Star, UserPlus } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useToast } from '../../components/feedback-context';
@@ -8,6 +8,7 @@ import { Button, Card, CardHeader, cx, ErrorBanner, Input, PageHeader, Select, S
 import { download, get } from '../../lib/api';
 import { formatNumber, formatUsd } from '../../lib/format';
 import { roleAtLeast, useBots, useChannels, useOrg } from '../../lib/queries';
+import { reportRangeProblem } from '../../lib/validate';
 import { navigate, useRoute, withQuery } from '../../lib/router';
 import type { AnalyticsMetric, AnalyticsReport } from '../../lib/types';
 import { Performance } from './Performance';
@@ -80,17 +81,20 @@ export function AnalyticsPage() {
   const channel = route.query.get('channel') ?? '';
   const metric = (route.query.get('metric') as AnalyticsMetric | null) ?? 'conversations';
   const setQuery = (changes: Record<string, string | null>) => navigate(withQuery(route, changes), { replace: true });
+  // A period that ends before it starts (typed in, or from an old link) isn't sent: the page says what to fix instead.
+  const rangeProblem = reportRangeProblem(from, to);
 
   const report = useQuery({
     queryKey: ['analytics', { from, to, botId, channel }],
     queryFn: () => get<AnalyticsReport>('/v1/analytics', { from, to, botId: botId || undefined, channel: channel || undefined }),
-    enabled: Boolean(org.data),
+    enabled: Boolean(org.data) && !rangeProblem,
   });
   const channelTypes = useMemo(
     () => [...new Set((channels.data ?? []).map((c) => c.channel).filter((c) => c !== 'playground'))],
     [channels.data],
   );
-  const data = report.data;
+  const data = rangeProblem ? undefined : report.data;
+  const periodLabel = custom ? `${from} to ${to}` : (PRESETS.find((p) => p.value === preset)?.label ?? 'Last 30 days');
   const selected = METRICS.find((m) => m.key === metric) ?? METRICS[0]!;
 
   return (
@@ -107,8 +111,8 @@ export function AnalyticsPage() {
           </Select>
           {custom && (
             <>
-              <Input type="date" aria-label="From" className="w-40" value={from} max={to} onChange={(e) => e.target.value && setQuery({ from: e.target.value })} />
-              <Input type="date" aria-label="To" className="w-40" value={to} min={from} onChange={(e) => e.target.value && setQuery({ to: e.target.value })} />
+              <Input type="date" aria-label="From" className="w-40" invalid={Boolean(rangeProblem)} value={from} max={to} onChange={(e) => e.target.value && setQuery({ from: e.target.value })} />
+              <Input type="date" aria-label="To" className="w-40" invalid={Boolean(rangeProblem)} value={to} min={from} onChange={(e) => e.target.value && setQuery({ to: e.target.value })} />
             </>
           )}
           <Select aria-label="Bot" className="w-48" value={botId} onChange={(e) => setQuery({ bot: e.target.value || null })}>
@@ -129,7 +133,13 @@ export function AnalyticsPage() {
           </Select>
         </div>
 
-        {report.error ? <ErrorBanner error={report.error} onRetry={() => void report.refetch()} /> : null}
+        {rangeProblem ? (
+          <p role="alert" className="flex items-start gap-1.5 text-body-sm text-danger-text">
+            <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+            {rangeProblem}
+          </p>
+        ) : null}
+        {report.error && !rangeProblem ? <ErrorBanner error={report.error} onRetry={() => void report.refetch()} /> : null}
 
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {METRICS.map((m) => (
@@ -139,7 +149,7 @@ export function AnalyticsPage() {
               icon={m.icon}
               tone={m.tone}
               hint={m.hint}
-              loading={report.isLoading}
+              loading={report.isLoading && !rangeProblem}
               value={data?.totals[m.key]}
               previous={data?.previous[m.key]}
               selected={m.key === selected.key}
@@ -152,9 +162,10 @@ export function AnalyticsPage() {
                 icon={<CircleDollarSign />}
                 tone="ai"
                 label="AI cost"
-                loading={report.isLoading}
-                value={formatUsd(data?.aiCostUsd ?? 0)}
-                footer="Admins only · Test chats left out"
+                loading={report.isLoading && !rangeProblem}
+                value={data ? formatUsd(data.aiCostUsd ?? 0) : '—'}
+                // The period is named: Overview's AI cost is this month so far, which is a different period from "Last 30 days".
+                footer={`${periodLabel} · Admins only · Test chats left out`}
               />
             </Card>
           )}
@@ -178,7 +189,9 @@ export function AnalyticsPage() {
             description={data?.dealsWonValue.length && selected.key === 'dealsWon' ? `Won value: ${data.dealsWonValue.map((d) => formatMoney(d.value, d.currency)).join(' · ')}` : selected.hint}
           />
           <div className="px-5 pt-4 pb-5">
-            {report.isLoading || !data ? (
+            {rangeProblem ? (
+              <p className="flex h-56 items-center justify-center text-body-sm text-muted">Fix the dates above to see the chart.</p>
+            ) : report.isLoading || !data ? (
               <Skeleton className="h-56 w-full" />
             ) : (
               <BarChart label={selected.label} points={data.series.map((p) => ({ date: p.date, value: p[selected.key] }))} weekly={data.interval === 'week'} />
@@ -186,7 +199,7 @@ export function AnalyticsPage() {
           </div>
         </Card>
 
-        <Performance from={from} to={to} botId={botId} channel={channel} isAdmin={roleAtLeast(role, 'admin')} />
+        {!rangeProblem && <Performance from={from} to={to} botId={botId} channel={channel} isAdmin={roleAtLeast(role, 'admin')} />}
       </div>
     </div>
   );

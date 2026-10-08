@@ -191,6 +191,14 @@
     height: 100%;
   }
 
+  /*
+   * The app is exactly as tall as the window and scrolls inside its own panels. Clipping (unlike hiding) can't be
+   * scrolled by a script either, so focusing or revealing a field never slides the whole page up, header and all.
+   */
+  #root {
+    overflow: clip;
+  }
+
   body {
     background: var(--bg);
     color: var(--fg);

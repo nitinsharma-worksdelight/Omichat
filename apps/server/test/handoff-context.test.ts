@@ -1,4 +1,6 @@
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { schema } from '../src/db/client';
 import { matchesHandoffKeyword } from '../src/modules/ai/orchestrator';
 import { createOrg, createTestEnv, text, type TestEnv } from './helpers';
 
@@ -65,7 +67,7 @@ describe('assignment', () => {
     expect((await t.c.automation.listNotifications(org.scope, owner.userId)).map((n) => n.type)).toEqual(['conversation.handoff_requested']);
   });
 
-  it('staff assign, filter by "mine" and "unassigned", and the assignee clears when the AI takes it back', async () => {
+  it('staff assign, filter by "mine" and "unassigned", and the assignee stays when the AI takes it back (BUG-10)', async () => {
     const org = await createOrg(t.c, 'Assign Co');
     const owner = await ownerOf(t, org);
     const sam = await member(t, org, 'Sam');
@@ -82,7 +84,26 @@ describe('assignment', () => {
     await expect(t.c.conversations.assign(org.scope, a.conversationId, '00000000-0000-4000-8000-000000000000', owner.userId)).rejects.toMatchObject({ statusCode: 400 });
     void viewer;
 
+    // Resume AI hands the replies back, not the chat: Sam is still who looks after it.
     await t.c.conversations.setStatus(org.scope, a.conversationId, 'ai_active', { actor: 'user', actorUserId: owner.userId });
+    expect((await t.c.conversations.get(org.scope, a.conversationId)).assignee).toMatchObject({ id: sam.userId });
+    expect(await list({ assignee: 'me' }, sam.userId)).toEqual([a.conversationId]);
+
+    // The next handoff goes back to Sam, with no second "assigned" note for a chat he already has.
+    const assignedBefore = await t.c.db
+      .select()
+      .from(schema.events)
+      .where(and(eq(schema.events.organizationId, org.orgId), eq(schema.events.conversationId, a.conversationId), eq(schema.events.type, 'conversation.assigned')));
+    await t.c.conversations.setStatus(org.scope, a.conversationId, 'human_active', { actor: 'ai', reason: 'wants a person' });
+    expect((await t.c.conversations.get(org.scope, a.conversationId)).assignee).toMatchObject({ id: sam.userId });
+    const assignedAfter = await t.c.db
+      .select()
+      .from(schema.events)
+      .where(and(eq(schema.events.organizationId, org.orgId), eq(schema.events.conversationId, a.conversationId), eq(schema.events.type, 'conversation.assigned')));
+    expect(assignedAfter).toHaveLength(assignedBefore.length);
+
+    // Closing it leaves it with nobody.
+    await t.c.conversations.setStatus(org.scope, a.conversationId, 'closed', { actor: 'user', actorUserId: owner.userId });
     expect((await t.c.conversations.get(org.scope, a.conversationId)).assignee).toBeNull();
   });
 

@@ -38,7 +38,7 @@ const TONE: Record<BotConfig['persona']['tone'], string> = {
 };
 
 const LENGTH: Record<BotConfig['persona']['responseLength'], string> = {
-  short: 'Keep replies short: one to three sentences unless the customer needs more detail.',
+  short: 'Keep replies short: one or two sentences. This is a limit, not a target: go past two only when the customer asks for detail or a list.',
   medium: 'Keep replies concise: a short paragraph, or a few bullet points when listing options.',
   detailed: 'Give complete, well-organized answers, but never pad them.',
 };
@@ -170,6 +170,9 @@ export function buildSystemPrompt(
         '- Save details with save_contact_details the moment the customer shares them. Never ask for something already on file (see <contact> in the context).',
         '- When you ask, give a short reason ("so the team can send you the quote").',
         '- Do not block a customer\'s question on getting their details: help first, then ask.',
+        '- Ask for details at most once in a row. If the customer ignored the request or changed the subject, do not ask again for the next several messages; ask again only when what they want needs the details (a booking, a quote, a call back).',
+        '- Never ask for details in a reply that declines something, answers a medical, legal or other sensitive question, or answers something unrelated to the business: just answer.',
+        '- If a phone number was given but could not be saved, ask only for what is missing (usually the country code) and do not ask for the name or email again.',
         '- If you ever do ask for an optional detail (for example, the customer wants a call back), ask at most once. If they decline, or it can\'t be saved, drop it and carry on: never hold up a booking for a detail the booking doesn\'t need.',
         c.leadCapture.consentNotice ? `- When asking for contact details, mention: "${c.leadCapture.consentNotice}"` : '',
         c.leadCapture.marketingOptIn.trim()

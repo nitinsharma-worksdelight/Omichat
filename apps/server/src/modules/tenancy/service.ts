@@ -6,27 +6,26 @@ import type { OrgSettings, Role } from '../../db/schema';
 import type { TenantDb } from '../../db/tenant';
 import { hashPassword } from '../../lib/crypto';
 import { badRequest, conflict, notFound } from '../../lib/errors';
+import { isCountryCode, isTimezone, regionOfTimezone } from '../../lib/regions';
 import { WeeklyHoursSchema } from '../scheduling/service';
 import { bootstrapOrganization, DEFAULT_LIFECYCLE_STAGES } from './bootstrap';
 
 export const OrgUpdateSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
-  timezone: z
-    .string()
-    .refine((tz) => Intl.supportedValuesOf('timeZone').includes(tz) || tz === 'UTC', 'unknown timezone')
-    .optional(),
+  // Current names ("Asia/Kolkata") as well as the older ones the runtime lists ("Asia/Calcutta").
+  timezone: z.string().refine(isTimezone, 'Choose a timezone from the list').optional(),
   aiEnabled: z.boolean().optional(),
-  monthlyAiBudgetUsd: z.number().nonnegative().max(1_000_000).nullable().optional(),
+  monthlyAiBudgetUsd: z.number().nonnegative("The budget can't be negative").max(1_000_000, 'The budget can be at most 1,000,000').nullable().optional(),
   settings: z
     .object({
       notificationEmails: z.array(z.string().email()).max(20).optional(),
       lifecycleStages: z.array(z.string().trim().min(1).max(40)).min(1).max(30).optional(),
-      defaultCountry: z.string().length(2).toUpperCase().optional(),
+      defaultCountry: z.string().trim().toUpperCase().refine(isCountryCode, 'Use a two-letter country code such as US, CA or IN').optional(),
       currency: z
         .string()
         .trim()
         .toUpperCase()
-        .refine((c) => Intl.supportedValuesOf('currency').includes(c), 'unknown currency (use an ISO 4217 code such as USD, EUR or INR)')
+        .refine((c) => Intl.supportedValuesOf('currency').includes(c), 'Use a currency code such as USD, EUR or INR')
         .optional(),
       teamHours: z.object({ enabled: z.boolean(), weekly: WeeklyHoursSchema }).optional(),
       recordVisitorIp: z.boolean().optional(),
@@ -48,9 +47,12 @@ function toOrgView(row: typeof schema.organizations.$inferSelect) {
       notificationEmails: row.settings.notificationEmails ?? [],
       lifecycleStages: row.settings.lifecycleStages ?? DEFAULT_LIFECYCLE_STAGES,
       defaultCountry: row.settings.defaultCountry ?? 'US',
+      currency: row.settings.currency ?? 'USD',
       teamHours: row.settings.teamHours ?? { enabled: false, weekly: {} },
       recordVisitorIp: row.settings.recordVisitorIp !== false,
     },
+    /** The country and currency this timezone points to, when it points to one (for Settings to suggest). */
+    timezoneRegion: regionOfTimezone(row.timezone),
     createdAt: row.createdAt,
   };
 }
@@ -73,7 +75,9 @@ export class TenancyService {
 
   /** System operation: the org doesn't exist yet, so this runs outside a tenant scope. */
   async createOrganization(input: { name: string; timezone?: string; ownerUserId: string }) {
-    const timezone = input.timezone ?? 'UTC';
+    const timezone = input.timezone && isTimezone(input.timezone) ? input.timezone : 'UTC';
+    // Phone numbers and deal values follow where the business is, not a US default, when its timezone says where that is.
+    const region = regionOfTimezone(timezone);
     return this.db.transaction(async (tx) => {
       const [org] = await tx
         .insert(schema.organizations)
@@ -82,7 +86,11 @@ export class TenancyService {
           slug: slugify(input.name),
           timezone,
           // Visitors' IP addresses are personal data: a new organization turns recording on itself if it wants it.
-          settings: { lifecycleStages: DEFAULT_LIFECYCLE_STAGES, recordVisitorIp: false },
+          settings: {
+            lifecycleStages: DEFAULT_LIFECYCLE_STAGES,
+            recordVisitorIp: false,
+            ...(region ? { defaultCountry: region.country, currency: region.currency } : {}),
+          },
         })
         .returning();
       await tx.insert(schema.memberships).values({ organizationId: org!.id, userId: input.ownerUserId, role: 'owner' });

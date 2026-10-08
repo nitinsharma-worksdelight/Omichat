@@ -8,6 +8,7 @@ import { Badge, Button, Card, Checkbox, cx, EmptyState, ErrorBanner, Field, Inpu
 import { get, post } from '../../lib/api';
 import { formatDateTime, formatDayHeading, formatLocalTime, isoDay } from '../../lib/format';
 import { timezones, useDebounced } from '../../lib/hooks';
+import { currentTimezoneName } from '../../lib/timezones';
 import { useAction } from '../../lib/mutations';
 import { roleAtLeast, useCalendars } from '../../lib/queries';
 import { Link, navigate } from '../../lib/router';
@@ -459,7 +460,7 @@ function BookDialog({ onClose }: { onClose: () => void }) {
                 >
                   {active.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.timezone})
+                      {c.name} ({currentTimezoneName(c.timezone)})
                     </option>
                   ))}
                 </Select>
@@ -569,7 +570,7 @@ function Calendars({ calendarId }: { calendarId: string | null }) {
               <span className="truncate">{c.name}</span>
               {!c.isActive && <Badge tone="slate">paused</Badge>}
             </span>
-            <span className="block truncate text-caption text-muted">{c.timezone}</span>
+            <span className="block truncate text-caption text-muted">{currentTimezoneName(c.timezone)}</span>
           </Link>
         ))}
       </nav>
@@ -588,7 +589,7 @@ function Calendars({ calendarId }: { calendarId: string | null }) {
 
 function NewCalendarDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
-  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  const [timezone, setTimezone] = useState(() => currentTimezoneName(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'));
   const tzList = useMemo(() => timezones(), []);
   const create = useAction(
     () =>

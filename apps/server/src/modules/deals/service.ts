@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { rowsOf, schema, type Db } from '../../db/client';
@@ -327,6 +327,7 @@ export class DealsService {
       }
       if (input.ownerUserId) await this.assertMember(tx, orgId, input.ownerUserId);
       if (input.conversationId) await this.assertConversation(tx, orgId, input.conversationId);
+      await this.assertNoOpenDeal(tx, orgId, contactId, pipelineId!);
       const [org] = await tx.select({ settings: schema.organizations.settings }).from(schema.organizations).where(eq(schema.organizations.id, orgId));
       const [row] = await tx
         .insert(schema.deals)
@@ -408,6 +409,11 @@ export class DealsService {
       }
 
       if (!Object.keys(patch).length) return this.view(tx, deal);
+      // Becoming open (reopened, or moved into another pipeline while open) must not make a second open deal.
+      const finalStatus = patch.status ?? deal.status;
+      if (finalStatus === 'open' && (patch.status === 'open' || (patch.pipelineId && patch.pipelineId !== deal.pipelineId))) {
+        await this.assertNoOpenDeal(tx, orgId, deal.contactId, patch.pipelineId ?? deal.pipelineId, deal.id);
+      }
       const [row] = await tx.update(schema.deals).set(patch).where(eq(schema.deals.id, deal.id)).returning();
       const snapshot = await this.snapshot(tx, row!);
       if (changed.length) await this.record(tx, orgId, 'deal.updated', row!, actor, { changed, deal: snapshot });
@@ -444,6 +450,26 @@ export class DealsService {
       where.push(or(ilike(d.title, q), ilike(c.firstName, q), ilike(c.lastName, q), ilike(c.email, q))!);
     }
     return where;
+  }
+
+  /**
+   * A contact has one open deal per pipeline. Their row is locked first, so two requests at once can't both pass.
+   * The error names the deal in the way, so the dashboard can take staff to it.
+   */
+  private async assertNoOpenDeal(tx: Db, orgId: string, contactId: string, pipelineId: string, exceptDealId?: string) {
+    await tx.select({ id: schema.contacts.id }).from(schema.contacts).where(and(eq(schema.contacts.id, contactId), eq(schema.contacts.organizationId, orgId))).for('update');
+    const d = schema.deals;
+    const [open] = await tx
+      .select({ id: d.id })
+      .from(d)
+      .where(and(eq(d.organizationId, orgId), eq(d.contactId, contactId), eq(d.pipelineId, pipelineId), eq(d.status, 'open'), exceptDealId ? ne(d.id, exceptDealId) : undefined))
+      .limit(1);
+    if (open) {
+      throw conflict('This contact already has an open deal in this pipeline', [
+        { path: 'contactId', message: 'This contact already has an open deal in this pipeline' },
+        { path: 'openDealId', message: open.id },
+      ]);
+    }
   }
 
   private async row(tx: Db, orgId: string, id: string): Promise<DealRow> {

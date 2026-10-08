@@ -32,7 +32,7 @@ import { Link, navigate } from '../../lib/router';
 import { useLiveEvents } from '../../lib/live';
 import { useSse } from '../../lib/sse';
 import { useAuth } from '../../auth/AuthContext';
-import type { ConversationDetail, ConversationListItem, ConversationStatus, Message, SummaryRequest, Timeline } from '../../lib/types';
+import type { ConversationDetail, ConversationListItem, ConversationStatus, Deal, Message, SummaryRequest, Timeline } from '../../lib/types';
 import { DealDrawer } from '../deals/DealsPage';
 
 const PAGE = 30;
@@ -235,6 +235,10 @@ function Thread({ conversationId }: { conversationId: string }) {
   const messages = useQuery({ queryKey: ['messages', conversationId], queryFn: () => get<Message[]>(`/v1/conversations/${conversationId}/messages`, { limit: 200 }) });
   const timeline = useQuery({ queryKey: ['timeline', conversationId], queryFn: () => get<Timeline>(`/v1/conversations/${conversationId}/timeline`) });
   const approvals = useApprovals({ status: 'pending', conversationId });
+  // A contact has one open deal: once there is one, the button opens it instead of making another.
+  const contactId = conversation.data?.contact.id;
+  const contactDeals = useQuery({ queryKey: ['contact-deals', contactId], queryFn: () => get<Deal[]>(`/v1/contacts/${contactId}/deals`), enabled: Boolean(contactId) });
+  const openDeal = contactDeals.data?.find((d) => d.status === 'open') ?? null;
 
   const fillGaps = useCallback(async () => {
     const current = qc.getQueryData<Message[]>(['messages', conversationId]);
@@ -408,8 +412,8 @@ function Thread({ conversationId }: { conversationId: string }) {
               </Button>
             )}
             {canReply && (
-              <Button size="sm" variant="ghost" icon={<Handshake className="size-3.5" />} disabled={!pipelines.data} onClick={() => setDealOpen(true)}>
-                Create deal
+              <Button size="sm" variant="ghost" icon={<Handshake className="size-3.5" />} disabled={!pipelines.data || !contactDeals.data} onClick={() => setDealOpen(true)}>
+                {openDeal ? 'View deal' : 'Create deal'}
               </Button>
             )}
             <Button
@@ -513,7 +517,7 @@ function Thread({ conversationId }: { conversationId: string }) {
 
       {dealOpen && pipelines.data && (
         <DealDrawer
-          deal={null}
+          deal={openDeal}
           pipelines={pipelines.data}
           preset={{
             contact: { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone },

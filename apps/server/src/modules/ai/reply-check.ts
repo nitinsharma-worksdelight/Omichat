@@ -10,6 +10,8 @@ export interface ReplyFacts {
   bookedThisTurn: boolean;
   /** The customer has upcoming appointments, which a "confirmed" may be about. */
   hasUpcoming: boolean;
+  /** An action this turn is waiting for the team's approval (ask first): nothing it asked for has happened yet. */
+  waitingForTeam?: boolean;
   /** Slots check_availability returned this turn or recently: their start ("YYYY-MM-DDTHH:mm") and the customer's time. */
   offered: Array<{ start: string; yourTime?: string }>;
   /** Other times the reply may name: the customer's upcoming appointments ("Tue 6 Oct 2026, 3:00 PM"). */
@@ -17,6 +19,9 @@ export interface ReplyFacts {
 }
 
 const CONFIRMED = /\b(booked|scheduled|confirmed|reserved)\b/i;
+// While the team still has to approve it, only saying so exempts a sentence: "I've scheduled it, a team member will
+// confirm" still tells the customer it's done.
+const STILL_PENDING = /\b(not|no|never|until|once|if|before|after|yet|to be|request(?:ed)?|pending|approval|approve[sd]?|awaiting|waiting|asked)\b|n't\b/i;
 // A sentence about what may happen, or what didn't, isn't a claim that it happened.
 const NOT_A_CLAIM = /\b(not|no|never|until|once|if|when|before|after|yet|will|would|can|could|should|to be|want|like|let me|i'll|shall)\b|n't\b/i;
 const OFFER = /\b(available|availability|slots?|openings?|free|works?|would you like|how about|i can (?:do|offer)|we have|book)\b/i;
@@ -51,8 +56,13 @@ const weekdayOf = (start: string) => ((new Date(`${start.slice(0, 10)}T12:00:00Z
 export function checkReply(text: string, facts: ReplyFacts): string | null {
   const parts = sentences(text);
 
-  if (!facts.bookedThisTurn && !facts.hasUpcoming && parts.some((s) => CONFIRMED.test(s) && !NOT_A_CLAIM.test(s))) {
-    return "Your reply says an appointment is booked, but book_appointment didn't succeed: nothing is booked.";
+  if (!facts.bookedThisTurn && !facts.hasUpcoming) {
+    const exempt = facts.waitingForTeam ? STILL_PENDING : NOT_A_CLAIM;
+    if (parts.some((s) => CONFIRMED.test(s) && !exempt.test(s))) {
+      return facts.waitingForTeam
+        ? "Your reply says an appointment is booked or scheduled, but it is only waiting for the team's approval: nothing is booked yet. Say you've asked the team and a team member will confirm it; don't call it booked, scheduled or confirmed."
+        : "Your reply says an appointment is booked, but book_appointment didn't succeed: nothing is booked.";
+    }
   }
 
   // A reply that offers anything: its times (a list of them may sit on lines of their own) must be ones the calendar

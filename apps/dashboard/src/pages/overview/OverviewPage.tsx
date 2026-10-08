@@ -21,8 +21,10 @@ export function OverviewPage() {
   // The month is the organization's, so name it in its timezone.
   const monthLabel = since ? since.toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: timezone }) : 'this month';
   const budget = org.data?.monthlyAiBudgetUsd ?? null;
+  // "AI cost" is the figure Analytics shows (real conversations). The budget counts every run, Test chats included.
   const spend = usage.data?.ai ?? null;
-  const cost = spend?.costUsd ?? 0;
+  const cost = usage.data?.aiCostUsd ?? 0;
+  const budgetUsed = spend?.costUsd ?? 0;
   const firstName = (me?.user.name ?? '').trim().split(/\s+/)[0] ?? '';
 
   return (
@@ -62,8 +64,8 @@ export function OverviewPage() {
                 icon={<CircleDollarSign />}
                 label="AI cost"
                 value={formatUsd(cost)}
-                hint={budget !== null ? `of ${formatUsd(budget)} budget` : `${formatNumber(usage.data?.aiReplies)} AI replies`}
-                progress={budget ? Math.min(1, cost / budget) : undefined}
+                hint={budget !== null ? `${monthLabel} · ${formatUsd(budgetUsed)} of ${formatUsd(budget)} budget used, Test chats included` : `${monthLabel} so far · ${formatNumber(usage.data?.aiReplies)} AI replies`}
+                progress={budget ? Math.min(1, budgetUsed / budget) : undefined}
               />
             ) : (
               <Stat loading={usage.isLoading} tone="ai" icon={<Sparkles />} label="AI replies" value={formatNumber(usage.data?.aiReplies)} />

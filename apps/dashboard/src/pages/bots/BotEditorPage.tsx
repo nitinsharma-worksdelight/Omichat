@@ -7,7 +7,7 @@ import { Drawer } from '../../components/overlay';
 import { Badge, Button, Card, CodeBlock, CopyButton, cx, ErrorBanner, Input, JsonDisclosure, PageHeader, Spinner, SkeletonRows } from '../../components/ui';
 import { ApiError, get, patch } from '../../lib/api';
 import { formatNumber, TOOL_LABELS } from '../../lib/format';
-import { roleAtLeast, useBots, useCalendars, useCustomFields, useKnowledgeBases, useMembers, useOrg, usePipelines, useTags, useWorkflows } from '../../lib/queries';
+import { roleAtLeast, useBots, useCalendars, useChannels, useCustomFields, useKnowledgeBases, useMembers, useOrg, usePipelines, useTags, useWorkflows } from '../../lib/queries';
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
 import type { Bot, BotConfig, BotConfigSection, BotPreview, KbDocument } from '../../lib/types';
 import { EditorOverview, SaveBar, SaveErrors, SectionHeader, SettingsMenu, SettingsSearch, type SettingsTarget } from './editor';
@@ -73,6 +73,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
   const allBots = useBots();
   const customFields = useCustomFields();
   const calendars = useCalendars();
+  const channels = useChannels();
   const workflows = useWorkflows(isAdmin);
   const tags = useTags();
   const org = useOrg();
@@ -319,6 +320,11 @@ export function BotEditorPage({ botId }: { botId: string }) {
           <span className={cx('size-2 rounded-full', draft.isActive ? 'bg-success' : 'bg-faint')} aria-hidden />
           {draft.isActive ? 'Active' : 'Paused'}
         </button>
+        {draft.isActive && channels.data !== undefined && !channels.data.some((c) => c.botId === botId && c.channel !== 'playground' && c.status === 'active') && (
+          <Link to="/settings?tab=channels" title="No website chat or channel uses this bot yet, so visitors can't reach it. Add it to a website chat." className="inline-flex">
+            <Badge tone="amber">Not live yet: no website chat uses it</Badge>
+          </Link>
+        )}
         <div className="flex-1" />
         <p aria-live="polite" className="hidden items-center gap-1.5 text-body-sm whitespace-nowrap text-muted xl:flex">
           {saving ? (

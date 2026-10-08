@@ -715,6 +715,11 @@ export class ContactsService {
         if (errors.length) throw badRequest('Invalid custom fields', errors);
         patch.customFields = { ...current.customFields, ...values };
       }
+      // Only what really changes is written and logged: a form that sends every field back hasn't "updated" the ones
+      // it left as they were (a new contact has none of them yet, so a blank field is no change either).
+      for (const key of Object.keys(patch) as Array<keyof ContactRow>) {
+        if (JSON.stringify(patch[key] ?? null) === JSON.stringify(current[key] ?? null)) delete patch[key];
+      }
       if (Object.keys(patch).length === 0) return { ...toContactView(current), tags: await this.tagsFor(tx, contactId) };
       const [row] = await tx.update(schema.contacts).set(patch).where(eq(schema.contacts.id, contactId)).returning();
       await recordEvent(tx, {

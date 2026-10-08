@@ -44,7 +44,8 @@ export interface TurnInfo {
 const TOOL_TIMEOUT_MS = 25_000;
 
 /** What the model is told when an action waits for the team. */
-const WAITING = "Nothing has happened yet: the team must approve this first. Tell the customer a team member will confirm it, and don't say it's done.";
+const WAITING =
+  "Nothing has happened yet: the team must approve this first. Tell the customer you've asked the team and a team member will confirm it. Say it is requested or pending: never say it is booked, scheduled, confirmed or done, not even before adding that the team will confirm.";
 
 /** Calls that waited for the team replay per tool (and repeat key), in order, like repeat-keyed ones. */
 const askSlot = (def: ToolDefinition, input: unknown) => `ask:${def.key}:${def.repeatKey ? def.repeatKey(input) : ''}`;

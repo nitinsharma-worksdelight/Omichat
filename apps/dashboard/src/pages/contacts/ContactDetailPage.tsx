@@ -28,6 +28,7 @@ import {
 import { ApiError, del, get, patch, post } from '../../lib/api';
 import { displayValue, formatDate, formatDateTime, timeAgo } from '../../lib/format';
 import { timezones } from '../../lib/hooks';
+import { currentTimezoneName } from '../../lib/timezones';
 import { useAction } from '../../lib/mutations';
 import { todayLocal } from '../../lib/validate';
 import { roleAtLeast, useBots, useCustomFields, useOrg, useTags } from '../../lib/queries';
@@ -274,7 +275,7 @@ function toForm(c: Contact): ProfileForm {
     email: c.email ?? '',
     phone: c.phone ?? '',
     company: c.company ?? '',
-    timezone: c.timezone ?? '',
+    timezone: c.timezone ? currentTimezoneName(c.timezone) : '',
     lifecycleStage: c.lifecycleStage,
     ownerUserId: c.ownerUserId ?? '',
     customFields: { ...c.customFields },
@@ -432,11 +433,8 @@ function ProfileCard({ contact, canEdit }: { contact: Contact; canEdit: boolean 
 }
 
 function CustomFieldInput({ def, value, onChange, disabled }: { def: CustomFieldDef; value: unknown; onChange: (v: unknown) => void; disabled?: boolean }) {
-  const label = (
-    <>
-      {def.label} <span className="font-normal text-faint">({def.key})</span>
-    </>
-  );
+  // The key is for the AI and exports (Automations > Custom fields), not something to read on a contact.
+  const label = def.label;
   switch (def.type) {
     case 'number':
       return (
@@ -925,19 +923,20 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
     <div className="space-y-4">
       {canEdit && (
         <form
-          className="flex items-end gap-2"
+          // Wraps when the card is narrow: the title keeps a usable width instead of being squeezed by the other fields.
+          className="flex flex-wrap items-end gap-x-2 gap-y-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (title.trim() && !dueError) create.mutate();
           }}
         >
-          <Field label="New task" className="flex-1">
+          <Field label="New task" className="min-w-52 flex-[1_1_14rem]">
             <Input value={title} maxLength={200} placeholder="Call back about pricing" onChange={(e) => setTitle(e.target.value)} />
           </Field>
-          <Field label="Due" error={dueError}>
+          <Field label="Due" error={dueError} className="w-40 shrink-0">
             <Input type="date" value={dueAt} min={today} onChange={(e) => setDueAt(e.target.value)} />
           </Field>
-          <Field label="Priority">
+          <Field label="Priority" className="w-28 shrink-0">
             <Select value={priority} onChange={(e) => setPriority(e.target.value as Task['priority'])}>
               <option value="low">Low</option>
               <option value="normal">Normal</option>

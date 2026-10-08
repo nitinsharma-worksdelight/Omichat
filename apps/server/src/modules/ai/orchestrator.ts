@@ -354,9 +354,10 @@ export class AiOrchestrator {
     // the latest still-fresh earlier ones). A reply it flags gets one corrective round.
     const checksReplies = activeTools.includes('book_appointment');
     let bookedThisTurn = false;
+    let waitingForTeam = false;
     let corrected = false;
     const offered: ReplyFacts['offered'] = recentSlots(earlierActions, latestInbound.createdAt);
-    const replyFacts = (): ReplyFacts => ({ bookedThisTurn, hasUpcoming: upcoming.length > 0, offered, known: upcoming.map((a) => a.label) });
+    const replyFacts = (): ReplyFacts => ({ bookedThisTurn, hasUpcoming: upcoming.length > 0, waitingForTeam, offered, known: upcoming.map((a) => a.label) });
     let rounds = this.deps.env.AI_MAX_TOOL_ROUNDS + 1;
     let stopReason: string | null = null;
     let servedModel = bot.model ?? this.deps.llm.info.model;
@@ -464,7 +465,11 @@ export class AiOrchestrator {
         results.forEach((r, i) => {
           const name = calls[i]!.name;
           if (r.isError) return;
-          if (name === 'book_appointment' || name === 'reschedule_appointment') bookedThisTurn = true;
+          if (name === 'book_appointment' || name === 'reschedule_appointment') {
+            // An ask-first booking isn't made yet: the team has to approve it.
+            if ((parseJson(r.content) as { waiting_for_team?: boolean } | null)?.waiting_for_team) waitingForTeam = true;
+            else bookedThisTurn = true;
+          }
           if (name === 'check_availability') offered.push(...slotsOf(parseJson(r.content)));
         });
         messages.push({

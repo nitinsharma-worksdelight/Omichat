@@ -7,6 +7,7 @@ import { assertContactInOrg, assertConversationInOrg } from '../../db/ownership'
 import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
 import { recordEvent } from '../automation/events';
+import { DEFAULT_LIFECYCLE_STAGES } from '../tenancy/bootstrap';
 import { checkSlot, computeSlots, formatSlotLabel, validateHours, type CalendarRules, type Interval } from './availability';
 import {
   cancelPending,
@@ -280,7 +281,8 @@ export class SchedulingService {
           .select({ stage: schema.contacts.lifecycleStage })
           .from(schema.contacts)
           .where(eq(schema.contacts.id, input.contactId));
-        if (contact && ['new', 'engaged', 'qualified'].includes(contact.stage)) {
+        const moved = contact && ['new', 'engaged', 'qualified'].includes(contact.stage);
+        if (moved) {
           await tx.update(schema.contacts).set({ lifecycleStage: 'booked' }).where(eq(schema.contacts.id, input.contactId));
         }
         const view = toAppointmentView(row!);
@@ -290,7 +292,8 @@ export class SchedulingService {
           actor: input.createdBy,
           contactId: input.contactId,
           conversationId: input.conversationId,
-          payload: { appointment: view, calendarName: calendar.name },
+          // The stage they were in, so cancelling this booking can put them back.
+          payload: { appointment: view, calendarName: calendar.name, movedStage: Boolean(moved), ...(moved ? { previousStage: contact.stage } : {}) },
         });
         const customerEmail = await planBooked(tx, { orgId: scope.orgId, appointment: row!, calendar, now: this.clock(), notify });
         return { appointment: view, duplicate: false, customerEmail };
@@ -391,6 +394,7 @@ export class SchedulingService {
         conversationId: appt.conversationId,
         payload: { appointment: view, reason: opts.reason ?? null },
       });
+      await this.restoreStageAfterCancel(tx, scope.orgId, row, opts.actor);
       const customerEmail = await planCancelled(tx, {
         orgId: scope.orgId,
         appointment: row,
@@ -403,6 +407,62 @@ export class SchedulingService {
     });
     if (cancelled) this.onEmailsPlanned();
     return result;
+  }
+
+  /**
+   * A booking moves the contact to "booked"; cancelling the last upcoming one takes them back to where they were (the
+   * stage the booking recorded, else "qualified" or "engaged"), unless someone has moved them on since.
+   */
+  private async restoreStageAfterCancel(tx: Db, orgId: string, appt: typeof schema.appointments.$inferSelect, actor: Actor) {
+    const [contact] = await tx
+      .select({ stage: schema.contacts.lifecycleStage, qualification: schema.contacts.qualificationStatus })
+      .from(schema.contacts)
+      .where(and(eq(schema.contacts.id, appt.contactId), eq(schema.contacts.organizationId, orgId)));
+    if (!contact || contact.stage !== 'booked') return;
+    const [other] = await tx
+      .select({ id: schema.appointments.id })
+      .from(schema.appointments)
+      .where(
+        and(
+          eq(schema.appointments.organizationId, orgId),
+          eq(schema.appointments.contactId, appt.contactId),
+          eq(schema.appointments.status, 'booked'),
+          gte(schema.appointments.startsAt, this.clock()),
+        ),
+      )
+      .limit(1);
+    if (other) return;
+    // The latest booking that moved them to "booked" knows where they were (a second booking made while they were
+    // already booked moved nobody). Bookings from before this was recorded carry no note and are taken as having moved them.
+    const [booked] = await tx
+      .select({ previous: sql<string | null>`${schema.events.payload}->>'previousStage'` })
+      .from(schema.events)
+      .where(
+        and(
+          eq(schema.events.organizationId, orgId),
+          eq(schema.events.type, 'appointment.booked'),
+          eq(schema.events.contactId, appt.contactId),
+          sql`coalesce(${schema.events.payload}->>'movedStage', 'true') <> 'false'`,
+        ),
+      )
+      .orderBy(desc(schema.events.createdAt))
+      .limit(1);
+    // Every booking left their stage alone (the team had set it): so does cancelling.
+    if (!booked) return;
+    const [org] = await tx.select({ settings: schema.organizations.settings }).from(schema.organizations).where(eq(schema.organizations.id, orgId));
+    const known = org?.settings.lifecycleStages ?? DEFAULT_LIFECYCLE_STAGES;
+    const back = booked.previous || (contact.qualification === 'qualified' ? 'qualified' : 'engaged');
+    // Stages are the organization's own: if the one to go back to is gone, leave it for the team.
+    if (back === 'booked' || !known.includes(back)) return;
+    await tx.update(schema.contacts).set({ lifecycleStage: back }).where(eq(schema.contacts.id, appt.contactId));
+    await recordEvent(tx, {
+      orgId,
+      type: 'contact.updated',
+      actor,
+      contactId: appt.contactId,
+      conversationId: appt.conversationId,
+      payload: { changed: ['lifecycleStage'], lifecycleStage: back, reason: 'Booking cancelled' },
+    });
   }
 
   async setStatus(scope: Scope, appointmentId: string, status: Exclude<AppointmentStatus, 'booked' | 'cancelled'>) {

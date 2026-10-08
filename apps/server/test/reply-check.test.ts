@@ -38,6 +38,27 @@ describe('a booking it did not make', () => {
   });
 });
 
+describe('a booking that waits for the team (BUG-19)', () => {
+  const waiting = (f: Partial<ReplyFacts> = {}) => facts({ waitingForTeam: true, ...f });
+
+  it("flags 'scheduled' even when the same sentence says the team will confirm", () => {
+    const problem = checkReply("I've scheduled your check-up for Thursday at 9:30, and a team member will confirm.", waiting());
+    expect(problem).toContain("only waiting for the team's approval");
+    // Without a pending approval, that wording isn't flagged (it can be about what will happen).
+    expect(checkReply("I've scheduled your check-up for Thursday, and a team member will confirm.", facts())).toBeNull();
+  });
+
+  it('accepts saying it was requested or is pending', () => {
+    for (const reply of [
+      "I've asked the team about Thursday at 9:30. A team member will confirm it.",
+      "Your request is pending: it isn't booked until the team approves it.",
+      'Once the team approves, it will be booked.',
+    ]) {
+      expect(checkReply(reply, waiting()), reply).toBeNull();
+    }
+  });
+});
+
 describe('times the calendar did not return', () => {
   it('flags a time that was not offered', () => {
     expect(checkReply('Saturday at 11 AM is available. Shall I book it?', facts({ offered: MONDAY }))).toContain("11:00, which check_availability didn't return");

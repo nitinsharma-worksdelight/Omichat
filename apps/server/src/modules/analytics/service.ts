@@ -53,9 +53,9 @@ type Metric = (typeof METRICS)[number];
 export function localRange(timezone: string, from: string, to: string): Range {
   const start = DateTime.fromISO(from, { zone: timezone }).startOf('day');
   const end = DateTime.fromISO(to, { zone: timezone }).startOf('day').plus({ days: 1 });
-  if (!start.isValid || !end.isValid) throw badRequest('Invalid date');
-  if (end <= start) throw badRequest('`to` must be on or after `from`');
-  if (end.diff(start, 'days').days > MAX_DAYS) throw badRequest(`A report covers at most ${MAX_DAYS} days`);
+  if (!start.isValid || !end.isValid) throw badRequest('Enter valid dates', [{ path: 'from', message: 'Enter valid dates' }]);
+  if (end <= start) throw badRequest('The end date must be on or after the start date', [{ path: 'to', message: 'The end date must be on or after the start date' }]);
+  if (end.diff(start, 'days').days > MAX_DAYS) throw badRequest(`A report covers at most ${MAX_DAYS} days`, [{ path: 'to', message: `A report covers at most ${MAX_DAYS} days` }]);
   return { start: start.toJSDate(), end: end.toJSDate() };
 }
 
@@ -108,13 +108,17 @@ export class AnalyticsService {
     });
   }
 
-  /** The Overview's month-to-date figures (same rules as the report). */
+  /**
+   * The Overview's month-to-date figures (same rules as the report). `cost` is the figure the Analytics page shows
+   * for the same days (real conversations only); `spend` is everything the AI cost, which the monthly budget counts.
+   */
   async monthToDate(orgId: string, timezone: string, opts: { includeCost: boolean }) {
     const range = monthToDate(timezone, this.clock());
     return this.tenantDb.run(orgId, async (tx) => {
       const totals = await this.totals(tx, orgId, range, {});
-      const cost = opts.includeCost ? await this.spend(tx, orgId, range) : null;
-      return { since: range.start, totals, spend: cost };
+      const cost = opts.includeCost ? await this.cost(tx, orgId, range, {}) : null;
+      const spend = opts.includeCost ? await this.spend(tx, orgId, range) : null;
+      return { since: range.start, totals, cost, spend };
     });
   }
 

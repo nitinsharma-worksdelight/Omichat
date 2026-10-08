@@ -45,8 +45,14 @@ export async function buildApp(c: Container): Promise<FastifyInstance> {
         credentials: false,
         methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['authorization', 'content-type', 'x-org-id'],
+        exposedHeaders: ['x-total-count', 'x-server-time'],
       });
     },
+  });
+  // The server's clock, so the dashboard can show "just now" for something just created even when the browser's clock
+  // is a minute off (it measures the difference from this header).
+  app.addHook('onSend', async (_req, reply) => {
+    reply.header('x-server-time', String(c.now().getTime()));
   });
   const limiterRedis = c.env.REDIS_URL ? new Redis(c.env.REDIS_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false }) : undefined;
   limiterRedis?.on('error', (err) => c.logger.warn({ err }, 'rate limiter: Redis unavailable, requests are not being limited'));

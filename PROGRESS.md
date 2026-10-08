@@ -92,6 +92,35 @@ table like the UI track and updated here by hand. Each Q phase is approved on it
 | Q6 | Layout | 10, 11 | ✅ Complete (2026-10-03) | 2026-10-03 |
 | Q7 | Reply speed (code only) | 14 | 📝 Planned — awaiting approval | — |
 
+### Omni AI Portal bug log (BUG-01–BUG-22, Excel, 8 Oct 2026)
+
+A second QA round, fixed in one pass (no phase approvals, as asked). Test file: `apps/server/test/excel-bug-log.test.ts`
+(25 tests) plus changes to `reply-check`, `handoff-context`, `deals` and `personality` tests. Layout and wording fixes were
+checked in the browser against a throwaway local database.
+
+| Bug | Fix |
+|---|---|
+| 01 AI cost differs | Overview shows Analytics' figure (real chats); the budget bar still counts Test chats, and says so |
+| 02 bad custom range | Plain message, nothing sent, cards show "—" (also for AI cost); API message reworded |
+| 03 date formats | Not reproducible: both fields are the same native control with ISO values |
+| 04 empty contact / false log | Already refused (Q3); the log now lists only fields that really changed |
+| 05 key with `_` | Already fixed (Q3); raw key no longer shown on the contact page |
+| 06 duplicate KB names | Case-insensitive, per organization; inline error |
+| 07 stuck "Processing" | Status polling continues in background tabs and refetches on focus (not reproducible locally) |
+| 08 "in 1m" | Server time sent on every response; the dashboard measures its clock offset |
+| 09 stays "booked" | Cancelling the last upcoming booking restores the stage the booking replaced |
+| 10 Resume AI unassigns | Assignee kept on Resume AI, reused at the next handoff (Reopen existed since Q5) |
+| 11 duplicate deals | One open deal per contact per pipeline, enforced on the server; "View deal" in the conversation |
+| 12 deals invisible | "Include tests" toggle; counts and cards use the same filters |
+| 13 raw validation errors | Inline errors for organization settings, allowed websites; plain server messages |
+| 14 / 15 / 21 layout | Task form wraps; tab bar has no scrollbar; app root can't scroll (header no longer slides away); chat keeps a minimum height; slot list and documents table no longer scroll inside themselves |
+| 16 new bot "Active" | "Not live yet" until a channel uses it |
+| 17 replies / repeated asks | Prompt: short = one or two sentences; no asking in refusals, sensitive or off-topic replies; no repeats (prompt only, not checked with a real model) |
+| 18 hours / title | Hours conflict was already warned (Q4); bookings are named after what the customer asked for |
+| 19 approvals | Readable dates (old requests too); stricter "waiting for the team" wording and reply check |
+| 20 country / currency / zones | New organizations take country and currency from their timezone; Settings suggests it for existing ones; the org view now returns currency; current timezone names |
+| 22 widget header | Already fixed (Q5) |
+
 **Q1 verification (2026-10-03):** typecheck clean (server, dashboard, widget); `test/qa-honesty.test.ts` 15/15.
 Full suite before Q1: 362/362. After Q1: 375/377 in each of two full runs; the failures differed between runs and
 were 30 s test timeouts under full-suite load (memory fold, SSRF guard; then queue dispatch, prompt snapshot). All

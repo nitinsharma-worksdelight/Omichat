@@ -1,4 +1,5 @@
 import { and, count, desc, eq, gt, inArray, lt, lte, or, sql, type SQL } from 'drizzle-orm';
+import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { schema, type Db } from '../../db/client';
 import type { ApprovalStatus } from '../../db/schema';
@@ -54,7 +55,11 @@ export const approvalState = (row: { status: ApprovalStatus; expiresAt: Date }, 
 export function actionSummary(tool: string, input: Record<string, unknown>): string {
   const s = (v: unknown) => (typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : '');
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').join(', ') : '');
-  const when = (v: unknown) => s(v).replace('T', ' at ');
+  // A slot's start is local time to the calendar ("2026-10-08T09:30"): written out the way people read it.
+  const when = (v: unknown) => {
+    const at = DateTime.fromISO(s(v), { zone: 'utc' });
+    return at.isValid ? at.toFormat("ccc d LLL yyyy 'at' h:mm a") : s(v).replace('T', ' at ');
+  };
   switch (tool) {
     case 'book_appointment':
       return `Book an appointment on ${when(input.start)}`;
@@ -346,7 +351,8 @@ export class ApprovalsService {
         contact: { id: r.contactId, name: c ? displayName(c) : null, email: c?.email ?? null, phone: c?.phone ?? null, isTest: c?.isTest ?? false },
         botId: r.botId,
         tool: r.toolName,
-        summary: r.summary,
+        // Worded from the saved request, so older requests read the same way as new ones.
+        summary: actionSummary(r.toolName, r.input as Record<string, unknown>),
         input: r.input,
         status: approvalState(r, now),
         reason: r.reason,

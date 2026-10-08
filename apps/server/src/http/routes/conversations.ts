@@ -30,7 +30,7 @@ export async function registerConversationRoutes(app: FastifyInstance, c: Contai
     const auth = await requireAccess(c, req, 'viewer', 'conversations:read');
     const items = await c.conversations.list({ orgId: auth.orgId }, parseInput(ConversationListSchema, req.query), actorUserId(auth) ?? null);
     // The body stays a plain array; the total count travels in a header for pagination.
-    void reply.header('x-total-count', String(items.total)).header('access-control-expose-headers', 'x-total-count');
+    void reply.header('x-total-count', String(items.total));
     return items.map(await ipFilter(c, auth));
   });
 

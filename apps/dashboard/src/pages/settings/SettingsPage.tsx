@@ -30,9 +30,11 @@ import {
   TH,
   Toggle,
 } from '../../components/ui';
-import { API_URL, del, get, patch, post } from '../../lib/api';
+import { API_URL, del, fieldErrors, get, patch, post } from '../../lib/api';
 import { formatDate, initialsOf, timeAgo } from '../../lib/format';
 import { timezones } from '../../lib/hooks';
+import { currentTimezoneName } from '../../lib/timezones';
+import { isEmail, originProblem } from '../../lib/validate';
 import { useAction } from '../../lib/mutations';
 import { roleAtLeast, useBots, useChannels, useOrg } from '../../lib/queries';
 import { navigate, useRoute, withQuery } from '../../lib/router';
@@ -98,7 +100,7 @@ interface OrgForm {
 function toOrgForm(o: Organization): OrgForm {
   return {
     name: o.name,
-    timezone: o.timezone,
+    timezone: currentTimezoneName(o.timezone),
     defaultCountry: o.settings.defaultCountry,
     currency: o.settings.currency ?? 'USD',
     aiEnabled: o.aiEnabled,
@@ -127,6 +129,16 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
   const set = <K extends keyof OrgForm>(k: K, v: OrgForm[K]) => setForm((f) => ({ ...f, [k]: v }));
   const changed = (k: keyof OrgForm) => JSON.stringify(form[k]) !== JSON.stringify(base[k]);
   const dirty = (Object.keys(form) as Array<keyof OrgForm>).some(changed);
+  // Mistakes show once they try to save, then update as they type. The server's own answers (e.g. a country code that
+  // isn't one) show beside their field too.
+  const [tried, setTried] = useState(false);
+  const badEmail = form.notificationEmails.find((e) => !isEmail(e));
+  const problems: Partial<Record<'name' | 'defaultCountry' | 'monthlyAiBudgetUsd' | 'notificationEmails', string>> = {
+    ...(form.name.trim() ? {} : { name: 'Enter a name' }),
+    ...(/^[A-Za-z]{2}$/.test(form.defaultCountry.trim()) ? {} : { defaultCountry: 'Use a two-letter country code such as US, CA or IN' }),
+    ...(form.monthlyAiBudgetUsd !== null && form.monthlyAiBudgetUsd < 0 ? { monthlyAiBudgetUsd: "The budget can't be negative" } : {}),
+    ...(badEmail ? { notificationEmails: `“${badEmail}” isn't a valid email address` } : {}),
+  };
 
   const save = useAction(
     (override?: Partial<OrgForm>) => {
@@ -162,6 +174,19 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
     },
   );
 
+  const server = fieldErrors(save.error);
+  const serverError = (...keys: string[]) => keys.map((k) => server[k]).find(Boolean) ?? null;
+  const errorOf = (key: keyof typeof problems, ...serverKeys: string[]) => (tried ? problems[key] : null) || serverError(key, ...serverKeys);
+  const emailsError = (tried ? problems.notificationEmails : null) || Object.entries(server).find(([k]) => k.startsWith('settings.notificationEmails'))?.[1] || null;
+  const onSave = () => {
+    setTried(true);
+    if (Object.keys(problems).length) return;
+    save.mutate(undefined);
+  };
+  // The timezone points to a country and currency that differ from what's set: offer the switch, never make it.
+  const region = org.timezoneRegion;
+  const regionDiffers = region && (region.country !== form.defaultCountry.trim().toUpperCase() || region.currency !== form.currency);
+
   return (
     <div className="max-w-3xl space-y-6">
       <Card className={form.aiEnabled ? '' : 'border-warning/50'}>
@@ -190,7 +215,7 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
                     Discard
                   </Button>
                 )}
-                <Button size="sm" variant="primary" icon={<Save className="size-3.5" />} disabled={!dirty} loading={save.isPending} onClick={() => save.mutate(undefined)}>
+                <Button size="sm" variant="primary" icon={<Save className="size-3.5" />} disabled={!dirty} loading={save.isPending} onClick={onSave}>
                   Save
                 </Button>
               </>
@@ -198,12 +223,12 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
           }
         />
         <div className="space-y-4 p-4">
-          {save.error ? <ErrorBanner error={save.error} /> : null}
+          {save.error && !Object.keys(server).length ? <ErrorBanner error={save.error} /> : null}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Name">
+            <Field label="Name" error={errorOf('name')}>
               <Input value={form.name} maxLength={120} disabled={!isAdmin} onChange={(e) => set('name', e.target.value)} />
             </Field>
-            <Field label="Timezone" hint="Used for reports and new calendars.">
+            <Field label="Timezone" hint="Used for reports and new calendars." error={serverError('timezone')}>
               <Select value={form.timezone} disabled={!isAdmin} onChange={(e) => set('timezone', e.target.value)}>
                 {!tzList.includes(form.timezone) && <option value={form.timezone}>{form.timezone}</option>}
                 {tzList.map((tz) => (
@@ -213,13 +238,13 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
                 ))}
               </Select>
             </Field>
-            <Field label="Default country" hint="Two-letter code, used to read phone numbers without a country code.">
+            <Field label="Default country" hint="Two-letter code, used to read phone numbers without a country code." error={errorOf('defaultCountry', 'settings.defaultCountry')}>
               <Input value={form.defaultCountry} maxLength={2} disabled={!isAdmin} className="uppercase" onChange={(e) => set('defaultCountry', e.target.value.toUpperCase())} />
             </Field>
-            <Field label="Monthly AI budget (USD)" hint="Leave empty for no limit.">
+            <Field label="Monthly AI budget (USD)" hint="Leave empty for no limit." error={errorOf('monthlyAiBudgetUsd')}>
               <NumberInput min={0} step={1} allowEmpty value={form.monthlyAiBudgetUsd} disabled={!isAdmin} onChange={(v) => set('monthlyAiBudgetUsd', v)} />
             </Field>
-            <Field label="Currency" hint="For deal values. Existing deals keep the currency they were created in.">
+            <Field label="Currency" hint="For deal values. Existing deals keep the currency they were created in." error={serverError('settings.currency')}>
               <Select value={form.currency} disabled={!isAdmin} onChange={(e) => set('currency', e.target.value)}>
                 {currencies.map((c) => (
                   <option key={c} value={c}>
@@ -229,7 +254,23 @@ function OrganizationForm({ org, isAdmin }: { org: Organization; isAdmin: boolea
               </Select>
             </Field>
           </div>
-          <Field label="Notification emails" hint="Who gets emailed about handoffs, qualified leads and bookings.">
+          {isAdmin && regionDiffers && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-body-sm text-fg-2">
+              <span>
+                Your timezone is in {region.country}. Phone numbers without a country code are read as {form.defaultCountry.trim().toUpperCase() || '—'} numbers, and deals are in {form.currency}.
+              </span>
+              <Button
+                size="sm"
+                onClick={() => {
+                  set('defaultCountry', region.country);
+                  set('currency', region.currency);
+                }}
+              >
+                Use {region.country} and {region.currency}
+              </Button>
+            </div>
+          )}
+          <Field label="Notification emails" hint="Who gets emailed about handoffs, qualified leads and bookings." error={emailsError}>
             <ChipsInput value={form.notificationEmails} disabled={!isAdmin} onChange={(v) => set('notificationEmails', v)} placeholder="frontdesk@example.com" normalize={(s) => s.toLowerCase()} />
           </Field>
           <Toggle
@@ -406,6 +447,7 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
   }));
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
   const colorValid = /^#[0-9a-fA-F]{6}$/.test(form.primaryColor);
+  const badOrigin = form.allowedOrigins.find((o) => originProblem(o));
   const selectedBot = bots.data?.find((b) => b.id === form.botId);
   // What the widget itself would show: the bot's name, and its enabled starters ("talk to the team" ones need handoff on).
   const org = useOrg();
@@ -435,6 +477,8 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
     },
     { invalidate: [['channels']], errorToast: false, success: channel ? 'Website chat updated' : 'Website chat created', onSuccess: onClose },
   );
+  const server = fieldErrors(save.error, 'config.');
+  const originsError = (badOrigin ? originProblem(badOrigin) : null) ?? Object.entries(server).find(([k]) => k.startsWith('allowedOrigins'))?.[1] ?? null;
 
   return (
     <Modal
@@ -447,7 +491,7 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" loading={save.isPending} disabled={!form.name.trim() || !colorValid} onClick={() => save.mutate()}>
+          <Button variant="primary" loading={save.isPending} disabled={!form.name.trim() || !colorValid || Boolean(badOrigin)} onClick={() => save.mutate()}>
             {channel ? 'Save' : 'Create'}
           </Button>
         </>
@@ -455,7 +499,7 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
     >
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
         <div className="space-y-4">
-          {save.error ? <ErrorBanner error={save.error} /> : null}
+          {save.error && !Object.keys(server).length ? <ErrorBanner error={save.error} /> : null}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required>
               <Input value={form.name} maxLength={120} onChange={(e) => set('name', e.target.value)} />
@@ -475,7 +519,7 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
           <Field label="Greeting" hint="Leave empty to use the bot's greeting.">
             <Textarea rows={2} maxLength={500} value={form.greeting} placeholder={selectedBot?.config.persona.greeting} onChange={(e) => set('greeting', e.target.value)} />
           </Field>
-          <Field label="Allowed websites" hint="Origins like https://www.example.com (no path). Leave empty to allow any site.">
+          <Field label="Allowed websites" hint="Origins like https://www.example.com (no path). Leave empty to allow any site." error={originsError}>
             <ChipsInput value={form.allowedOrigins} onChange={(v) => set('allowedOrigins', v)} normalize={(s) => s.replace(/\/+$/, '')} placeholder="https://www.example.com" />
           </Field>
           <fieldset className="space-y-4">

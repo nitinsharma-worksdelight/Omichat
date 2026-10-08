@@ -28,7 +28,7 @@ import {
   TH,
   Toggle,
 } from '../../components/ui';
-import { api, del, get, patch, post } from '../../lib/api';
+import { api, del, fieldErrors, get, patch, post } from '../../lib/api';
 import { categoryLabel, formatBytes, formatNumber, timeAgo } from '../../lib/format';
 import { useAction } from '../../lib/mutations';
 import { roleAtLeast, useKnowledgeBases, useKnowledgeLanguages } from '../../lib/queries';
@@ -158,8 +158,11 @@ function DocumentsCard({ kb, isAdmin, onDialog }: { kb: KnowledgeBase; isAdmin: 
   const docs = useQuery({
     queryKey: ['documents', kb.id],
     queryFn: () => get<KbDocument[]>(`/v1/knowledge-bases/${kb.id}/documents`),
-    // Poll while anything is still being ingested.
+    // Poll while anything is still being ingested. A browser tab that isn't in front would otherwise stop polling (and
+    // the app doesn't refetch on focus), leaving "Processing" on screen after the document is ready.
     refetchInterval: (query) => (query.state.data?.some((d) => d.status === 'pending' || d.status === 'processing') ? 3000 : false),
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: (query) => Boolean(query.state.data?.some((d) => d.status === 'pending' || d.status === 'processing')),
   });
   const invalidate = [['documents', kb.id], ['kbs']];
   const deleteKb = useAction(() => del(`/v1/knowledge-bases/${kb.id}`), { invalidate: [['kbs'], ['bots']], success: 'Knowledge base deleted', onSuccess: () => navigate('/knowledge', { replace: true }) });
@@ -260,14 +263,15 @@ function DocumentsCard({ kb, isAdmin, onDialog }: { kb: KnowledgeBase; isAdmin: 
           }
         />
       ) : (
-        <Table>
+        // Tighter cells below xl so the table fits its card instead of scrolling sideways.
+        <Table className="max-xl:[&_td]:px-3 max-xl:[&_th]:px-3">
           <thead>
             <tr>
               <TH>Document</TH>
               <TH>Category</TH>
               <TH>Status</TH>
               <TH className="text-right">Chunks</TH>
-              <TH className="text-right">Tokens</TH>
+              <TH className="hidden text-right xl:table-cell">Tokens</TH>
               <TH>Updated</TH>
               <TH>
                 <span className="sr-only">Actions</span>
@@ -317,7 +321,7 @@ function DocumentsCard({ kb, isAdmin, onDialog }: { kb: KnowledgeBase; isAdmin: 
                     <DocumentStatusBadge status={d.status} />
                   </TD>
                   <TD className="text-right tabular-nums">{formatNumber(d.chunkCount)}</TD>
-                  <TD className="text-right tabular-nums">{formatNumber(d.tokenCount)}</TD>
+                  <TD className="hidden text-right tabular-nums xl:table-cell">{formatNumber(d.tokenCount)}</TD>
                   <TD className="whitespace-nowrap text-muted">{timeAgo(d.updatedAt)}</TD>
                   <TD className="text-right">
                     <Popover
@@ -438,12 +442,14 @@ function KbDialog({ kb, onClose }: { kb?: KnowledgeBase; onClose: () => void }) 
     {
       invalidate: [['kbs']],
       success: kb ? 'Knowledge base updated' : 'Knowledge base created',
+      errorToast: false,
       onSuccess: (created) => {
         onClose();
         if (!kb) navigate(`/knowledge/${created.id}`);
       },
     },
   );
+  const server = fieldErrors(save.error);
   return (
     <Modal open onClose={onClose} title={kb ? 'Edit knowledge base' : 'New knowledge base'} footer={<DialogFooter onClose={onClose} form="kb-form" label={kb ? 'Save' : 'Create'} loading={save.isPending} disabled={!name.trim()} />}>
       <form
@@ -454,8 +460,16 @@ function KbDialog({ kb, onClose }: { kb?: KnowledgeBase; onClose: () => void }) 
           save.mutate();
         }}
       >
-        <Field label="Name" required>
-          <Input value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
+        {save.error && !Object.keys(server).length ? <ErrorBanner error={save.error} /> : null}
+        <Field label="Name" required error={server.name}>
+          <Input
+            value={name}
+            maxLength={120}
+            onChange={(e) => {
+              if (save.error) save.reset(); // a server error goes once they change something
+              setName(e.target.value);
+            }}
+          />
         </Field>
         <Field label="Description">
           <Textarea rows={2} maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} />

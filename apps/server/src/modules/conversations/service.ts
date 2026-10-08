@@ -497,9 +497,15 @@ export class ConversationsService {
         if (open) throw conflict('This customer already has a newer open conversation', [{ path: 'openConversationId', message: open.id }]);
       }
       changed = true;
-      // Who looks after it: whoever took it over, else the customer's owner when they're a member; nobody once it's
-      // back with the AI or closed.
-      const assignee = status === 'human_active' ? (opts.actorUserId ?? (await this.memberOwner(tx, scope.orgId, conv.contactId))) : null;
+      // Who looks after it: whoever took it over, else whoever already had it, else the customer's owner when they're a
+      // member. Handing the chat back to the AI doesn't take it from them (they get it back at the next handoff); only
+      // closing it leaves it with nobody.
+      const assignee =
+        status === 'human_active'
+          ? (opts.actorUserId ?? conv.assignedUserId ?? (await this.memberOwner(tx, scope.orgId, conv.contactId)))
+          : status === 'ai_active'
+            ? conv.assignedUserId
+            : null;
       const brief = status === 'human_active' ? await this.brief(tx, conv) : null;
       const [row] = await tx
         .update(schema.conversations)
@@ -541,7 +547,7 @@ export class ConversationsService {
         },
       });
       // A handoff given to the customer's owner tells them personally (staff taking over need no note).
-      if (assignee && assignee !== opts.actorUserId) {
+      if (assignee && assignee !== opts.actorUserId && assignee !== conv.assignedUserId) {
         await recordEvent(tx, {
           orgId: scope.orgId,
           type: 'conversation.assigned',

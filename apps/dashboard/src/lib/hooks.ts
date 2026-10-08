@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { timezoneChoices } from './timezones';
 
 export function useDebounced<T>(value: T, ms = 300): T {
   const [debounced, setDebounced] = useState(value);
@@ -11,8 +12,7 @@ export function useDebounced<T>(value: T, ms = 300): T {
 
 export function timezones(): string[] {
   try {
-    const list = Intl.supportedValuesOf('timeZone');
-    return list.includes('UTC') ? list : ['UTC', ...list];
+    return timezoneChoices(Intl.supportedValuesOf('timeZone'));
   } catch {
     return ['UTC'];
   }

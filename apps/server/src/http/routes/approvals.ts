@@ -13,7 +13,7 @@ export async function registerApprovalRoutes(app: FastifyInstance, c: Container)
     const auth = await requireUser(c, req);
     const items = await c.approvals.list({ orgId: auth.orgId }, parseInput(ApprovalListSchema, req.query));
     // The body stays a plain array; the total count travels in a header for pagination.
-    void reply.header('x-total-count', String(items.total)).header('access-control-expose-headers', 'x-total-count');
+    void reply.header('x-total-count', String(items.total));
     return items;
   });
 

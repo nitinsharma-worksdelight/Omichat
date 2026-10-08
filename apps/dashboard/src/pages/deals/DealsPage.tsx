@@ -5,7 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useConfirm } from '../../components/feedback-context';
 import { PersonAvatar } from '../../components/avatar';
 import { Drawer, Modal } from '../../components/overlay';
-import { Badge, Button, EmptyState, ErrorBanner, Field, IconButton, Input, NumberInput, PageHeader, Select, SkeletonRows, Spinner, Textarea } from '../../components/ui';
+import { Badge, Button, Checkbox, EmptyState, ErrorBanner, Field, IconButton, Input, NumberInput, PageHeader, Select, SkeletonRows, Spinner, Textarea } from '../../components/ui';
 import { del, fieldErrors, get, patch, post } from '../../lib/api';
 import { formatDate, formatMoney, timeAgo } from '../../lib/format';
 import { useDebounced } from '../../lib/hooks';
@@ -33,6 +33,8 @@ export function DealsPage() {
   const [pipelineId, setPipelineId] = useState('');
   const [status, setStatus] = useState<DealStatus>('open');
   const [ownerUserId, setOwnerUserId] = useState('');
+  // Deals from Test chats (playground contacts) are left out unless asked for, as on Leads and Conversations.
+  const [includeTest, setIncludeTest] = useState(false);
   const [editing, setEditing] = useState<Deal | null>(null);
   const [creating, setCreating] = useState(false);
   const [editingPipeline, setEditingPipeline] = useState<Pipeline | 'new' | null>(null);
@@ -44,8 +46,8 @@ export function DealsPage() {
   const pipeline = pipelines.data?.find((p) => p.id === pipelineId) ?? null;
 
   const summary = useQuery({
-    queryKey: ['deal-summary', { pipelineId, status, ownerUserId }],
-    queryFn: () => get<DealStageSummary[]>('/v1/deals/summary', { pipelineId, status, ownerUserId: ownerUserId || undefined }),
+    queryKey: ['deal-summary', { pipelineId, status, ownerUserId, includeTest }],
+    queryFn: () => get<DealStageSummary[]>('/v1/deals/summary', { pipelineId, status, ownerUserId: ownerUserId || undefined, includeTest }),
     enabled: Boolean(pipelineId),
   });
   const memberName = useMemo(() => new Map((members.data ?? []).map((m) => [m.userId, m.name || m.email])), [members.data]);
@@ -95,6 +97,7 @@ export function DealsPage() {
               </option>
             ))}
           </Select>
+          <Checkbox label="Include tests" checked={includeTest} onChange={(e) => setIncludeTest(e.target.checked)} className="shrink-0" />
           {isAdmin && (
             <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setEditingPipeline('new')}>
               New pipeline
@@ -116,6 +119,7 @@ export function DealsPage() {
               stage={stage}
               status={status}
               ownerUserId={ownerUserId}
+              includeTest={includeTest}
               summary={summary.data?.find((s) => s.stageId === stage.id)}
               memberName={memberName}
               onOpen={setEditing}
@@ -145,6 +149,7 @@ function StageColumn({
   stage,
   status,
   ownerUserId,
+  includeTest,
   summary,
   memberName,
   onOpen,
@@ -153,13 +158,14 @@ function StageColumn({
   stage: Pipeline['stages'][number];
   status: DealStatus;
   ownerUserId: string;
+  includeTest: boolean;
   summary: DealStageSummary | undefined;
   memberName: Map<string, string>;
   onOpen: (deal: Deal) => void;
 }) {
   const deals = useInfiniteQuery({
-    queryKey: ['deals', { pipelineId, stageId: stage.id, status, ownerUserId }],
-    queryFn: ({ pageParam }) => get<Deal[]>('/v1/deals', { pipelineId, stageId: stage.id, status, ownerUserId: ownerUserId || undefined, limit: PAGE, offset: pageParam }),
+    queryKey: ['deals', { pipelineId, stageId: stage.id, status, ownerUserId, includeTest }],
+    queryFn: ({ pageParam }) => get<Deal[]>('/v1/deals', { pipelineId, stageId: stage.id, status, ownerUserId: ownerUserId || undefined, includeTest, limit: PAGE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (last, all) => (last.length === PAGE ? all.length * PAGE : undefined),
   });
@@ -484,8 +490,8 @@ function PipelineEditor({ pipeline, onClose, onCreated }: { pipeline: Pipeline |
   const [moveTo, setMoveTo] = useState<Record<string, string>>({});
   // Deals of every status count: a stage that goes must say where all of them go.
   const counts = useQuery({
-    queryKey: ['deal-summary', { pipelineId: pipeline?.id, all: true }],
-    queryFn: () => get<DealStageSummary[]>('/v1/deals/summary', { pipelineId: pipeline!.id }),
+    queryKey: ['deal-summary', { pipelineId: pipeline?.id, all: true, includeTest: true }],
+    queryFn: () => get<DealStageSummary[]>('/v1/deals/summary', { pipelineId: pipeline!.id, includeTest: true }),
     enabled: Boolean(pipeline),
   });
   const countOf = (id: string) => counts.data?.find((c) => c.stageId === id)?.count ?? 0;
@@ -604,11 +610,15 @@ export function ContactDeals({ contact, canEdit }: { contact: Pick<Contact, 'id'
   const deals = useQuery({ queryKey: ['contact-deals', contact.id], queryFn: () => get<Deal[]>(`/v1/contacts/${contact.id}/deals`) });
   const [open, setOpen] = useState<Deal | 'new' | null>(null);
   const stageName = (d: Deal) => pipelines.data?.find((p) => p.id === d.pipelineId)?.stages.find((s) => s.id === d.stageId)?.name ?? '';
+  // One open deal per pipeline: a new one starts in a pipeline where this contact has none.
+  const withOpenDeal = new Set((deals.data ?? []).filter((d) => d.status === 'open').map((d) => d.pipelineId));
+  const freePipeline = pipelines.data?.find((p) => !withOpenDeal.has(p.id));
   return (
     <div className="space-y-3">
       {canEdit && (
-        <div className="flex justify-end">
-          <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setOpen('new')} disabled={!pipelines.data}>
+        <div className="flex items-center justify-end gap-3">
+          {pipelines.data && deals.data && !freePipeline && <span className="text-caption text-muted">Already has an open deal. Open it below, or close it to start another.</span>}
+          <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setOpen('new')} disabled={!pipelines.data || !deals.data || !freePipeline}>
             New deal
           </Button>
         </div>
@@ -638,7 +648,7 @@ export function ContactDeals({ contact, canEdit }: { contact: Pick<Contact, 'id'
         </ul>
       )}
       {open && pipelines.data && (
-        <DealDrawer deal={open === 'new' ? null : open} pipelines={pipelines.data} preset={{ contact }} onClose={() => setOpen(null)} />
+        <DealDrawer deal={open === 'new' ? null : open} pipelines={pipelines.data} defaultPipelineId={freePipeline?.id} preset={{ contact }} onClose={() => setOpen(null)} />
       )}
     </div>
   );

@@ -54,6 +54,8 @@ export interface Organization {
   aiEnabled: boolean;
   monthlyAiBudgetUsd: number | null;
   settings: OrgSettings;
+  /** The country and currency the timezone points to, when it points to one. */
+  timezoneRegion: { country: string; currency: string } | null;
   createdAt: string;
 }
 
@@ -118,6 +120,8 @@ export interface EventItem {
 
 export interface Usage {
   since: string;
+  /** What the AI cost on real conversations this month: the figure Analytics shows. Null for non-admins. */
+  aiCostUsd: number | null;
   /** All AI spend this month, Test chats included (what the budget counts). Null for non-admins. */
   ai: { runs: number; costUsd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number } | null;
   aiReplies: number;

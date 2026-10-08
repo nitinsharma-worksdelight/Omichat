@@ -556,7 +556,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, className, ariaL
     }
   };
   return (
-    <div role="tablist" aria-label={ariaLabel} className={cx('flex items-center gap-1 overflow-x-auto', className)}>
+    <div role="tablist" aria-label={ariaLabel} className={cx('flex items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}>
       {tabs.map((tab, i) => {
         const selected = tab.id === value;
         return (
