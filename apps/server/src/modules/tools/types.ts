@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { ChannelType, WorkflowInputField } from '../../db/schema';
 import type { BotView } from '../bots/service';
-import type { ToolKey } from '../bots/config';
+import type { CustomApi, ToolKey } from '../bots/config';
 
 /** Everything a tool may act on. Identity fields come from the server, never from model output. */
 export interface ToolContext {
@@ -40,11 +40,20 @@ export interface ToolSchemaContext {
   pipeline: { id: string; name: string; stages: Array<{ id: string; name: string }> } | null;
 }
 
-/** Whether a call waits for the team: the bot's ask-first actions, or a workflow set to ask first. */
+/** The custom APIs the assistant may call (switched on, in the bot's order). */
+export function enabledApis(ctx: Pick<ToolSchemaContext, 'bot'>): CustomApi[] {
+  return ctx.bot.config.actions.customApis.filter((a) => a.enabled);
+}
+
+/** Whether a call waits for the team: the bot's ask-first actions, or a workflow or API set to ask first. */
 export function asksFirst(ctx: ToolSchemaContext, toolName: string, input: unknown): boolean {
   if (toolName === 'trigger_workflow') {
     const key = (input as { workflow_key?: unknown } | null)?.workflow_key;
     return ctx.workflows.some((w) => w.key === key && w.askFirst);
+  }
+  if (toolName === 'call_api') {
+    const key = (input as { api?: unknown } | null)?.api;
+    return enabledApis(ctx).some((a) => a.key === key && a.askFirst);
   }
   return (ctx.bot.config.actions.askFirst as readonly string[]).includes(toolName);
 }
@@ -53,7 +62,8 @@ export function asksFirst(ctx: ToolSchemaContext, toolName: string, input: unkno
 export function hasAskFirst(ctx: ToolSchemaContext, activeTools: string[]): boolean {
   return (
     activeTools.some((t) => (ctx.bot.config.actions.askFirst as readonly string[]).includes(t)) ||
-    (activeTools.includes('trigger_workflow') && ctx.workflows.some((w) => w.askFirst))
+    (activeTools.includes('trigger_workflow') && ctx.workflows.some((w) => w.askFirst)) ||
+    (activeTools.includes('call_api') && enabledApis(ctx).some((a) => a.askFirst))
   );
 }
 

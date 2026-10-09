@@ -9,7 +9,8 @@
 /*
  * Design tokens ("Calm Signal"). Components use Tailwind utilities that point at these variables
  * (bg-surface, text-muted, border-border, bg-accent, …) so the dark theme is a token swap.
- * accent = Lagoon, the only action colour. ai (Iris) and human (Apricot) mark who is acting, nothing else.
+ * accent = Signal Blue, the only action colour. ai (Iris) and human (Apricot) mark who is acting, nothing else.
+ * nav-* = the navy main menu, the same in both themes.
  */
 :root {
   color-scheme: light;
@@ -26,12 +27,18 @@
   --muted: #66635c;
   --faint: #8a867d;
 
-  --accent: #0b7a80;
-  --accent-hover: #08656a;
-  --accent-soft: #e3f2f1;
-  --accent-text: #08656a;
+  --accent: #155eef;
+  --accent-hover: #004eeb;
+  --accent-soft: #eff4ff;
+  --accent-text: #004eeb;
   --accent-fg: #ffffff;
-  --ring: rgb(11 122 128 / 0.25);
+  --ring: rgb(21 94 239 / 0.25);
+
+  --nav-bg: #0f1b3d;
+  --nav-item: #26324f;
+  --nav-fg: #ffffff;
+  --nav-muted: #aeb8d0;
+  --nav-border: #2d3a5c;
 
   --ai: #6b55d6;
   --ai-soft: #efecfc;
@@ -77,12 +84,18 @@
   --muted: #8f959d;
   --faint: #6b717a;
 
-  --accent: #3cc2bf;
-  --accent-hover: #62d4d1;
-  --accent-soft: rgb(60 194 191 / 0.13);
-  --accent-text: #72dad7;
-  --accent-fg: #062221;
-  --ring: rgb(60 194 191 / 0.32);
+  --accent: #528bff;
+  --accent-hover: #84adff;
+  --accent-soft: rgb(82 139 255 / 0.14);
+  --accent-text: #84adff;
+  --accent-fg: #061233;
+  --ring: rgb(82 139 255 / 0.34);
+
+  --nav-bg: #0b1430;
+  --nav-item: #1d2a4a;
+  --nav-fg: #ffffff;
+  --nav-muted: #9aa6c2;
+  --nav-border: #24324f;
 
   --ai: #a898ff;
   --ai-soft: rgb(168 152 255 / 0.13);
@@ -131,6 +144,11 @@
   --color-accent-soft: var(--accent-soft);
   --color-accent-text: var(--accent-text);
   --color-accent-fg: var(--accent-fg);
+  --color-nav-bg: var(--nav-bg);
+  --color-nav-item: var(--nav-item);
+  --color-nav-fg: var(--nav-fg);
+  --color-nav-muted: var(--nav-muted);
+  --color-nav-border: var(--nav-border);
   --color-ai: var(--ai);
   --color-ai-soft: var(--ai-soft);
   --color-ai-text: var(--ai-text);

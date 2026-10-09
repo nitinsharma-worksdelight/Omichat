@@ -34,8 +34,37 @@ export function validateHours(ranges: TimeRange[]): string | null {
     if (!TIME_RE.test(r.start) || !(TIME_RE.test(r.end) || r.end === '24:00')) return `Invalid time range ${r.start}-${r.end}`;
     if (r.end <= r.start) return `Range ${r.start}-${r.end} ends before it starts`;
   }
+  // Two ranges on the same day can't cover the same time: it would offer (and count) those times twice.
+  const sorted = [...ranges].sort((a, b) => a.start.localeCompare(b.start));
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i]!.start < sorted[i - 1]!.end) return `Ranges ${sorted[i - 1]!.start}-${sorted[i - 1]!.end} and ${sorted[i]!.start}-${sorted[i]!.end} overlap`;
+  }
   return null;
 }
+
+/** Ranges that overlap become one (older data may have them); touching ranges stay apart, as each starts its own slots. */
+function mergeOverlapping(ranges: TimeRange[]): TimeRange[] {
+  const out: TimeRange[] = [];
+  for (const r of [...ranges].sort((a, b) => a.start.localeCompare(b.start))) {
+    const last = out[out.length - 1];
+    if (last && r.start < last.end) last.end = r.end > last.end ? r.end : last.end;
+    else out.push({ ...r });
+  }
+  return out;
+}
+
+/** Slot starts wanted within a day: from `from` (included) up to `to` (not included), "HH:mm". Either may be left out. */
+export interface TimeWindow {
+  from?: string;
+  to?: string;
+}
+
+/** The windows behind the words a customer uses. */
+export const DAY_PARTS: Record<'morning' | 'afternoon' | 'evening', TimeWindow> = {
+  morning: { to: '12:00' },
+  afternoon: { from: '12:00', to: '17:00' },
+  evening: { from: '17:00' },
+};
 
 function hoursFor(rules: CalendarRules, date: DateTime): TimeRange[] {
   const iso = date.toISODate()!;
@@ -81,7 +110,7 @@ export function computeSlots(
   busy: Interval[],
   range: { from: string; to: string },
   now: Date,
-  opts: { limit?: number; bookedPerDay?: Map<string, number> } = {},
+  opts: { limit?: number; bookedPerDay?: Map<string, number>; window?: TimeWindow } = {},
 ): Slot[] {
   const zone = rules.timezone;
   const nowLocal = DateTime.fromJSDate(now, { zone });
@@ -96,19 +125,27 @@ export function computeSlots(
     end: new Date(b.end.getTime() + rules.bufferMinutes * 60_000),
   }));
   const slots: Slot[] = [];
+  const seen = new Set<number>();
   const limit = opts.limit ?? 500;
 
   for (; day <= end && slots.length < limit; day = day.plus({ days: 1 })) {
     const iso = day.toISODate()!;
     if (rules.maxPerDay !== null && (opts.bookedPerDay?.get(iso) ?? 0) >= rules.maxPerDay) continue;
-    for (const r of hoursFor(rules, day)) {
+    for (const r of mergeOverlapping(hoursFor(rules, day))) {
       const windowStart = DateTime.fromISO(`${iso}T${r.start}`, { zone });
       const windowEnd = r.end === '24:00' ? day.plus({ days: 1 }) : DateTime.fromISO(`${iso}T${r.end}`, { zone });
       for (let s = windowStart; s.plus({ minutes: rules.slotMinutes }) <= windowEnd; s = s.plus({ minutes: step })) {
         if (s < earliest) continue;
+        // The wanted part of the day is chosen here, before the limit counts anything: a limit must never cut off
+        // the evening because the morning used it up.
+        const clock = s.toFormat('HH:mm');
+        if ((opts.window?.from && clock < opts.window.from) || (opts.window?.to && clock >= opts.window.to)) continue;
         const e = s.plus({ minutes: rules.slotMinutes });
         const interval = { start: s.toJSDate(), end: e.toJSDate() };
         if (padded.some((b) => overlaps(interval, b))) continue;
+        // Never the same start twice (a window shared by two ranges, or a start repeated by a data oddity).
+        if (seen.has(interval.start.getTime())) continue;
+        seen.add(interval.start.getTime());
         slots.push({
           start: s.toUTC().toISO()!,
           end: e.toUTC().toISO()!,

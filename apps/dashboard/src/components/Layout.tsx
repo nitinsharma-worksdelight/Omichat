@@ -1,29 +1,27 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
-  BookOpen,
-  Bot,
   CalendarDays,
-  ChartColumn,
   Check,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
   Handshake,
-  LayoutDashboard,
+  LayoutGrid,
   LogOut,
   Menu,
   MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   Settings,
-  ShieldQuestion,
+  Sparkles,
   Users,
   Workflow,
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { get, post } from '../lib/api';
 import { initialsOf, timeAgo } from '../lib/format';
@@ -35,7 +33,7 @@ import { BrandMark } from './brand';
 import { ThemeToggle } from './theme';
 import { useToast } from './feedback-context';
 import type { AppNotification } from '../lib/types';
-import { useApprovals } from './approvals';
+import { useApprovals, useApprovalsLive } from './approvals';
 import { MenuItem, Popover } from './overlay';
 import { Badge, cx } from './ui';
 
@@ -46,54 +44,27 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-// The same destinations as ever, grouped into sections; Settings sits apart at the bottom of the menu.
-const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
-  {
-    label: 'Home',
-    items: [
-      { to: '/', segment: undefined, label: 'Overview', icon: LayoutDashboard },
-      { to: '/analytics', segment: 'analytics', label: 'Analytics', icon: ChartColumn },
-    ],
-  },
-  {
-    label: 'AI Studio',
-    items: [
-      { to: '/bots', segment: 'bots', label: 'Bots', icon: Bot },
-      { to: '/knowledge', segment: 'knowledge', label: 'Knowledge', icon: BookOpen },
-    ],
-  },
-  {
-    label: 'Inbox',
-    items: [
-      { to: '/conversations', segment: 'conversations', label: 'Conversations', icon: MessagesSquare },
-      { to: '/approvals', segment: 'approvals', label: 'Approvals', icon: ShieldQuestion },
-    ],
-  },
-  {
-    label: 'Customers',
-    items: [
-      { to: '/contacts', segment: 'contacts', label: 'Leads', icon: Users },
-      { to: '/deals', segment: 'deals', label: 'Deals', icon: Handshake },
-    ],
-  },
-  {
-    label: 'Operations',
-    items: [
-      { to: '/appointments', segment: 'appointments', label: 'Appointments', icon: CalendarDays },
-      { to: '/automations', segment: 'automations', label: 'Automations', icon: Workflow },
-    ],
-  },
+/** The main menu's one entry: everything to do with the AI agents lives under it. */
+const AI_AGENTS: NavItem = { to: '/ai-agents', segment: 'ai-agents', label: 'AI Agents', icon: Sparkles };
+/** First route segments that belong to AI Agents (its tabs, the agent editor, and the reports its dashboard links to). */
+const AI_AGENT_SEGMENTS = new Set<string | undefined>([undefined, 'ai-agents', 'bots', 'knowledge', 'approvals', 'overview', 'analytics']);
+const AI_AGENT_PAGES: Record<string, string> = { overview: 'Business overview', analytics: 'Analytics' };
+
+/** The pages kept apart from AI Agents, reached from the Apps menu in the top bar. */
+const APPS: NavItem[] = [
+  { to: '/conversations', segment: 'conversations', label: 'Conversations', icon: MessagesSquare },
+  { to: '/contacts', segment: 'contacts', label: 'Leads', icon: Users },
+  { to: '/deals', segment: 'deals', label: 'Deals', icon: Handshake },
+  { to: '/appointments', segment: 'appointments', label: 'Appointments', icon: CalendarDays },
+  { to: '/automations', segment: 'automations', label: 'Automations', icon: Workflow },
+  { to: '/settings', segment: 'settings', label: 'Settings', icon: Settings },
 ];
-const SETTINGS_ITEM: NavItem = { to: '/settings', segment: 'settings', label: 'Settings', icon: Settings };
 
 /** "Section › Page" for the top bar, from the first route segment (none for an unknown page). */
 function breadcrumbFor(segment: string | undefined): string[] {
-  if (segment === SETTINGS_ITEM.segment) return [SETTINGS_ITEM.label];
-  for (const group of NAV_GROUPS) {
-    const item = group.items.find((i) => i.segment === segment);
-    if (item) return [group.label, item.label];
-  }
-  return [];
+  if (AI_AGENT_SEGMENTS.has(segment)) return segment && AI_AGENT_PAGES[segment] ? [AI_AGENTS.label, AI_AGENT_PAGES[segment]] : [AI_AGENTS.label];
+  const app = APPS.find((i) => i.segment === segment);
+  return app ? [app.label] : [];
 }
 
 /** A yes/no kept in this browser (and still working, just not remembered, where storage is blocked). `fallback` is used until a choice is stored. */
@@ -134,6 +105,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const route = useRoute();
   const current = route.segments[0];
   const waiting = useApprovals({ status: 'pending' }).data?.length ?? 0;
+  useApprovalsLive();
   // From 1024 px the menu sits beside the page; below, it slides over it from a button in the top bar.
   const desktop = useMediaQuery('(min-width: 1024px)');
   // Icons only when collapsed: one choice for every page, remembered in this browser (the shell stays mounted as pages
@@ -165,7 +137,7 @@ export function Layout({ children }: { children: ReactNode }) {
         // Off screen, the menu is out of the tab order and hidden from screen readers.
         inert={slideOver && !menuOpen ? true : undefined}
         className={cx(
-          'flex shrink-0 flex-col border-r border-border bg-sidebar',
+          'flex shrink-0 flex-col border-r border-nav-border bg-nav-bg text-nav-fg',
           slideOver
             ? cx('fixed inset-y-0 left-0 z-50 w-62 shadow-modal transition-transform duration-200 motion-reduce:transition-none', menuOpen ? 'translate-x-0' : '-translate-x-full')
             : compact
@@ -174,17 +146,12 @@ export function Layout({ children }: { children: ReactNode }) {
         )}
       >
         <OrgSwitcher compact={compact} />
-        <nav aria-label="Main" className={cx('flex-1 overflow-y-auto pb-2', compact ? 'px-2 pt-1' : 'px-2.5 pt-1')}>
-          {NAV_GROUPS.map((group, index) => (
-            <NavGroup key={group.label} label={group.label} first={index === 0} compact={compact}>
-              {group.items.map((item) => (
-                <NavLink key={item.to} item={item} active={item.segment === current} compact={compact} waiting={item.segment === 'approvals' ? waiting : 0} />
-              ))}
-            </NavGroup>
-          ))}
+        {!compact && <MenuSearch />}
+        <div className={cx('h-px bg-nav-border', compact ? 'mx-3 my-2' : 'mx-3.5 my-3')} aria-hidden />
+        <nav aria-label="Main" className={cx('flex-1 overflow-y-auto pb-2', compact ? 'px-2' : 'px-2.5')}>
+          <NavLink item={AI_AGENTS} active={AI_AGENT_SEGMENTS.has(current)} compact={compact} waiting={waiting} />
         </nav>
-        <div className={cx('space-y-0.5 border-t border-border py-2', compact ? 'px-2' : 'px-2.5')}>
-          <NavLink item={SETTINGS_ITEM} active={current === SETTINGS_ITEM.segment} compact={compact} waiting={0} />
+        <div className={cx('space-y-0.5 border-t border-nav-border py-2', compact ? 'px-2' : 'px-2.5')}>
           <ThemeToggle compact={compact} />
           {slideOver ? (
             <button
@@ -193,7 +160,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 setMenuOpen(false);
                 menuButton.current?.focus();
               }}
-              className="flex h-8.5 w-full items-center gap-2.5 rounded-lg px-2.5 text-body-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+              className="flex h-8.5 w-full items-center gap-2.5 rounded-lg px-2.5 text-body-sm font-medium text-nav-muted transition-colors hover:bg-nav-item hover:text-nav-fg"
             >
               <X className="size-4 shrink-0" aria-hidden />
               Close menu
@@ -207,7 +174,7 @@ export function Layout({ children }: { children: ReactNode }) {
               aria-label={compact ? 'Expand menu' : 'Collapse menu'}
               title={compact ? 'Expand menu' : 'Collapse menu'}
               className={cx(
-                'flex items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg',
+                'flex items-center rounded-lg text-nav-muted transition-colors hover:bg-nav-item hover:text-nav-fg',
                 compact ? 'mx-auto size-10 justify-center' : 'h-8.5 w-full gap-2.5 px-2.5 text-body-sm font-medium',
               )}
             >
@@ -250,23 +217,31 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 }
 
-function NavGroup({ label, first, compact, children }: { label: string; first: boolean; compact: boolean; children: ReactNode }) {
-  const id = useId();
-  if (compact) {
-    return (
-      <div role="group" aria-label={label} className="space-y-0.5">
-        {!first && <div className="mx-auto my-2 h-px w-6 bg-border" aria-hidden />}
-        {children}
-      </div>
-    );
-  }
+/** Finds an agent: Enter opens the agents list filtered by the words typed. */
+function MenuSearch() {
+  const [query, setQuery] = useState('');
   return (
-    <div role="group" aria-labelledby={id} className="space-y-0.5">
-      <p id={id} className={cx('px-2.5 pb-1 text-[10.5px] leading-4 font-semibold tracking-[0.08em] text-muted uppercase', first ? 'pt-3' : 'pt-4')}>
-        {label}
-      </p>
-      {children}
-    </div>
+    <form
+      role="search"
+      className="px-2.5 pt-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const q = query.trim();
+        navigate(`/ai-agents/conversation-ai?view=agents${q ? `&q=${encodeURIComponent(q)}` : ''}`);
+      }}
+    >
+      <label className="flex h-8.5 items-center gap-2 rounded-lg bg-nav-item px-2.5 text-nav-muted focus-within:ring-2 focus-within:ring-accent">
+        <Search className="size-3.5 shrink-0" aria-hidden />
+        <span className="sr-only">Search agents</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search agents"
+          className="min-w-0 flex-1 bg-transparent text-body-sm text-nav-fg placeholder:text-nav-muted focus:outline-none"
+        />
+      </label>
+    </form>
   );
 }
 
@@ -279,8 +254,8 @@ function NavLink({ item, active, compact, waiting }: { item: NavItem; active: bo
       title={compact ? item.label : undefined}
       className={cx(
         'flex items-center rounded-lg text-body-sm transition-colors',
-        compact ? 'relative mx-auto size-10 justify-center' : 'h-8.5 gap-2.5 px-2.5',
-        active ? 'bg-accent-soft font-semibold text-accent-text' : 'font-medium text-fg-2 hover:bg-surface-2 hover:text-fg',
+        compact ? 'relative mx-auto size-10 justify-center' : 'h-9 gap-2.5 px-2.5',
+        active ? 'bg-nav-item font-semibold text-nav-fg' : 'font-medium text-nav-muted hover:bg-nav-item hover:text-nav-fg',
       )}
     >
       <Icon className="size-4 shrink-0" aria-hidden />
@@ -288,11 +263,12 @@ function NavLink({ item, active, compact, waiting }: { item: NavItem; active: bo
       {waiting > 0 &&
         (compact ? (
           <>
-            <span className="absolute top-2 right-2 size-2 rounded-full bg-warning ring-2 ring-sidebar" aria-hidden />
-            <span className="sr-only">, {waiting} waiting</span>
+            <span className="absolute top-2 right-2 size-2 rounded-full bg-warning ring-2 ring-nav-bg" aria-hidden />
+            <span className="sr-only">, {waiting} waiting for approval</span>
           </>
         ) : (
           <Badge tone="amber" className="h-5 px-1.5 text-label tabular-nums">
+            <span className="sr-only">Waiting for approval: </span>
             {waiting > 99 ? '99+' : waiting}
           </Badge>
         ))}
@@ -315,12 +291,12 @@ function OrgSwitcher({ compact }: { compact: boolean }) {
     <>
       <BrandMark size={30} />
       <span className="min-w-0 flex-1 text-left">
-        <span className="block truncate text-body-sm font-semibold text-fg">{orgName}</span>
-        <span className="block truncate text-label text-muted">Omni AI{me?.role ? ` · ${me.role.charAt(0).toUpperCase()}${me.role.slice(1)}` : ''}</span>
+        <span className="block truncate text-body-sm font-semibold text-nav-fg">{orgName}</span>
+        <span className="block truncate text-label text-nav-muted">Omni AI{me?.role ? ` · ${me.role.charAt(0).toUpperCase()}${me.role.slice(1)}` : ''}</span>
       </span>
     </>
   );
-  const frame = cx('flex h-16 shrink-0 items-center border-b border-border', compact ? 'justify-center' : 'px-2.5 [&>div]:w-full');
+  const frame = cx('flex h-16 shrink-0 items-center', compact ? 'justify-center' : 'px-2.5 [&>div]:w-full');
 
   if (memberships.length <= 1) {
     return (
@@ -345,13 +321,13 @@ function OrgSwitcher({ compact }: { compact: boolean }) {
             title={compact ? orgName : undefined}
             onClick={toggle}
             className={cx(
-              'flex items-center gap-2.5 rounded-lg transition-colors hover:bg-surface-2',
+              'flex items-center gap-2.5 rounded-lg transition-colors hover:bg-nav-item',
               compact ? 'size-10 justify-center' : 'w-full px-2 py-1.5',
-              open && 'bg-surface-2',
+              open && 'bg-nav-item',
             )}
           >
             {identity}
-            {!compact && <ChevronsUpDown className="size-3.5 shrink-0 text-muted" aria-hidden />}
+            {!compact && <ChevronsUpDown className="size-3.5 shrink-0 text-nav-muted" aria-hidden />}
           </button>
         )}
       >
@@ -413,6 +389,7 @@ function TopBar({ breadcrumb, menu }: { breadcrumb: string[]; menu: ReactNode })
         )}
       </div>
       <div className="flex items-center gap-1">
+        <AppsMenu />
         <NotificationsBell />
         <Popover
           label="Account"
@@ -472,8 +449,55 @@ function TopBar({ breadcrumb, menu }: { breadcrumb: string[]; menu: ReactNode })
   );
 }
 
+/** The pages kept apart from AI Agents: inbox, leads, deals, appointments, automations and settings. */
+function AppsMenu() {
+  const current = useRoute().segments[0];
+  return (
+    <Popover
+      label="Apps"
+      className="w-64"
+      trigger={({ open, toggle, id }) => (
+        <button
+          type="button"
+          aria-label="Apps"
+          title="Apps"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          onClick={toggle}
+          className={cx('flex size-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg', open && 'bg-surface-2 text-fg')}
+        >
+          <LayoutGrid className="size-4.5" aria-hidden />
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <p className="px-2.5 pt-1.5 pb-1 text-label font-semibold tracking-[0.06em] text-muted uppercase">Apps</p>
+          {APPS.map((app) => {
+            const Icon = app.icon;
+            return (
+              <MenuItem
+                key={app.to}
+                icon={<Icon className="size-3.5" />}
+                onClick={() => {
+                  close();
+                  navigate(app.to);
+                }}
+              >
+                <span className={cx('flex-1', app.segment === current && 'font-semibold text-accent-text')}>{app.label}</span>
+              </MenuItem>
+            );
+          })}
+        </>
+      )}
+    </Popover>
+  );
+}
+
 function NotificationsBell() {
   const qc = useQueryClient();
+  const { me } = useAuth();
   const toast = useToast();
   const notifications = useQuery({
     queryKey: ['notifications'],
@@ -490,7 +514,8 @@ function NotificationsBell() {
         const n = list.find((x) => x.id === id);
         // No toast for one already read, or for the conversation already on screen.
         const to = appLink(n?.link);
-        if (!n || n.readAt || (to && currentPath() === to)) return;
+        // Nor for something this member did themselves (approving a request, say): it's already read for them.
+        if (!n || n.readAt || n.data?.byUserId === me?.user.id || (to && currentPath() === to)) return;
         toast.notify({
           title: n.title,
           body: n.body,

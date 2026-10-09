@@ -38,6 +38,7 @@ export const ToolKey = z.enum([
   'remove_tags',
   'create_deal',
   'update_deal',
+  'call_api',
 ]);
 export type ToolKey = z.infer<typeof ToolKey>;
 
@@ -237,6 +238,114 @@ export const GuardrailsSchema = z.object({
   maxAiRepliesPerConversation: z.number().int().min(1).max(500).default(60),
 });
 
+/** At most this many custom API actions per bot. */
+export const MAX_CUSTOM_APIS = 10;
+
+const KeyValueSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .regex(/^[^\r\n:]+$/, 'no line breaks or colons'),
+  value: z
+    .string()
+    .max(2000)
+    .regex(/^[^\r\n]*$/, 'no line breaks')
+    .default(''),
+});
+
+/** A value the assistant collects in the chat and passes to the API as `{{name}}`. */
+export const CustomApiParamSchema = z.object({
+  name: slug,
+  type: z.enum(['string', 'number', 'boolean']).default('string'),
+  description: z.string().trim().max(300).default(''),
+  required: z.boolean().default(true),
+});
+
+/**
+ * An HTTP API the assistant may call during a chat (the "API Call" action). `{{param}}`, `{{contact.email}}`,
+ * `{{contact.name}}`, `{{contact.phone}}`, `{{contact.id}}` and `{{conversation.id}}` are filled in the URL, query
+ * values, header values and raw body. The credential is write-only: stored sealed as `secretEnc`, never sent back.
+ */
+export const CustomApiSchema = z.object({
+  /** Kept across edits; assigned when missing. */
+  id: z.string().uuid().optional(),
+  /** What the model calls it by. */
+  key: slug,
+  name: z.string().trim().min(1).max(80),
+  /** Tells the assistant when to call it. */
+  description: z.string().trim().min(1).max(600),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+  url: z
+    .string()
+    .trim()
+    .min(1)
+    .max(2000)
+    .refine((u) => /^https?:\/\/[^\s/]+/i.test(u), 'Enter a full URL starting with https://'),
+  contentType: z.enum(['application/json', 'application/x-www-form-urlencoded']).default('application/json'),
+  headers: z.array(KeyValueSchema).max(20).default([]),
+  query: z.array(KeyValueSchema).max(20).default([]),
+  /** Off: the body is the collected values as JSON (or a form). On: `body`, with placeholders filled. */
+  rawBody: z.boolean().default(false),
+  body: z.string().max(8000).default(''),
+  params: z.array(CustomApiParamSchema).max(15).default([]),
+  auth: z
+    .object({
+      type: z.enum(['none', 'bearer', 'api_key', 'basic']).default('none'),
+      /** The header an API key goes in. */
+      headerName: z
+        .string()
+        .trim()
+        .max(100)
+        .regex(/^[A-Za-z0-9-_]*$/, 'letters, digits, - and _ only')
+        .default('x-api-key'),
+      /** Basic auth user name (the secret is the password). */
+      username: z.string().trim().max(200).default(''),
+      /** Sealed credential. Server-side only. */
+      secretEnc: z.string().max(4000).optional(),
+      /** Read-only, in what the API returns: whether a credential is stored. */
+      hasSecret: z.boolean().optional(),
+    })
+    .default({ type: 'none', headerName: 'x-api-key', username: '' }),
+  /** On: the assistant waits for the reply and uses it. Off: it calls and carries on. */
+  waitForResponse: z.boolean().default(true),
+  timeoutMs: z.number().int().min(1000).max(20_000).default(10_000),
+  /** The team approves each call first. */
+  askFirst: z.boolean().default(false),
+  enabled: z.boolean().default(true),
+});
+export type CustomApi = z.infer<typeof CustomApiSchema>;
+
+/** Placeholders every custom API may use, filled by the server (never by the model). */
+export const CUSTOM_API_BUILTINS = ['contact.id', 'contact.name', 'contact.email', 'contact.phone', 'conversation.id'] as const;
+
+/** The `{{name}}`s used anywhere in a custom API's request. */
+export function apiPlaceholders(api: Pick<CustomApi, 'url' | 'headers' | 'query' | 'rawBody' | 'body'>): string[] {
+  const texts = [api.url, ...api.headers.map((h) => h.value), ...api.query.map((q) => q.value), api.rawBody ? api.body : ''];
+  const found = new Set<string>();
+  for (const text of texts) for (const m of text.matchAll(/\{\{\s*([a-z0-9_.]+)\s*\}\}/gi)) found.add(m[1]!);
+  return [...found];
+}
+
+function customApiProblems(apis: CustomApi[]): string[] {
+  const problems: string[] = [];
+  const keys = new Set<string>();
+  for (const api of apis) {
+    if (keys.has(api.key)) problems.push(`customApis: two APIs are called "${api.key}"`);
+    keys.add(api.key);
+    const params = new Set<string>();
+    for (const p of api.params) {
+      if (params.has(p.name)) problems.push(`customApis: "${api.name}" has two inputs called "${p.name}"`);
+      params.add(p.name);
+    }
+    const unknown = apiPlaceholders(api).filter((name) => !params.has(name) && !(CUSTOM_API_BUILTINS as readonly string[]).includes(name));
+    if (unknown.length) problems.push(`customApis: "${api.name}" uses ${unknown.map((n) => `{{${n}}}`).join(', ')}, which isn't one of its inputs`);
+    if (api.rawBody && api.method === 'GET') problems.push(`customApis: "${api.name}" is a GET request, so it can't send a body`);
+  }
+  return problems;
+}
+
 export const ActionsSchema = z.object({
   disabledTools: z.array(ToolKey).default([]),
   /** Tags the bot may apply. Empty = any existing tag. */
@@ -256,6 +365,12 @@ export const ActionsSchema = z.object({
     .default({ enabled: false, pipelineId: null, canClose: false }),
   /** Actions that wait for the team's approval instead of happening at once. */
   askFirst: z.array(z.enum(ASK_FIRST_TOOLS)).max(ASK_FIRST_TOOLS.length).default([]),
+  /** HTTP APIs the assistant may call (`call_api`). */
+  customApis: z
+    .array(CustomApiSchema)
+    .max(MAX_CUSTOM_APIS)
+    .default([])
+    .transform((apis) => apis.map((api) => ({ ...api, id: api.id ?? crypto.randomUUID() }))),
 });
 
 export const BotConfigSchema = z.object({
@@ -291,6 +406,23 @@ export function offeredStarters(config: BotConfig): Array<{ id: string; label: s
 export function handoffStarter(config: BotConfig, starterIds: Array<string | undefined>): ConversationStarter | null {
   if (!config.handoff.enabled) return null;
   return config.conversationStarters.find((s) => s.enabled && s.action === 'handoff' && starterIds.includes(s.id)) ?? null;
+}
+
+/** `{business_name}` and friends: values the prompt editor's "Custom Values" menu inserts into the instructions. */
+export const CUSTOM_VALUES = ['business_name', 'agent_name', 'business_hours', 'business_website', 'business_phone', 'business_email', 'business_location'] as const;
+
+/** The instructions with each custom value filled from the bot's settings (an unset one reads "not set"). */
+export function fillCustomValues(text: string, config: Pick<BotConfig, 'persona' | 'business'>, organizationName: string): string {
+  const values: Record<(typeof CUSTOM_VALUES)[number], string> = {
+    business_name: config.persona.companyName || organizationName,
+    agent_name: config.persona.assistantName,
+    business_hours: config.business.hours,
+    business_website: config.business.website,
+    business_phone: config.business.phone,
+    business_email: config.business.email,
+    business_location: config.business.location,
+  };
+  return text.replace(/\{(business_name|agent_name|business_hours|business_website|business_phone|business_email|business_location)\}/g, (_, key: keyof typeof values) => values[key].trim() || 'not set');
 }
 
 /** Provider-neutral reasoning depth; each LLM provider maps it (or omits it). */
@@ -372,5 +504,6 @@ export function validateBotConfig(config: BotConfig): string[] {
       problems.push(`conversationStarters: "${s.label}" hands the chat to your team, but Human handoff is off`);
     }
   }
+  problems.push(...customApiProblems(config.actions.customApis));
   return problems;
 }

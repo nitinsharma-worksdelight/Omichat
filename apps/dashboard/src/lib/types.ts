@@ -103,6 +103,8 @@ export interface AppNotification {
   link: string | null;
   readAt: string | null;
   createdAt: string;
+  /** `byUserId`: the member whose own action this reports. */
+  data?: { eventId?: string; byUserId?: string } | null;
 }
 
 export type Actor = 'ai' | 'user' | 'contact' | 'system';
@@ -210,6 +212,7 @@ export const TOOL_KEYS = [
   'remove_tags',
   'create_deal',
   'update_deal',
+  'call_api',
 ] as const;
 export type ToolKey = (typeof TOOL_KEYS)[number];
 /** Turned on through their own settings (stages, owners, removing tags, deals), not the tool switches. */
@@ -371,6 +374,75 @@ export interface Actions {
   deals: { enabled: boolean; pipelineId: string | null; canClose: boolean };
   /** Actions that wait for the team's approval instead of happening at once. */
   askFirst: AskFirstTool[];
+  /** HTTP APIs the assistant may call (the "API Call" action). */
+  customApis: CustomApi[];
+}
+
+export type CustomApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type CustomApiAuthType = 'none' | 'bearer' | 'api_key' | 'basic';
+export type CustomApiContentType = 'application/json' | 'application/x-www-form-urlencoded';
+
+/** A value the assistant collects in the chat and passes to the API as `{{name}}`. */
+export interface CustomApiParam {
+  name: string;
+  type: 'string' | 'number' | 'boolean';
+  description: string;
+  required: boolean;
+}
+
+/** An HTTP API the assistant may call. The credential is write-only: send `auth.secret` to set it. */
+export interface CustomApi {
+  /** Assigned by the server on first save. */
+  id?: string;
+  key: string;
+  name: string;
+  description: string;
+  method: CustomApiMethod;
+  url: string;
+  contentType: CustomApiContentType;
+  headers: Array<{ name: string; value: string }>;
+  query: Array<{ name: string; value: string }>;
+  rawBody: boolean;
+  body: string;
+  params: CustomApiParam[];
+  auth: {
+    type: CustomApiAuthType;
+    headerName: string;
+    username: string;
+    /** Whether a credential is stored (read-only). */
+    hasSecret?: boolean;
+    /** A new credential to store (write-only; never returned). */
+    secret?: string;
+  };
+  waitForResponse: boolean;
+  timeoutMs: number;
+  askFirst: boolean;
+  enabled: boolean;
+}
+
+/** What the API Call action's Test tab got back. */
+export interface CustomApiTestResult {
+  ok: boolean;
+  status: number;
+  response: unknown;
+  truncated: boolean;
+  durationMs: number;
+  request: { method: string; url: string };
+}
+
+/** The AI Agents dashboard. */
+export interface AgentsDashboard {
+  from: string;
+  to: string;
+  timezone: string;
+  interval: 'day' | 'week';
+  uniqueContacts: number;
+  actionsTriggered: number;
+  appointmentsBooked: number;
+  aiReplies: number;
+  timeSavedMinutes: number;
+  minutesPerReply: number;
+  series: Array<{ date: string; contacts: number }>;
 }
 
 /** What a conversation starter does when clicked: send its message, or send it and hand the chat to the team. */

@@ -3,13 +3,20 @@ import { z } from 'zod';
 import type { Container } from '../../container';
 import { parseInput, parsePatch } from '../../lib/validation';
 import { buildSystemPrompt } from '../../modules/ai/prompt';
-import { offeredStarters } from '../../modules/bots/config';
+import { CUSTOM_API_BUILTINS, offeredStarters } from '../../modules/bots/config';
 import { BotCreateSchema, BotUpdateSchema } from '../../modules/bots/service';
 import { openingGreeting } from '../../modules/channels/service';
 import { hasAskFirst } from '../../modules/tools/types';
 import { requireUser } from '../auth';
 
 const Id = z.object({ id: z.string().uuid() });
+
+const ApiTestSchema = z.object({
+  api: z.record(z.string(), z.unknown()),
+  secret: z.string().max(4000).optional(),
+  inputs: z.record(z.string(), z.union([z.string().max(2000), z.number(), z.boolean()])).default({}),
+  builtins: z.partialRecord(z.enum(CUSTOM_API_BUILTINS), z.string().max(500)).default({}),
+});
 
 export async function registerBotRoutes(app: FastifyInstance, c: Container) {
   /** The server's LLM configuration: what bots use unless they override the model or effort. */
@@ -41,6 +48,24 @@ export async function registerBotRoutes(app: FastifyInstance, c: Container) {
   app.patch('/bots/:id', async (req) => {
     const auth = await requireUser(c, req, 'admin');
     return c.bots.update({ orgId: auth.orgId }, parseInput(Id, req.params).id, parsePatch(BotUpdateSchema, req.body));
+  });
+
+  /** A copy of the bot, switched off: settings, API credentials and knowledge bases included. */
+  app.post('/bots/:id/duplicate', async (req, reply) => {
+    const auth = await requireUser(c, req, 'admin');
+    return reply.status(201).send(await c.bots.duplicate({ orgId: auth.orgId }, parseInput(Id, req.params).id));
+  });
+
+  /**
+   * The API Call action's Test tab: sends a draft API definition with sample values and returns what came back.
+   * Without a new credential, the bot's stored one for that API is used.
+   */
+  app.post('/bots/:id/custom-apis/test', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+    const auth = await requireUser(c, req, 'admin');
+    const botId = parseInput(Id, req.params).id;
+    const body = parseInput(ApiTestSchema, req.body);
+    await c.bots.get({ orgId: auth.orgId }, botId);
+    return c.customApis.test({ orgId: auth.orgId }, { botId, api: body.api, secret: body.secret, inputs: body.inputs, builtins: body.builtins });
   });
 
   app.delete('/bots/:id', async (req, reply) => {

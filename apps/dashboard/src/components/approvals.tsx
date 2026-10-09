@@ -1,22 +1,36 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldQuestion } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { get, post } from '../lib/api';
 import { formatDateTime, timeAgo } from '../lib/format';
+import { useLiveEvents } from '../lib/live';
 import { useAction } from '../lib/mutations';
 import { roleAtLeast } from '../lib/queries';
 import { Link } from '../lib/router';
 import type { Approval, ApprovalStatus } from '../lib/types';
 import { Badge, Button, cx, Input, Textarea, type Tone } from './ui';
 
-/** The assistant's requests, newest first (up to 100). Refreshed every half minute so new ones show up. */
+/** The assistant's requests, newest first (up to 100). Refreshed at once by `useApprovalsLive`, and every half minute as the fallback. */
 export const useApprovals = (params: { status?: ApprovalStatus; conversationId?: string } = {}) =>
   useQuery({
     queryKey: ['approvals', params],
     queryFn: () => get<Approval[]>('/v1/approvals', { ...params, limit: 100 }),
     refetchInterval: 30_000,
   });
+
+/**
+ * Keeps every approvals list (the sidebar badge, the Approvals page, a conversation's cards) current: the server says
+ * so the moment a request comes in or a teammate answers one. Mounted once, in the page shell. Coming back after the
+ * stream was down refreshes too, so nothing that happened meanwhile is missed.
+ */
+export function useApprovalsLive() {
+  const qc = useQueryClient();
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['approvals'] });
+  useLiveEvents((event) => {
+    if (event === 'approval.changed') refresh();
+  }, refresh);
+}
 
 const STATUS_TONE: Record<ApprovalStatus, Tone> = { pending: 'amber', approved: 'green', rejected: 'red', expired: 'slate' };
 const STATUS_LABEL: Record<ApprovalStatus, string> = { pending: 'Waiting', approved: 'Approved', rejected: 'Declined', expired: 'Expired' };

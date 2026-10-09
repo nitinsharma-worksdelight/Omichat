@@ -8,7 +8,7 @@ import { inScope, type Scope, type TenantDb } from '../../db/tenant';
 import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
 import { recordEvent } from '../automation/events';
 import { DEFAULT_LIFECYCLE_STAGES } from '../tenancy/bootstrap';
-import { checkSlot, computeSlots, formatSlotLabel, validateHours, type CalendarRules, type Interval } from './availability';
+import { checkSlot, computeSlots, formatSlotLabel, parseLocalStart, validateHours, type CalendarRules, type Interval, type TimeWindow } from './availability';
 import {
   cancelPending,
   confirmationState,
@@ -54,6 +54,12 @@ export const CalendarInputSchema = z.object({
   dateOverrides: z
     .array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), hours: z.array(TimeRangeSchema) }))
     .max(366)
+    .superRefine((overrides, ctx) => {
+      overrides.forEach((o, i) => {
+        const problem = validateHours(o.hours);
+        if (problem) ctx.addIssue({ code: 'custom', path: [i, 'hours'], message: problem });
+      });
+    })
     .default([]),
   isActive: z.boolean().default(true),
   location: z.string().trim().max(300).default(''),
@@ -174,7 +180,7 @@ export class SchedulingService {
 
   // ---------- availability ----------
 
-  async availability(scope: Scope, calendarId: string, range: { from?: string; to?: string; limit?: number }) {
+  async availability(scope: Scope, calendarId: string, range: { from?: string; to?: string; limit?: number; window?: TimeWindow }) {
     return inScope(this.tenantDb, scope, async (tx) => {
       const calendar = await this.calendarRow(tx, scope.orgId, calendarId);
       if (!calendar.isActive) throw badRequest('This calendar is not accepting bookings');
@@ -185,7 +191,40 @@ export class SchedulingService {
       const { busy, perDay } = await this.busy(tx, calendar, from, to);
       return {
         calendar: { id: calendar.id, name: calendar.name, timezone: calendar.timezone, slotMinutes: calendar.slotMinutes },
-        slots: computeSlots(rulesOf(calendar), busy, { from, to }, now, { limit: range.limit ?? 200, bookedPerDay: perDay }),
+        slots: computeSlots(rulesOf(calendar), busy, { from, to }, now, { limit: range.limit ?? 1000, bookedPerDay: perDay, window: range.window }),
+      };
+    });
+  }
+
+  /**
+   * Whether one exact start ("YYYY-MM-DDTHH:mm", calendar time) can be booked right now, by the same rules booking
+   * applies (hours, notice, buffers, daily cap, what's already booked), and if not why and which times are nearest.
+   */
+  async checkTime(scope: Scope, calendarId: string, local: string) {
+    return inScope(this.tenantDb, scope, async (tx) => {
+      const calendar = await this.calendarRow(tx, scope.orgId, calendarId);
+      if (!calendar.isActive) throw badRequest('This calendar is not accepting bookings');
+      const start = parseLocalStart(local, calendar.timezone);
+      if (!start) throw badRequest('Invalid time');
+      const now = this.clock();
+      const day = DateTime.fromJSDate(start, { zone: calendar.timezone }).toISODate()!;
+      const { busy, perDay } = await this.busy(tx, calendar, day, day);
+      const rules = rulesOf(calendar);
+      const problem = checkSlot(rules, busy, start, now, perDay);
+      const slots = computeSlots(rules, busy, { from: day, to: day }, now, { bookedPerDay: perDay });
+      const hit = slots.find((s) => new Date(s.start).getTime() === start.getTime());
+      // Closest first, so "6:00 PM is taken" can come with 5:30 and 6:30.
+      const nearby = slots
+        .filter((s) => s !== hit)
+        .sort((a, b) => Math.abs(new Date(a.start).getTime() - start.getTime()) - Math.abs(new Date(b.start).getTime() - start.getTime()))
+        .slice(0, 3)
+        .sort((a, b) => a.start.localeCompare(b.start));
+      return {
+        calendar: { id: calendar.id, name: calendar.name, timezone: calendar.timezone, slotMinutes: calendar.slotMinutes },
+        available: !problem && Boolean(hit),
+        reason: problem,
+        slot: hit ?? null,
+        nearby,
       };
     });
   }

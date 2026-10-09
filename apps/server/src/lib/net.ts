@@ -159,7 +159,7 @@ export async function fetchLimited(
     maxBytes: number;
     allowPrivate: boolean;
     headers?: Record<string, string>;
-    method?: 'GET' | 'POST';
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
     body?: string;
     maxRedirects?: number;
     /** Tests only: the connection-time checker to use instead of the shared one. */

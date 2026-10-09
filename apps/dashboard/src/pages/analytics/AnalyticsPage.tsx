@@ -34,11 +34,11 @@ const PRESETS = [
 ] as const;
 
 /** Today as YYYY-MM-DD in `timezone`. */
-function todayIn(timezone: string): string {
+export function todayIn(timezone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
 
-function shift(day: string, days: number): string {
+export function shift(day: string, days: number): string {
   const d = new Date(`${day}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
@@ -274,7 +274,7 @@ function MetricCard({
 }
 
 /** A plain SVG bar chart that scales to its box and follows the theme's colours. */
-function BarChart({ label, points, weekly }: { label: string; points: Array<{ date: string; value: number }>; weekly: boolean }) {
+export function BarChart({ label, points, weekly }: { label: string; points: Array<{ date: string; value: number }>; weekly: boolean }) {
   const max = Math.max(1, ...points.map((p) => p.value));
   const ticks = niceTicks(max);
   const top = ticks[ticks.length - 1]!;

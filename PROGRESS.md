@@ -7,6 +7,9 @@ Single source of truth for phase status. Plans: [`docs/IMPLEMENTATION_PLAN.md`](
 **H3 (Phase 21) — Message reliability** · **✅ Complete** (2026-10-02): 362/362 tests, integration tier 14/14, both
 audit failures re-checked live. Next: H4 (Phase 22) — Cost and abuse limits, awaiting approval · updated 2026-10-02
 
+Latest (2026-10-10): GHL-style AI Agents built and verified, see
+[GHL-style AI Agents](#ghl-style-ai-agents-design-approved-2026-10-09-built-2026-10-10). Not committed.
+
 Feature order (changed 2026-10-01): F1–F6 done → F9 → F7 → F8, then Phase 4. The hook tracks F1–F9 as phases 10–18.
 
 Production hardening track (added 2026-10-02, after the production-readiness audit): H1–H10, tracked by the hook as
@@ -169,6 +172,138 @@ changed:
   1024/1280 px, below it at 375/768 px.
 - Found and fixed during the knowledge check: focus didn't reach the menu (it was still hidden while being placed)
   and the menu sat 15 px left of its button (the scrollbar's width).
+
+## GHL-style AI Agents (design approved 2026-10-09, built 2026-10-10)
+
+The dashboard rebuilt around GoHighLevel's AI Agents workflow, from the approved canvas design
+(https://claude.ai/artifact/6T9VK3xRVgZFqKWF3yerWW, Version 7). Branch `feature/ui-change`, not committed. Decisions:
+GHL blue (#155EEF) replaces the teal accent in both themes; the API Call action gets a real backend; the six pages
+outside AI Agents stay separate.
+
+**What changed**
+- **Main menu:** navy, one entry: AI Agents (with the approvals count). Search there opens the agents list filtered.
+  Conversations, Leads, Deals, Appointments, Automations and Settings are under the new Apps menu (⊞) in the top bar.
+  Settings is also still in the account menu.
+- **AI Agents tabs:**
+  - Getting Started: four steps, ticked from real data.
+  - Agent Studio: the agents as GHL's Managed Agents table, with sort, search and paging.
+  - Voice AI and Content AI: "coming soon".
+  - Conversation AI → Dashboard: contacts, actions, bookings and time saved, with channel, date and agent filters,
+    plus links to the full Analytics and Business overview.
+  - Conversation AI → Agents List: list or grid, search, paging, ⋮ Edit / Duplicate / Delete, bulk delete, and
+    "Create folder" ("coming soon").
+  - Knowledge Base: the existing Knowledge page.
+  - Agent Templates: the four templates; each creates an agent.
+  - Agent Logs: the existing Approvals page, plus what the agents did over the last 30 days.
+- **Create new agent:** four starting points.
+  - General Q&A: support persona and Q&A prompt, every knowledge base attached; opens on Knowledge Base.
+  - Appointment booking: booking persona and prompt; opens on the booking setup.
+  - Marketplace Templates: the four templates.
+  - Start from Scratch: an empty agent.
+  - The agent is created at once, named "New Agent <date, time>".
+- **Agent editor (`/bots/:id`):** back arrow, rename in place, Build | Deploy, Save (with Discard), and a ⋯ menu:
+  All settings (the old editor, now at `/bots/:id/advanced`), Prompt preview, Duplicate, Delete.
+  - Build, left: model (server default, the OpenAI names or any other id), a gear for effort and the longest reply,
+    and Business Name. The prompt editor has undo and redo, "# Custom Values" and a 12,000-character counter.
+  - Build, middle: six panels.
+    - Actions: the eight GHL actions plus "More": Lead Qualification and "Tools, CRM & approvals".
+    - Knowledge Base Triggers.
+    - Mode: Off / Auto-Pilot, which is `isActive`.
+    - Timing & Pacing.
+    - Response Behavior: quick fields, plus drawers holding the existing Personality, Goals, Business, Guardrails and
+      Starters sections.
+    - Summary Settings.
+  - Build, right: "Test your agent" with the existing test chat. Below 1280 px it opens over the page.
+  - Deploy: GHL's channel cards. Chat widget connects website chats at once (PATCH channel `botId`), moves one from
+    another agent after asking, creates a new one, and shows the embed code. The other cards say "Coming soon".
+  - Unsaved changes: leaving through any in-app link asks first; closing the tab warns.
+- **Action modals:**
+  - Appointment Booking: two steps, Calendar Selection and Advanced Options. Asking the team covers
+    booking/rescheduling/cancelling; Remove switches booking off.
+  - Trigger a Workflow, Contact Info, Human Handover, Lead Qualification, Tools/CRM: reuse the existing sections.
+  - Stop Bot, Transfer Bot, Auto Followup: "coming soon".
+  - Every modal edits the draft; nothing is stored until Save.
+- **API Call (new backend):**
+  - Stored in `config.actions.customApis` (JSON, no migration).
+  - Settings: method, URL, content type, headers, query, an optional raw body with `{{input}}`, inputs the agent
+    collects, wait or not, timeout, ask first, on/off.
+  - The server fills `{{contact.*}}` and `{{conversation.id}}`.
+  - Authentication: bearer, API key header or basic. The credential is sealed with the existing SecretBox, never
+    returned (`hasSecret` only), kept across edits, dropped when auth is off, and copied by Duplicate.
+  - New tool `call_api`, using the SSRF-guarded `fetchLimited` with no redirects and a 512 KB cap. The model sees at
+    most 4,000 characters of the response. It works with "ask the team first" through the existing approvals.
+  - Import cURL fills the form; the Test tab sends the draft with sample values.
+- **Custom values:** `{business_name}`, `{agent_name}`, `{business_hours}`, `{business_website}`,
+  `{business_phone}`, `{business_email}` and `{business_location}` in the prompt are filled on the server from the
+  agent's settings; an unset one reads "not set".
+
+**API changes** (additive):
+- `POST /v1/bots/:id/duplicate` (admin): a copy, switched off.
+- `POST /v1/bots/:id/custom-apis/test` (admin, 30 a minute).
+- `GET /v1/analytics/agents`:
+  - contacts the AI replied to, counted once;
+  - successful actions and AI bookings;
+  - time saved, at 2 minutes per AI reply;
+  - a series per day or week.
+- `ToolKey` gains `call_api`.
+- `fetchLimited` takes PUT, PATCH and DELETE.
+- `BotsService` takes the SecretBox.
+
+**Routes:**
+- `/` and `/ai-agents` open Conversation AI; `/bots` redirects there.
+- `/knowledge` and `/approvals` open their AI Agents tabs.
+- The old Overview moved to `/overview`; Analytics stays at `/analytics`.
+
+**Files:**
+- Server:
+  - `modules/bots/config.ts`, `modules/bots/service.ts`
+  - `modules/tools/custom-api.ts` (new), `modules/tools/definitions.ts`, `modules/tools/types.ts`
+  - `modules/approvals/service.ts`, `modules/ai/prompt.ts`, `modules/analytics/service.ts`
+  - `http/routes/bots.ts`, `http/routes/org.ts`, `lib/net.ts`, `container.ts`
+- Dashboard:
+  - `pages/agents/*` and `pages/agents/editor/*` (new)
+  - `pages/bots/draft.ts` (helpers moved out of `BotEditorPage.tsx`), `BotEditorPage.tsx` (back link; exports the
+    preview drawer)
+  - `App.tsx`, `components/Layout.tsx`, `components/theme.tsx`, `components/overlay.tsx` (a `2xl` modal size)
+  - `index.css` (accent and navy tokens), `lib/types.ts`, `lib/format.ts`, `pages/analytics/AnalyticsPage.tsx`
+    (exports its chart helpers)
+- Tests: `test/custom-api.test.ts` (new, 12).
+
+**Verification (2026-10-10):**
+- Typecheck clean in all three workspaces; build OK.
+- `test/custom-api.test.ts` 12/12. Full server suite 528/528.
+- Browser check against a throwaway local API (mock model, local embeddings, no API keys; deleted afterwards), in
+  light and dark mode:
+  - signup;
+  - Create agent: Marketplace step and Back, then General Q&A, which opened on Knowledge Base with the knowledge base
+    attached;
+  - rename, prompt typing, a Custom Value inserted at the cursor, undo and redo;
+  - leaving with unsaved changes asks first, and Save works;
+  - API Call: cURL import, validation sending you to the right tab, a real test request, then Proceed and Save. The
+    credential was stored sealed and never returned.
+  - Appointment Booking through both steps, with ask first;
+  - the Prompt preview showed `{business_hours}` filled;
+  - Deploy: connecting the website chat moved it from the other agent;
+  - Agents List: Duplicate, search, grid, bulk delete;
+  - Dashboard: numbers after a website-chat message, and the agent filter;
+  - Agent Studio, Getting Started, Templates, Logs, Knowledge, Voice AI, and the Apps menu to Deals;
+  - the old routes `/bots` and `/approvals`, and the full editor at `/bots/:id/advanced`;
+  - at 375 px: no sideways scroll, and the test panel opens over the page.
+- Found and fixed during the check:
+  - in-app links dropped unsaved changes without asking;
+  - the editor's columns didn't fill the height, and on a phone the prompt scrolled inside a short box;
+  - channel cards used two columns at 1440 px instead of GHL's three;
+  - Getting Started opened the oldest agent.
+- No real model was called.
+
+**Assumptions and limits:**
+- Screens not in the screenshots were designed by us and approved with the design: the booking Advanced Options, the
+  panel contents, the Workflow, Contact and Handover modals, the API Authentication, General and Test tabs, and
+  Getting Started, Templates and Logs.
+- Not on the platform yet, so "coming soon": folders, Multi calendars, Stop Bot, Transfer Bot, Auto Followup,
+  Voice AI, Content AI, marketplace channels, and every channel except the chat widget.
+- Agent Studio lists the same agents as Agents List.
+- "Time saved" is an estimate.
 
 ## Completed work
 

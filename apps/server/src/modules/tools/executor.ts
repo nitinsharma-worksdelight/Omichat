@@ -66,6 +66,8 @@ export class ToolExecutor {
     private readonly definitions: ToolDefinition[],
     private readonly tenantDb: TenantDb,
     private readonly logger: Logger,
+    /** Called once a new approval request is saved, so the team hears at once instead of when the turn ends. */
+    private readonly onApprovalRequested: () => Promise<void> = async () => {},
   ) {}
 
   async schemaContext(orgId: string, bot: BotView): Promise<ToolSchemaContext> {
@@ -208,6 +210,7 @@ export class ToolExecutor {
               }),
             );
             status = 'pending';
+            if (request.created) await this.onApprovalRequested().catch((err) => this.logger.warn({ err }, 'approval alert nudge failed'));
             output = { waiting_for_team: true, request_id: request.id, ...(request.created ? {} : { already_asked: true }), note: WAITING };
           } else {
             if (def.activity) await tctx.activity(def.activity, { internal: def.activityInternal }).catch(() => {});

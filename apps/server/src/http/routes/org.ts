@@ -138,6 +138,14 @@ export async function registerOrgRoutes(app: FastifyInstance, c: Container) {
     return c.analytics.report(auth.orgId, org.timezone, q, { includeCost: isAdmin });
   });
 
+  /** The AI Agents dashboard: contacts the AI talked to, actions, bookings and time saved (staff). */
+  app.get('/analytics/agents', async (req) => {
+    const auth = await requireUser(c, req);
+    const q = parseInput(AnalyticsQuerySchema, req.query);
+    const org = await c.tenancy.getOrganization(auth.orgId);
+    return c.analytics.agents(auth.orgId, org.timezone, q);
+  });
+
   /** Team performance, the funnel, lead sources, AI actions and approvals over a date range (staff). */
   app.get('/analytics/performance', async (req) => {
     const auth = await requireUser(c, req);

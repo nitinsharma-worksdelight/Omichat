@@ -67,6 +67,7 @@ export function ThemeToggle({ compact }: { compact: boolean }) {
   const [theme, setTheme] = useTheme();
   const dark = theme === 'dark';
   const toggle = () => setTheme(dark ? 'light' : 'dark');
+  // Drawn on the navy main menu, in both themes.
   if (compact) {
     return (
       <button
@@ -76,7 +77,7 @@ export function ThemeToggle({ compact }: { compact: boolean }) {
         aria-label="Dark mode"
         title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
         onClick={toggle}
-        className="mx-auto flex size-10 items-center justify-center rounded-lg text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg"
+        className="mx-auto flex size-10 items-center justify-center rounded-lg text-nav-muted transition-colors hover:bg-nav-item hover:text-nav-fg"
       >
         {dark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
       </button>
@@ -88,11 +89,11 @@ export function ThemeToggle({ compact }: { compact: boolean }) {
       role="switch"
       aria-checked={dark}
       onClick={toggle}
-      className="flex h-8.5 w-full items-center gap-2.5 rounded-lg px-2.5 text-body-sm font-medium text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg"
+      className="flex h-8.5 w-full items-center gap-2.5 rounded-lg px-2.5 text-body-sm font-medium text-nav-muted transition-colors hover:bg-nav-item hover:text-nav-fg"
     >
       {dark ? <Moon className="size-4 shrink-0" aria-hidden /> : <Sun className="size-4 shrink-0" aria-hidden />}
       <span className="flex-1 text-left">Dark mode</span>
-      <span aria-hidden className={cx('relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors', dark ? 'bg-accent' : 'bg-faint')}>
+      <span aria-hidden className={cx('relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors', dark ? 'bg-accent' : 'bg-nav-border')}>
         <span className={cx('inline-block size-3 rounded-full shadow-sm transition-transform', dark ? 'translate-x-3.5 bg-accent-fg' : 'translate-x-0.5 bg-white')} />
       </span>
     </button>

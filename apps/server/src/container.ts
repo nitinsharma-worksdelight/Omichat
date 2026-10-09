@@ -12,7 +12,7 @@ import { SecretBox } from './lib/crypto';
 import { createLogger, type Logger } from './lib/logger';
 import { createLlmProvider } from './modules/ai/llm/registry';
 import type { LlmProvider } from './modules/ai/llm/types';
-import { AiOrchestrator, type ReplyJob } from './modules/ai/orchestrator';
+import { AiOrchestrator, type ApprovalFollowUpJob, type ReplyJob } from './modules/ai/orchestrator';
 import { PriceBook } from './modules/ai/pricing';
 import { ConversationSummarizer, type SummaryJob } from './modules/ai/summary';
 import { ApprovalsService } from './modules/approvals/service';
@@ -36,6 +36,7 @@ import { CalendarProviderRegistry } from './modules/scheduling/providers';
 import { SchedulingService } from './modules/scheduling/service';
 import { TenancyService } from './modules/tenancy/service';
 import { createTools } from './modules/tools/definitions';
+import { CustomApiService } from './modules/tools/custom-api';
 import { ToolExecutor } from './modules/tools/executor';
 
 export interface ContainerOverrides {
@@ -105,7 +106,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   const channels = new ChannelsService(db, tenantDb, env.PUBLIC_API_URL);
   const contacts = new ContactsService(tenantDb);
   const qualification = new QualificationService(tenantDb, contacts);
-  const bots = new BotsService(tenantDb);
+  const bots = new BotsService(tenantDb, secrets);
   const deals = new DealsService(tenantDb);
   const knowledge = new KnowledgeService(tenantDb, storage, embeddings, queue, logger, {
     allowPrivateUrls,
@@ -130,7 +131,8 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   const handoffWatcher = new HandoffWatcher(db, tenantDb, conversations, logger, () => automation.kick(), clock);
   const unansweredSweeper = new UnansweredSweeper(db, conversations, logger, clock);
   const analytics = new AnalyticsService(tenantDb, clock);
-  const toolExecutor = new ToolExecutor(createTools({ contacts, qualification, knowledge, scheduling, automation, deals }), tenantDb, logger);
+  const customApis = new CustomApiService(bots, { allowPrivateUrls });
+  const toolExecutor = new ToolExecutor(createTools({ contacts, qualification, knowledge, scheduling, automation, deals, customApis }), tenantDb, logger, () => automation.kick());
   const orchestrator = new AiOrchestrator({
     env,
     tenantDb,
@@ -151,7 +153,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
     logger,
     clock,
   });
-  const approvals = new ApprovalsService({ tenantDb, tools: toolExecutor, bots, conversations, kick: () => automation.kick(), clock });
+  const approvals = new ApprovalsService({ tenantDb, tools: toolExecutor, bots, conversations, kick: () => automation.kick(), queue, clock });
   const summarizer = new ConversationSummarizer(tenantDb, llm, prices, env, logger, async (orgId, conversationId, recap) => {
     await conversations.publish(orgId, { type: 'conversation.summary', conversationId });
     // A recap records `conversation.summarized`: send it on without waiting for the timer.
@@ -163,6 +165,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   /** Wires queue consumers. Runs in the worker process (or in the API process when there is no Redis). */
   function startWorkers() {
     queue.process<ReplyJob>('ai-reply', (job, meta) => orchestrator.handle(job, meta), { concurrency: 10 });
+    queue.process<ApprovalFollowUpJob>('approval-followup', (job) => orchestrator.followUp(job), { concurrency: 5 });
     queue.process<{ orgId: string; documentId: string }>('ingest', (job, meta) => knowledge.ingest(job.orgId, job.documentId, meta), { concurrency: 2 });
     queue.process<SummaryJob>('summary', (job) => summarizer.run(job), { concurrency: 2 });
     queue.process('events', async () => {
@@ -238,6 +241,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
     deals,
     approvals,
     toolExecutor,
+    customApis,
     orchestrator,
     summarizer,
     startWorkers,

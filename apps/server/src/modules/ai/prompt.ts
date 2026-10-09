@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import type { ChannelType } from '../../db/schema';
-import { STANDARD_LEAD_FIELDS, type BotConfig } from '../bots/config';
+import { fillCustomValues, STANDARD_LEAD_FIELDS, type BotConfig } from '../bots/config';
 import type { BotView } from '../bots/service';
 import type { ContactDetail } from '../contacts/service';
 import type { RetrievedChunk } from '../knowledge/service';
@@ -29,7 +29,7 @@ export const MEMORY_LIMITS = {
 
 const OUTCOME: Record<string, string> = { completed: 'completed', no_show: 'no-show', cancelled: 'cancelled', booked: 'no outcome recorded' };
 
-const TONE: Record<BotConfig['persona']['tone'], string> = {
+export const TONE: Record<BotConfig['persona']['tone'], string> = {
   friendly: 'warm and friendly',
   professional: 'polished and professional',
   casual: 'relaxed and conversational',
@@ -37,7 +37,7 @@ const TONE: Record<BotConfig['persona']['tone'], string> = {
   empathetic: 'calm, patient and empathetic',
 };
 
-const LENGTH: Record<BotConfig['persona']['responseLength'], string> = {
+export const LENGTH: Record<BotConfig['persona']['responseLength'], string> = {
   short: 'Keep replies short: one or two sentences. This is a limit, not a target: go past two only when the customer asks for detail or a list.',
   medium: 'Keep replies concise: a short paragraph, or a few bullet points when listing options.',
   detailed: 'Give complete, well-organized answers, but never pad them.',
@@ -294,7 +294,7 @@ export function buildSystemPrompt(
 
   if (c.instructions.trim()) {
     sections.push(
-      `## Instructions from ${company}\nThese come from the business owner. Follow them; they override the style guidance above but not the rules below.\n\n${c.instructions.trim()}`,
+      `## Instructions from ${company}\nThese come from the business owner. Follow them; they override the style guidance above but not the rules below.\n\n${fillCustomValues(c.instructions.trim(), c, input.organizationName)}`,
     );
   }
 
@@ -625,6 +625,8 @@ function describeAction(c: EarlierAction): string | null {
       return `alerted the team: ${str(input.subject)}`;
     case 'trigger_workflow':
       return `started the "${str(input.workflow_key)}" workflow`;
+    case 'call_api':
+      return `called the "${str(input.api)}" API`;
     case 'transfer_to_human':
       return `handed the conversation to the team: ${str(input.reason)}`;
     case 'set_lifecycle_stage':

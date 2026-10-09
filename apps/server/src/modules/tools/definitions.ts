@@ -8,10 +8,11 @@ import type { DealsService, DealView } from '../deals/service';
 import type { KnowledgeService } from '../knowledge/service';
 import { consentVersion, isPlainNo } from '../leads/attribution';
 import type { QualificationService } from '../leads/qualification';
-import { parseLocalStart, weeklyHoursLabel } from '../scheduling/availability';
+import { DAY_PARTS, parseLocalStart, weeklyHoursLabel } from '../scheduling/availability';
 import { changePolicy, customerTime, type CustomerEmailOutcome } from '../scheduling/notifications';
 import type { SchedulingService } from '../scheduling/service';
-import { defineTool, type ToolContext, type ToolDefinition, type ToolOutcome, type ToolSchemaContext } from './types';
+import { checkInputs, type CustomApiService } from './custom-api';
+import { defineTool, enabledApis, type ToolContext, type ToolDefinition, type ToolOutcome, type ToolSchemaContext } from './types';
 
 export interface ToolDeps {
   contacts: ContactsService;
@@ -20,10 +21,14 @@ export interface ToolDeps {
   scheduling: SchedulingService;
   automation: AutomationService;
   deals: DealsService;
+  customApis: CustomApiService;
 }
 
 const LOCAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** The most times one check_availability answer lists; a longer list is cut and says so. */
+const MAX_SLOTS = 300;
 /** A real calendar day (YYYY-MM-DD). */
 const Day = z
   .string()
@@ -82,7 +87,7 @@ function contactSummary(c: Awaited<ReturnType<ContactsService['get']>>) {
 }
 
 export function createTools(deps: ToolDeps): ToolDefinition[] {
-  const { contacts, qualification, knowledge, scheduling, automation, deals } = deps;
+  const { contacts, qualification, knowledge, scheduling, automation, deals, customApis } = deps;
 
   const saveContactDetails = defineTool({
     key: 'save_contact_details',
@@ -251,13 +256,16 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
     key: 'check_availability',
     activity: 'Checking availability…',
     description: () =>
-      'Look up open appointment slots. Call this before proposing any times, and again whenever the customer asks about a different day. Only offer times this returns — never invent availability.',
+      'Look up open appointment slots. Call this before proposing any times, and again whenever the customer asks about a different day or time. Only offer times this returns — never invent availability. To find out whether ONE specific time is free ("is 6 PM available?"), pass it as `time`. To list a part of the day, use time_of_day or from_time/to_time. The list it returns is complete for what was asked: a time that is not in it is not available.',
     enabled: bookingEnabled,
     schema: () =>
       z.object({
         date_from: z.string().regex(DATE).optional().describe('First day to search, YYYY-MM-DD (calendar timezone). Defaults to today.'),
-        date_to: z.string().regex(DATE).optional().describe('Last day to search, YYYY-MM-DD. Defaults to 6 days after date_from.'),
-        time_of_day: z.enum(['morning', 'afternoon', 'evening', 'any']).optional(),
+        date_to: z.string().regex(DATE).optional().describe('Last day to search, YYYY-MM-DD. Defaults to 6 days after date_from (the same day as date_from when `time` is given).'),
+        time_of_day: z.enum(['morning', 'afternoon', 'evening', 'any']).optional().describe('morning = before 12:00, afternoon = 12:00–16:59, evening = 17:00 and later'),
+        from_time: z.string().regex(CLOCK).optional().describe('Only times starting at or after this, HH:mm 24-hour, e.g. "16:00". Use for a range like "between 4 and 7 PM".'),
+        to_time: z.string().regex(CLOCK).optional().describe('Only times starting before this, HH:mm 24-hour, e.g. "19:00".'),
+        time: z.string().regex(CLOCK).optional().describe('ONE exact start time to check, HH:mm 24-hour, e.g. "18:00" for 6:00 PM. Returns whether that exact slot can be booked, and the nearest open times if not.'),
       }),
     async run(input, ctx) {
       const calendarId = ctx.bot.config.booking.calendarId!;
@@ -270,53 +278,109 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
         };
         const today = DateTime.fromJSDate(ctx.now, { zone: calendar.timezone }).toISODate()!;
         const from = input.date_from && input.date_from > today ? input.date_from : today;
-        const to = input.date_to && input.date_to >= from ? input.date_to : DateTime.fromISO(from).plus({ days: 6 }).toISODate()!;
-        const inWindow = (local: string) => {
-          const hour = Number(local.slice(11, 13));
-          if (!input.time_of_day || input.time_of_day === 'any') return true;
-          if (input.time_of_day === 'morning') return hour < 12;
-          if (input.time_of_day === 'afternoon') return hour >= 12 && hour < 17;
-          return hour >= 17;
+        const common = {
+          timezone: calendar.timezone,
+          ...(theirs && theirs !== calendar.timezone ? { customer_timezone: theirs } : {}),
+          weekly_hours: weeklyHoursLabel(calendar.weeklyHours),
         };
-        const { slots } = await scheduling.availability(scope(ctx), calendarId, { from, to, limit: 300 });
-        const filtered = slots.filter((s) => inWindow(s.local));
-        if (!filtered.length) {
-          const later = await scheduling.availability(scope(ctx), calendarId, {
-            from: DateTime.fromISO(to).plus({ days: 1 }).toISODate()!,
-            to: DateTime.fromISO(to).plus({ days: 30 }).toISODate()!,
-            limit: 300,
-          });
-          const next = later.slots.filter((s) => inWindow(s.local)).slice(0, 3);
+        const closedNote = "Opening hours in the business facts or documents don't make a day bookable: offer only what is listed here.";
+
+        // One exact time: checked with the rules booking itself applies, never guessed from a list.
+        if (input.time) {
+          const last = input.date_to && input.date_to >= from ? input.date_to : from;
+          const checked: Array<{ day: string; result: Awaited<ReturnType<typeof scheduling.checkTime>> }> = [];
+          for (let d = DateTime.fromISO(from); d.toISODate()! <= last && checked.length < 7; d = d.plus({ days: 1 })) {
+            const day = d.toISODate()!;
+            checked.push({ day, result: await scheduling.checkTime(scope(ctx), calendarId, `${day}T${input.time}`) });
+          }
+          const open = checked.filter((c) => c.result.available);
+          if (open.length) {
+            return {
+              ok: true,
+              data: {
+                ...common,
+                duration_minutes: calendar.slotMinutes,
+                available: true,
+                time_checked: input.time,
+                days: open.map((c) => ({ date: c.day, times: [slot(c.result.slot!)] })),
+                ...(checked.length > open.length ? { not_available_on: checked.filter((c) => !c.result.available).map((c) => ({ date: c.day, reason: c.result.reason })) } : {}),
+                note: 'That exact time is open. Pass its "start" value to book_appointment once the customer confirms.',
+              },
+            };
+          }
+          const first = checked[0]!;
+          const nearby = checked.flatMap((c) => c.result.nearby).slice(0, 3);
+          const later = nearby.length
+            ? null
+            : await scheduling.availability(scope(ctx), calendarId, {
+                from: DateTime.fromISO(last).plus({ days: 1 }).toISODate()!,
+                to: DateTime.fromISO(last).plus({ days: 30 }).toISODate()!,
+                limit: 3,
+              });
           return {
             ok: true,
             data: {
-              timezone: calendar.timezone,
+              ...common,
               available: false,
-              searched: { from, to },
-              next_available: next.map(slot),
-              weekly_hours: weeklyHoursLabel(calendar.weeklyHours),
-              note: "No bookable times in this range. Opening hours in the business facts or documents don't make a day bookable: offer only next_available.",
+              time_checked: input.time,
+              searched: { from, to: checked.at(-1)!.day },
+              reason: first.result.reason ?? 'That time is not an open slot.',
+              next_available: (nearby.length ? nearby : (later?.slots ?? [])).map(slot),
+              note: `${input.time} is not available: say so, and offer only next_available. ${closedNote}`,
             },
           };
         }
+
+        const to = input.date_to && input.date_to >= from ? input.date_to : DateTime.fromISO(from).plus({ days: 6 }).toISODate()!;
+        // The part of the day is chosen inside the search, before any limit counts, so a long morning can't use the
+        // limit up and hide the evening.
+        const window = {
+          ...(input.time_of_day && input.time_of_day !== 'any' ? DAY_PARTS[input.time_of_day] : {}),
+          ...(input.from_time ? { from: input.from_time } : {}),
+          ...(input.to_time ? { to: input.to_time } : {}),
+        };
+        const { slots } = await scheduling.availability(scope(ctx), calendarId, { from, to, limit: MAX_SLOTS + 1, window });
+        if (!slots.length) {
+          const later = await scheduling.availability(scope(ctx), calendarId, {
+            from: DateTime.fromISO(to).plus({ days: 1 }).toISODate()!,
+            to: DateTime.fromISO(to).plus({ days: 30 }).toISODate()!,
+            limit: 3,
+            window,
+          });
+          return {
+            ok: true,
+            data: {
+              ...common,
+              available: false,
+              searched: { from, to },
+              next_available: later.slots.map(slot),
+              note: `No bookable times in this range. ${closedNote}`,
+            },
+          };
+        }
+        // Everything that matches, grouped by day and without repeats; only a very long list is cut, and says so.
+        const truncated = slots.length > MAX_SLOTS;
+        const shown = truncated ? slots.slice(0, MAX_SLOTS) : slots;
         const byDay = new Map<string, Array<ReturnType<typeof slot>>>();
-        for (const s of filtered) {
+        for (const s of shown) {
           const day = s.local.slice(0, 10);
           const list = byDay.get(day) ?? [];
-          if (list.length < 6) list.push(slot(s));
+          list.push(slot(s));
           byDay.set(day, list);
         }
         return {
           ok: true,
           data: {
-            timezone: calendar.timezone,
-            ...(theirs && theirs !== calendar.timezone ? { customer_timezone: theirs } : {}),
+            ...common,
             duration_minutes: calendar.slotMinutes,
             available: true,
-            // The calendar's usual bookable hours: the only weekdays that can be booked.
-            weekly_hours: weeklyHoursLabel(calendar.weeklyHours),
-            days: [...byDay.entries()].slice(0, 5).map(([date, times]) => ({ date, times })),
-            note: 'Offer two or three of these options rather than reading out the whole list. Pass the chosen "start" value to book_appointment.',
+            searched: { from, to },
+            total_times: shown.length,
+            days: [...byDay.entries()].map(([date, times]) => ({ date, times })),
+            ...(truncated ? { truncated: true, listed_through: shown.at(-1)!.local } : {}),
+            note: truncated
+              ? `This is only the first part of a long list (through ${shown.at(-1)!.local}). Search again from a later date_from, or narrow the range, before saying anything about later times.`
+              : 'This list is complete for the range searched. If the customer asked for all the times, list every one of them, grouped by day; otherwise offer two or three. A time not listed is not available. Pass the chosen "start" value to book_appointment.',
           },
         };
       } catch (err) {
@@ -636,6 +700,57 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
     },
   });
 
+  const callApi = defineTool({
+    key: 'call_api',
+    activity: 'Working on it…',
+    description: (ctx) =>
+      [
+        "Call one of the business's own APIs. Available APIs:",
+        ...enabledApis(ctx).map((a) => {
+          const inputs = a.params.map((p) => `${p.name}${p.required ? '' : ' (optional)'}${p.type === 'string' ? '' : ` (${p.type})`}${p.description ? `: ${p.description}` : ''}`);
+          return `- ${a.key}: ${a.name} — ${a.description}${inputs.length ? ` Inputs: ${inputs.join('; ')}.` : ''}`;
+        }),
+        "The customer's details on record and this conversation are added automatically: don't pass them.",
+      ].join('\n'),
+    enabled: (ctx) => enabledApis(ctx).length > 0,
+    schema: (ctx) =>
+      z.object({
+        api: z.enum(enabledApis(ctx).map((a) => a.key) as [string, ...string[]]),
+        inputs: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Inputs the API needs'),
+      }),
+    // Each API is its own action: a retried turn replays calls to the same API only.
+    repeatKey: (input) => input.api,
+    async run(input, ctx) {
+      const api = enabledApis(ctx.schema).find((a) => a.key === input.api);
+      if (!api) return fail(`"${input.api}" isn't an API you may call.`);
+      const checked = checkInputs(api, input.inputs ?? {});
+      if (!checked.ok) return fail(`Cannot call ${api.name}: ${checked.problems.join('; ')}. Ask the customer for what's missing.`);
+      const contact = await contacts.get(scope(ctx), ctx.contactId).catch(() => null);
+      try {
+        const result = await customApis.call(scope(ctx), ctx.bot.id, api.id!, {
+          inputs: checked.inputs,
+          builtins: {
+            'contact.id': ctx.contactId,
+            'contact.name': contact?.name,
+            'contact.email': contact?.email,
+            'contact.phone': contact?.phone,
+            'conversation.id': ctx.conversationId,
+          },
+        });
+        if (!api.waitForResponse) {
+          return result.ok
+            ? { ok: true, data: { sent: true, status: result.status } }
+            : fail(`${api.name} answered HTTP ${result.status}. Don't say it worked; offer to have the team follow up.`, { status: result.status });
+        }
+        return result.ok
+          ? { ok: true, data: { status: result.status, response: result.response, ...(result.truncated ? { note: 'The response was cut short.' } : {}) } }
+          : fail(`${api.name} answered HTTP ${result.status}. Don't say it worked; offer to have the team follow up.`, { status: result.status, response: result.response });
+      } catch (err) {
+        return toOutcome(err);
+      }
+    },
+  });
+
   const transferToHuman = defineTool({
     key: 'transfer_to_human',
     description: () =>
@@ -882,6 +997,7 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
     createTask,
     notifyTeam,
     triggerWorkflow,
+    callApi,
     transferToHuman,
     askMarketingConsent,
     recordMarketingConsent,

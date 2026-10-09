@@ -7,7 +7,7 @@ import type { LockService } from '../../infra/lock';
 import type { QueueDriver } from '../../infra/queue';
 import type { Logger } from '../../lib/logger';
 import { isTransientError } from '../../lib/transient';
-import { approvalState } from '../approvals/service';
+import { actionSummary, approvalState } from '../approvals/service';
 import type { AutomationService } from '../automation/service';
 import type { OrgSettings } from '../../db/schema';
 import { isTeamOpen } from '../handoff/hours';
@@ -17,13 +17,14 @@ import type { ChannelRegistry } from '../channels/adapter';
 import { openingGreeting } from '../channels/service';
 import type { ContactsService } from '../contacts/service';
 import { toMessageView, type ConversationRow, type ConversationsService, type MessageView } from '../conversations/service';
-import { answers, pendingInbound } from '../conversations/pending';
+import { answers, notice, pendingInbound } from '../conversations/pending';
 import type { DealsService } from '../deals/service';
 import type { KnowledgeService, RetrievedChunk } from '../knowledge/service';
 import type { QualificationService } from '../leads/qualification';
 import type { SchedulingService } from '../scheduling/service';
 import type { ToolExecutor } from '../tools/executor';
 import { hasAskFirst, type ToolContext } from '../tools/types';
+import { buildFollowUpPrompt, CUSTOMER_FACING_TOOLS, fallbackMessage, type DecidedRequest } from './approval-followup';
 import { monthSpendUsd } from './budget';
 import { LlmError, textOf, type LlmMessage, type LlmProvider, type LlmUsage } from './llm/types';
 import { addUsage, type PriceBook } from './pricing';
@@ -42,6 +43,12 @@ type Outcome = 'completed' | 'failed' | 'skipped' | 'handoff';
 const EMPTY_USAGE: LlmUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 /** Fold older messages into the summary once this many more than the history size are unsummarized. */
 const FOLD_AFTER = 10;
+
+/** The team answered a request the assistant made: tell the customer what happened. */
+export interface ApprovalFollowUpJob {
+  orgId: string;
+  approvalId: string;
+}
 
 export class AiOrchestrator {
   constructor(
@@ -90,6 +97,119 @@ export class AiOrchestrator {
       this.deps.logger.error({ err, orgId: job.orgId, conversationId: job.conversationId }, 'AI reply failed outside the model call');
       await this.giveUp(job);
     }
+  }
+
+  /**
+   * The team answered a request the assistant made for the customer (a booking, a move, a cancellation) and wrote
+   * nothing to them: the assistant tells the customer what happened. Skipped when a person has the chat, or already
+   * told them. If the model can't be asked, a plain message with the same facts goes instead: never silence.
+   */
+  async followUp(job: ApprovalFollowUpJob): Promise<void> {
+    const { tenantDb, logger } = this.deps;
+    const [req] = await tenantDb.run(job.orgId, (tx) =>
+      tx.select().from(schema.actionApprovals).where(and(eq(schema.actionApprovals.id, job.approvalId), eq(schema.actionApprovals.organizationId, job.orgId))),
+    );
+    if (!req || (req.status !== 'approved' && req.status !== 'rejected') || !CUSTOMER_FACING_TOOLS.has(req.toolName)) return;
+    try {
+      await this.deps.locks.withLock(
+        `conv_${req.conversationId}`,
+        { ttlMs: 60_000, waitMs: Math.min(90_000, this.deps.env.AI_TURN_TIMEOUT_MS + 15_000) },
+        (lockLost) => this.writeFollowUp(job.orgId, req, lockLost),
+      );
+    } catch (err) {
+      logger.error({ err, orgId: job.orgId, approvalId: job.approvalId }, 'could not tell the customer what the team decided');
+    }
+  }
+
+  private async writeFollowUp(orgId: string, req: typeof schema.actionApprovals.$inferSelect, lockLost: AbortSignal): Promise<void> {
+    const { tenantDb, conversations, logger } = this.deps;
+    const scope = { orgId };
+    const [conv, [org]] = await Promise.all([
+      tenantDb.run(orgId, (tx) => conversations.row(tx, orgId, req.conversationId)),
+      tenantDb.run(orgId, (tx) => tx.select().from(schema.organizations).where(eq(schema.organizations.id, orgId))),
+    ]);
+    // A person has the chat (they will say it), or nobody is answering for the organization at all.
+    if (conv.status !== 'ai_active' || !org?.aiEnabled || !conv.botId) return;
+    const rows = await conversations.recentRows(scope, conv.id, 14);
+    const said = rows.some((m) => m.direction === 'outbound' && m.senderType === 'human' && req.decidedAt && m.createdAt >= req.decidedAt);
+    const already = rows.some((m) => m.metadata.approvalFollowUp === req.id);
+    if (said || already) return;
+    const bot = await this.deps.bots.get(scope, conv.botId).catch(() => null);
+    if (!bot || !bot.isActive) return;
+
+    const decided: DecidedRequest = {
+      tool: req.toolName,
+      outcome: req.status as 'approved' | 'rejected',
+      summary: actionSummary(req.toolName, req.input as Record<string, unknown>),
+      reason: req.reason,
+      result: req.status === 'approved' ? req.result : null,
+    };
+    const [run] = await tenantDb.run(orgId, (tx) =>
+      tx
+        .insert(schema.aiRuns)
+        .values({
+          organizationId: orgId,
+          conversationId: conv.id,
+          botId: bot.id,
+          botVersion: bot.version,
+          provider: this.deps.llm.info.provider,
+          model: bot.model ?? this.deps.llm.info.model,
+          status: 'failed',
+          grounding: 'n/a',
+          retrievedChunkIds: [],
+        })
+        .returning({ id: schema.aiRuns.id }),
+    );
+    const runId = run!.id;
+    const started = Date.now();
+    let usage = EMPTY_USAGE;
+    let model = bot.model ?? this.deps.llm.info.model;
+    let stopReason: string | null = null;
+    let error: string | null = null;
+    let content = '';
+    await conversations.publish(orgId, { type: 'ai.typing', conversationId: conv.id, runId });
+    const overBudget = org.monthlyAiBudgetUsd !== null && (await monthSpendUsd(tenantDb, orgId, org.timezone, this.now())) >= Number(org.monthlyAiBudgetUsd);
+    if (!overBudget) {
+      try {
+        const transcript = rows
+          .filter((m) => m.content.trim())
+          .map((m) => ({ who: m.direction === 'inbound' ? ('Customer' as const) : m.senderType === 'human' ? ('Team' as const) : ('Assistant' as const), text: m.content }));
+        const prompt = buildFollowUpPrompt(bot, bot.config.persona.companyName || org.name, decided, transcript);
+        const response = await this.deps.llm.generate(
+          {
+            tier: 'reply',
+            model: bot.model ?? undefined,
+            reasoningEffort: bot.effort ?? undefined,
+            system: prompt.system,
+            tools: [],
+            messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
+            maxTokens: Math.min(bot.maxOutputTokens, 400),
+          },
+          { signal: AbortSignal.any([AbortSignal.timeout(this.deps.env.AI_TURN_TIMEOUT_MS), lockLost]) },
+        );
+        usage = response.usage;
+        model = response.model;
+        stopReason = response.stopReason;
+        content = response.stopReason === 'refusal' ? '' : textOf(response.content).trim();
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+        logger.warn({ err, orgId, approvalId: req.id }, 'follow-up after an approval: the model failed, sending the plain message');
+      }
+    }
+    const message = await conversations.addOutboundIf(
+      scope,
+      {
+        conversationId: conv.id,
+        senderType: 'ai',
+        content: content || fallbackMessage(decided),
+        aiRunId: runId,
+        // Not an answer to a customer message: whatever they wrote since still waits for its own reply.
+        metadata: notice({ approvalFollowUp: req.id }),
+      },
+      (c) => c.status === 'ai_active',
+    );
+    await this.finishRun(orgId, runId, { status: message ? 'completed' : 'skipped', usage, iterations: 1, stopReason, model, started, error });
+    await conversations.publish(orgId, { type: 'ai.done', conversationId: conv.id, runId, messageId: message?.id ?? null });
   }
 
   /** Whether this job's message is no longer the latest one waiting for an answer (answered, or a newer one came). */

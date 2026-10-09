@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { schema, type Db } from '../../db/client';
 import type { ApprovalStatus } from '../../db/schema';
 import { inScope, type Scope, type TenantDb } from '../../db/tenant';
+import type { QueueDriver } from '../../infra/queue';
 import { AppError, conflict, notFound } from '../../lib/errors';
 import { recordEvent } from '../automation/events';
 import type { BotsService } from '../bots/service';
@@ -90,6 +91,10 @@ export function actionSummary(tool: string, input: Record<string, unknown>): str
       const inputs = Object.entries((input.inputs ?? {}) as Record<string, unknown>).map(([k, v]) => `${k}: ${s(v)}`);
       return `Run the “${s(input.workflow_key)}” workflow${inputs.length ? ` (${inputs.join(', ')})` : ''}`;
     }
+    case 'call_api': {
+      const inputs = Object.entries((input.inputs ?? {}) as Record<string, unknown>).map(([k, v]) => `${k}: ${s(v)}`);
+      return `Call the “${s(input.api)}” API${inputs.length ? ` (${inputs.join(', ')})` : ''}`;
+    }
     default:
       return tool;
   }
@@ -158,6 +163,7 @@ export class ApprovalsService {
       conversations: ConversationsService;
       /** Sends recorded events on (webhooks, notifications) without waiting for the timer. */
       kick: () => Promise<void>;
+      queue: QueueDriver;
       clock?: () => Date;
     },
   ) {}
@@ -230,8 +236,14 @@ export class ApprovalsService {
       });
     });
     if (input.message) await this.message(scope, claimed.conversationId, userId, input.message);
+    else await this.tellCustomer(scope.orgId, id);
     await this.deps.kick();
     return this.get(scope, id);
+  }
+
+  /** The teammate wrote nothing to the customer: the assistant tells them what happened. */
+  private async tellCustomer(orgId: string, approvalId: string) {
+    await this.deps.queue.add('approval-followup', { orgId, approvalId }, { jobId: `approval_followup_${approvalId}`, attempts: 1 }).catch(() => {});
   }
 
   async reject(scope: Scope, id: string, userId: string, input: z.infer<typeof RejectSchema>): Promise<ApprovalView> {
@@ -256,6 +268,7 @@ export class ApprovalsService {
       return row;
     });
     if (input.message) await this.message(scope, row.conversationId, userId, input.message);
+    else await this.tellCustomer(scope.orgId, id);
     await this.deps.kick();
     return this.get(scope, id);
   }

@@ -10,6 +10,7 @@ import { formatNumber, TOOL_LABELS } from '../../lib/format';
 import { roleAtLeast, useBots, useCalendars, useChannels, useCustomFields, useKnowledgeBases, useMembers, useOrg, usePipelines, useTags, useWorkflows } from '../../lib/queries';
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
 import type { Bot, BotConfig, BotConfigSection, BotPreview, KbDocument } from '../../lib/types';
+import { buildPatch, same, toDraft } from './draft';
 import { EditorOverview, SaveBar, SaveErrors, SectionHeader, SettingsMenu, SettingsSearch, type SettingsTarget } from './editor';
 import { businessProblems, CONFIG_SECTIONS, essentials, isEditorView, sectionOfError, SECTIONS, type BotDraft, type EditorView, type SectionId } from './editorNav';
 import { Playground } from './Playground';
@@ -31,36 +32,6 @@ import {
   type EditorContext,
   type PersonalityTemplate,
 } from './sections';
-
-function toDraft(bot: Bot): BotDraft {
-  return {
-    name: bot.name,
-    isActive: bot.isActive,
-    model: bot.model ?? '',
-    effort: bot.effort ?? '',
-    maxOutputTokens: bot.maxOutputTokens,
-    knowledgeBaseIds: [...bot.knowledgeBaseIds],
-    // A server from before conversation starters has none to send.
-    config: structuredClone({ ...bot.config, conversationStarters: bot.config.conversationStarters ?? [] }),
-  };
-}
-
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-
-/** Only what changed: top-level fields plus whole config sections (the server replaces a section wholesale). */
-function buildPatch(base: BotDraft, draft: BotDraft): Record<string, unknown> {
-  const body: Record<string, unknown> = {};
-  if (draft.name.trim() !== base.name) body.name = draft.name.trim();
-  if (draft.isActive !== base.isActive) body.isActive = draft.isActive;
-  if (draft.model.trim() !== base.model) body.model = draft.model.trim() || null;
-  if (draft.effort !== base.effort) body.effort = draft.effort || null;
-  if (draft.maxOutputTokens !== base.maxOutputTokens) body.maxOutputTokens = draft.maxOutputTokens;
-  if (!same([...draft.knowledgeBaseIds].sort(), [...base.knowledgeBaseIds].sort())) body.knowledgeBaseIds = draft.knowledgeBaseIds;
-  const config: Partial<Record<BotConfigSection, unknown>> = {};
-  for (const s of CONFIG_SECTIONS) if (!same(draft.config[s], base.config[s])) config[s] = draft.config[s];
-  if (Object.keys(config).length) body.config = config;
-  return body;
-}
 
 export function BotEditorPage({ botId }: { botId: string }) {
   const qc = useQueryClient();
@@ -225,7 +196,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
   if (bot.error || !draft || !base) {
     return (
       <div>
-        <PageHeader title="Bot" actions={<Button onClick={() => navigate('/bots')}>Back to bots</Button>} />
+        <PageHeader title="Bot" actions={<Button onClick={() => navigate('/ai-agents/conversation-ai')}>Back to agents</Button>} />
         <ErrorBanner className="m-8" error={bot.error} onRetry={() => void bot.refetch()} />
       </div>
     );
@@ -278,8 +249,8 @@ export function BotEditorPage({ botId }: { botId: string }) {
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-surface px-4 py-3 sm:px-5">
         <Link
-          to="/bots"
-          aria-label="Back to bots"
+          to={`/bots/${botId}`}
+          aria-label="Back to the agent editor"
           className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg"
         >
           <ArrowLeft className="size-4" aria-hidden />
@@ -476,7 +447,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
   );
 }
 
-function PromptPreviewDrawer({ botId, open, onClose, dirty }: { botId: string; open: boolean; onClose: () => void; dirty: boolean }) {
+export function PromptPreviewDrawer({ botId, open, onClose, dirty }: { botId: string; open: boolean; onClose: () => void; dirty: boolean }) {
   const preview = useQuery({
     queryKey: ['bot-preview', botId],
     queryFn: () => get<BotPreview>(`/v1/bots/${botId}/preview`),

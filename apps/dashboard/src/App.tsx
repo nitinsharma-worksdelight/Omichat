@@ -6,7 +6,7 @@ import { Layout } from './components/Layout';
 import { Button, EmptyState, ErrorBanner, Spinner } from './components/ui';
 import { LiveStreamProvider } from './lib/live';
 import { navigate, useRoute } from './lib/router';
-import { OverviewPage } from './pages/overview/OverviewPage';
+import { isAgentTab } from './pages/agents/shared';
 
 // Pages load on demand so the first paint only needs the shell and the overview.
 const AppointmentsPage = lazy(() => import('./pages/appointments/AppointmentsPage').then((m) => ({ default: m.AppointmentsPage })));
@@ -18,8 +18,9 @@ const ContactDetailPage = lazy(() => import('./pages/contacts/ContactDetailPage'
 const ContactsPage = lazy(() => import('./pages/contacts/ContactsPage').then((m) => ({ default: m.ContactsPage })));
 const ConversationsPage = lazy(() => import('./pages/conversations/ConversationsPage').then((m) => ({ default: m.ConversationsPage })));
 const DealsPage = lazy(() => import('./pages/deals/DealsPage').then((m) => ({ default: m.DealsPage })));
-const ApprovalsPage = lazy(() => import('./pages/approvals/ApprovalsPage').then((m) => ({ default: m.ApprovalsPage })));
-const KnowledgePage = lazy(() => import('./pages/knowledge/KnowledgePage').then((m) => ({ default: m.KnowledgePage })));
+const OverviewPage = lazy(() => import('./pages/overview/OverviewPage').then((m) => ({ default: m.OverviewPage })));
+const AiAgentsPage = lazy(() => import('./pages/agents/AiAgentsPage').then((m) => ({ default: m.AiAgentsPage })));
+const AgentEditorPage = lazy(() => import('./pages/agents/editor/AgentEditorPage').then((m) => ({ default: m.AgentEditorPage })));
 const SettingsPage = lazy(() => import('./pages/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
 export function App() {
@@ -78,13 +79,23 @@ export function App() {
 function Routes() {
   const route = useRoute();
   const [first, second, third] = route.segments;
+  // The old Bots list now lives under AI Agents → Conversation AI.
+  useEffect(() => {
+    if (first === 'bots' && !second) navigate('/ai-agents/conversation-ai', { replace: true });
+  }, [first, second]);
   switch (first) {
     case undefined:
+      return <AiAgentsPage tab="conversation-ai" />;
+    case 'ai-agents':
+      return isAgentTab(second) || second === undefined ? <AiAgentsPage tab={second ?? 'conversation-ai'} /> : <NotFound />;
+    case 'overview':
       return <OverviewPage />;
     case 'analytics':
       return <AnalyticsPage />;
     case 'bots':
-      return second ? <BotEditorPage key={second} botId={second} /> : <BotsPage />;
+      if (!second) return null;
+      // The full settings editor, kept for every setting the GHL-style editor groups away.
+      return third === 'advanced' ? <BotEditorPage key={second} botId={second} /> : <AgentEditorPage key={second} botId={second} />;
     case 'conversations':
       return <ConversationsPage conversationId={second ?? null} />;
     case 'contacts':
@@ -92,9 +103,9 @@ function Routes() {
     case 'deals':
       return <DealsPage />;
     case 'approvals':
-      return <ApprovalsPage />;
+      return <AiAgentsPage tab="logs" />;
     case 'knowledge':
-      return <KnowledgePage kbId={second ?? null} />;
+      return <AiAgentsPage tab="knowledge-base" kbId={second ?? null} />;
     case 'appointments':
       return <AppointmentsPage view={second === 'calendars' ? 'calendars' : 'agenda'} calendarId={second === 'calendars' ? (third ?? null) : null} />;
     case 'automations':
@@ -105,13 +116,17 @@ function Routes() {
     case 'signup':
       return null;
     default:
-      return (
-        <EmptyState
-          className="mt-24"
-          title="Page not found"
-          description="The link may be out of date."
-          action={<Button onClick={() => navigate('/')}>Go to overview</Button>}
-        />
-      );
+      return <NotFound />;
   }
+}
+
+function NotFound() {
+  return (
+    <EmptyState
+      className="mt-24"
+      title="Page not found"
+      description="The link may be out of date."
+      action={<Button onClick={() => navigate('/ai-agents')}>Go to AI Agents</Button>}
+    />
+  );
 }

@@ -4,6 +4,7 @@ import type { Logger } from '../lib/logger';
 
 export type QueueName =
   | 'ai-reply'
+  | 'approval-followup'
   | 'ingest'
   | 'summary'
   | 'events'

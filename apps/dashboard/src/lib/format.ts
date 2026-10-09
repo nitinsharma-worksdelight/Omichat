@@ -308,4 +308,5 @@ export const TOOL_LABELS: Record<string, { label: string; description: string }>
   remove_tags: { label: 'Remove tags', description: 'Remove allowed tags, or the assistant’s own when there is no list.' },
   create_deal: { label: 'Create deal', description: 'Open a deal for the contact (one open deal each).' },
   update_deal: { label: 'Update deal', description: 'Move the contact’s deal, change its value or close date, or (if allowed) mark it won or lost.' },
+  call_api: { label: 'Call API', description: 'Call one of the APIs set up under Actions → API Call.' },
 };

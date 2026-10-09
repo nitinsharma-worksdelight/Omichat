@@ -21,6 +21,9 @@ export const AnalyticsQuerySchema = z.object({
 });
 export type AnalyticsQuery = z.infer<typeof AnalyticsQuerySchema>;
 
+/** The team's time one AI reply stands in for, for the AI Agents dashboard's "Time saved" estimate. */
+export const MINUTES_PER_AI_REPLY = 2;
+
 /** The longest range a report covers. */
 const MAX_DAYS = 366;
 /** Ranges longer than this are bucketed by week (weeks start on Monday). */
@@ -167,6 +170,55 @@ export class AnalyticsService {
                 perConversationUsd: totals.conversations ? cost / totals.conversations : null,
                 perLeadUsd: totals.leads ? cost / totals.leads : null,
               },
+      };
+    });
+  }
+
+  /**
+   * The AI Agents dashboard: contacts the AI replied to (each counted once), actions it took, appointments it booked
+   * and the time that saved the team (an estimate: MINUTES_PER_AI_REPLY per reply), with contacts per day or week.
+   */
+  async agents(orgId: string, timezone: string, q: AnalyticsQuery) {
+    const today = DateTime.fromJSDate(this.clock(), { zone: timezone }).toISODate()!;
+    const to = q.to ?? today;
+    const from = q.from ?? DateTime.fromISO(to).minus({ days: 29 }).toISODate()!;
+    const range = localRange(timezone, from, to);
+    const days = Math.round((range.end.getTime() - range.start.getTime()) / 86_400_000);
+    const interval: 'day' | 'week' = days > DAILY_UP_TO_DAYS ? 'week' : 'day';
+    const f: Filters = { botId: q.botId, channel: q.channel };
+    const replies = sql`from ai_runs r join conversations c on c.id = r.conversation_id join contacts ct on ct.id = c.contact_id
+      where r.organization_id = ${orgId} and c.is_test = false and ct.is_test = false and r.status in ('completed', 'handoff')
+        and r.stop_reason is distinct from 'summary' and ${within(sql`r.created_at`, range)} ${conversationFilter(f)}`;
+    const contact = sql`coalesce(ct.merged_into_id, ct.id)`;
+    return this.tenantDb.run(orgId, async (tx) => {
+      const [counts] = rowsOf<{ contacts: number; replies: number }>(
+        await tx.execute(sql`select count(distinct ${contact})::int as contacts, count(*)::int as replies ${replies}`),
+      );
+      const [acts] = rowsOf<{ n: number }>(
+        await tx.execute(sql`
+          select count(*)::int as n from tool_invocations t join conversations c on c.id = t.conversation_id
+          where t.organization_id = ${orgId} and c.is_test = false and t.status = 'success' and ${within(sql`t.created_at`, range)} ${conversationFilter(f)}`),
+      );
+      const [booked] = rowsOf<{ n: number }>(await tx.execute(sql`select count(*)::int as n ${source('bookings', orgId, range, f)}`));
+      const bucket = sql`to_char(date_trunc(${interval}, r.created_at at time zone ${timezone}), 'YYYY-MM-DD')`;
+      const perBucket = rowsOf<{ bucket: string; n: number }>(
+        await tx.execute(sql`select ${bucket} as bucket, count(distinct ${contact})::int as n ${replies} group by 1`),
+      );
+      const found = Object.fromEntries(perBucket.map((r) => [r.bucket, { conversations: Number(r.n) }]));
+      const aiReplies = Number(counts?.replies ?? 0);
+      return {
+        from,
+        to,
+        timezone,
+        interval,
+        filters: f,
+        uniqueContacts: Number(counts?.contacts ?? 0),
+        actionsTriggered: Number(acts?.n ?? 0),
+        appointmentsBooked: Number(booked?.n ?? 0),
+        aiReplies,
+        timeSavedMinutes: aiReplies * MINUTES_PER_AI_REPLY,
+        minutesPerReply: MINUTES_PER_AI_REPLY,
+        series: fillBuckets(found, timezone, range, interval).map((b) => ({ date: b.date, contacts: b.conversations })),
       };
     });
   }

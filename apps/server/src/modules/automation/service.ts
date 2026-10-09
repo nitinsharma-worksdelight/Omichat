@@ -67,6 +67,10 @@ interface StaffNotification {
   link: string | null;
   /** Only this member sees it (and it's emailed to them, not to the notification list). */
   userId?: string;
+  /** In the dashboard only: not worth an email (what the team decided on an approval, for the others to see). */
+  inAppOnly?: boolean;
+  /** The member whose own action this reports: it is already read for them, and they get no pop-up for it. */
+  byUserId?: string;
 }
 
 interface Brief {
@@ -91,6 +95,13 @@ function unansweredBody(reason: string): string {
   if (reason === 'bot_inactive') return 'The assistant for this chat is paused, so nobody is answering.';
   return 'This chat has no assistant, so nobody is answering.';
 }
+
+/** The approval events that change what the team's approvals list shows. */
+const APPROVAL_EVENT_STATUS: Partial<Record<string, 'pending' | 'approved' | 'rejected'>> = {
+  'action.approval_requested': 'pending',
+  'action.approved': 'approved',
+  'action.rejected': 'rejected',
+};
 
 /** Which events become staff notifications (in-app + email), and how they read. */
 function notificationFor(event: EventRow, contactName: string | null): StaffNotification | null {
@@ -143,6 +154,17 @@ function notificationFor(event: EventRow, contactName: string | null): StaffNoti
       return { title: `${p.urgency === 'high' ? '🔴 ' : ''}${String(p.subject)}`, body: `${who}: ${String(p.message)}`, link: convLink };
     case 'action.approval_requested':
       return { title: `Approval needed: ${who}`, body: `The assistant asks to: ${String(p.summary)}`, link: convLink };
+    // What a teammate decided, so the others know it is dealt with.
+    case 'action.approved':
+      return { title: `Approved: ${who}`, body: `The team approved: ${String(p.summary)}`, link: convLink, inAppOnly: true, byUserId: event.actorUserId ?? undefined };
+    case 'action.rejected':
+      return {
+        title: `Declined: ${who}`,
+        body: `The team declined: ${String(p.summary)}${p.reason ? ` (${String(p.reason)})` : ''}`,
+        link: convLink,
+        inAppOnly: true,
+        byUserId: event.actorUserId ?? undefined,
+      };
     default:
       return null;
   }
@@ -404,12 +426,19 @@ export class AutomationService {
       const contactsById = new Map(contactRows.map((c) => [c.id, c]));
       const deliveryJobs: string[] = [];
       const created: Array<{ id: string; orgId: string; userId: string | null }> = [];
+      // Requests and the team's answers, for open dashboards to refresh their approvals (including test chats').
+      const approvalChanges: Array<{ orgId: string; approvalId: string; conversationId: string | null; status: 'pending' | 'approved' | 'rejected' }> = [];
       const emails: Array<{ to: string[]; subject: string; text: string }> = [];
 
       for (const event of rows) {
         // Runs across organizations: only the event's own organization's contact may name it.
         const found = event.contactId ? contactsById.get(event.contactId) : undefined;
         const contact = found?.organizationId === event.organizationId ? found : undefined;
+        const approvalStatus = APPROVAL_EVENT_STATUS[event.type];
+        const approvalId = (event.payload as { approvalId?: unknown } | null)?.approvalId;
+        if (approvalStatus && typeof approvalId === 'string') {
+          approvalChanges.push({ orgId: event.organizationId, approvalId, conversationId: event.conversationId, status: approvalStatus });
+        }
         // Playground/test traffic never reaches external systems or staff inboxes.
         if (contact?.isTest) continue;
         for (const ep of endpoints) {
@@ -431,11 +460,18 @@ export class AutomationService {
             title: truncate(note.title, 200),
             body: truncate(note.body, 1000),
             link: note.link,
-            data: { eventId: event.id },
+            data: { eventId: event.id, ...(note.byUserId ? { byUserId: note.byUserId } : {}) },
           }).returning({ id: schema.notifications.id });
+          // Their own action is already read for them.
+          if (note.byUserId) {
+            await tx
+              .insert(schema.notificationReads)
+              .values({ notificationId: inserted!.id, userId: note.byUserId, organizationId: event.organizationId })
+              .onConflictDoNothing();
+          }
           created.push({ id: inserted!.id, orgId: event.organizationId, userId: note.userId ?? null });
           const org = orgs.find((o) => o.id === event.organizationId);
-          const recipients = note.userId ? await this.emailOf(tx, note.userId) : (org?.settings.notificationEmails ?? []);
+          const recipients = note.inAppOnly ? [] : note.userId ? await this.emailOf(tx, note.userId) : (org?.settings.notificationEmails ?? []);
           if (recipients.length) {
             emails.push({
               to: recipients,
@@ -446,7 +482,7 @@ export class AutomationService {
         }
       }
       await tx.update(schema.events).set({ dispatchedAt: new Date() }).where(inArray(schema.events.id, events));
-      return { count: rows.length, deliveryJobs, emails, created };
+      return { count: rows.length, deliveryJobs, emails, created, approvalChanges };
     });
     if (typeof result === 'number') return result;
     // Queued only after the commit, so a worker never looks for a delivery row that isn't visible yet.
@@ -457,6 +493,11 @@ export class AutomationService {
     for (const e of result.emails) await this.queue.add('notification', e, { attempts: 3 });
     // Open dashboards learn about new notifications at once (only the ID: they fetch it with their own access).
     // Published after the commit, so the fetch always finds the row. The bell's poll covers anything missed.
+    for (const a of result.approvalChanges) {
+      await this.opts.pubsub
+        ?.publish(orgChannel(a.orgId), { type: 'approval.changed', approvalId: a.approvalId, conversationId: a.conversationId, status: a.status })
+        .catch((err) => this.logger.warn({ err }, 'approval change publish failed'));
+    }
     for (const n of result.created) {
       const message = { type: 'notification', id: n.id };
       await this.opts.pubsub

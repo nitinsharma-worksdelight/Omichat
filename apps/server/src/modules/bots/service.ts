@@ -2,10 +2,11 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '../../db/client';
 import { inScope, type Scope, type TenantDb } from '../../db/tenant';
+import type { SecretBox } from '../../lib/crypto';
 import { badRequest, notFound } from '../../lib/errors';
 import { friendlyError } from '../../lib/validation';
 import { DEFAULT_LIFECYCLE_STAGES } from '../tenancy/bootstrap';
-import { BotConfigSchema, businessContactProblems, EffortSchema, STANDARD_LEAD_FIELDS, validateBotConfig, type BotConfig, type Effort } from './config';
+import { BotConfigSchema, businessContactProblems, EffortSchema, STANDARD_LEAD_FIELDS, validateBotConfig, type BotConfig, type CustomApi, type Effort } from './config';
 
 /**
  * A model id for the configured provider. Deliberately not tied to any vendor's naming: the provider
@@ -47,8 +48,14 @@ export interface BotView {
   updatedAt: Date;
 }
 
+/** What a custom API's credential arrives as in a write: `secret` replaces it; left out, the stored one is kept. */
+type IncomingAuth = { type?: unknown; secret?: unknown; [key: string]: unknown };
+
 export class BotsService {
-  constructor(private readonly tenantDb: TenantDb) {}
+  constructor(
+    private readonly tenantDb: TenantDb,
+    private readonly secrets: SecretBox,
+  ) {}
 
   async list(scope: Scope): Promise<BotView[]> {
     return inScope(this.tenantDb, scope, async (tx) => {
@@ -75,7 +82,7 @@ export class BotsService {
   }
 
   async create(scope: Scope, input: z.infer<typeof BotCreateSchema>): Promise<BotView> {
-    const config = this.parseConfig(input.config ?? {});
+    const config = this.parseConfig(this.sealSecrets(input.config ?? {}, []));
     this.checkBusinessContact(config);
     return inScope(this.tenantDb, scope, async (tx) => {
       await this.checkReferences(tx, scope.orgId, config, input.knowledgeBaseIds ?? []);
@@ -102,8 +109,10 @@ export class BotsService {
   async update(scope: Scope, id: string, input: z.infer<typeof BotUpdateSchema>): Promise<BotView> {
     return inScope(this.tenantDb, scope, async (tx) => {
       const current = await this.load(tx, scope.orgId, id);
-      const config = input.config ? this.parseConfig({ ...current.config, ...input.config }) : current.config;
-      if (input.config) this.checkBusinessContact(config, current.config);
+      // Merged onto the stored config (credentials included), never the redacted view.
+      const stored = await this.storedConfig(tx, scope.orgId, id);
+      const config = input.config ? this.parseConfig({ ...stored, ...this.sealSecrets(input.config, stored.actions.customApis) }) : stored;
+      if (input.config) this.checkBusinessContact(config, stored);
       const kbIds = input.knowledgeBaseIds ?? current.knowledgeBaseIds;
       await this.checkReferences(tx, scope.orgId, config, kbIds);
       await tx
@@ -121,6 +130,36 @@ export class BotsService {
       if (input.knowledgeBaseIds) await this.setKnowledgeBases(tx, scope.orgId, id, input.knowledgeBaseIds);
       return this.load(tx, scope.orgId, id);
     });
+  }
+
+  /** A copy of a bot (settings, credentials and knowledge bases), switched off, named "<name> (copy)". */
+  async duplicate(scope: Scope, id: string): Promise<BotView> {
+    return inScope(this.tenantDb, scope, async (tx) => {
+      const source = await this.load(tx, scope.orgId, id);
+      const config = await this.storedConfig(tx, scope.orgId, id);
+      const [row] = await tx
+        .insert(schema.bots)
+        .values({
+          organizationId: scope.orgId,
+          name: `${source.name.slice(0, 113)} (copy)`,
+          isActive: false,
+          model: source.model,
+          effort: source.effort,
+          maxOutputTokens: source.maxOutputTokens,
+          config,
+        })
+        .returning();
+      await this.setKnowledgeBases(tx, scope.orgId, row!.id, source.knowledgeBaseIds);
+      return this.load(tx, scope.orgId, row!.id);
+    });
+  }
+
+  /** One custom API of a bot, with its credential opened (server-side use only). */
+  async customApi(scope: Scope, botId: string, apiId: string): Promise<{ api: CustomApi; secret: string | null } | null> {
+    const config = await inScope(this.tenantDb, scope, (tx) => this.storedConfig(tx, scope.orgId, botId));
+    const api = config.actions.customApis.find((a) => a.id === apiId);
+    if (!api) return null;
+    return { api, secret: api.auth.secretEnc ? this.secrets.decrypt(api.auth.secretEnc) : null };
   }
 
   async delete(scope: Scope, id: string): Promise<void> {
@@ -142,8 +181,40 @@ export class BotsService {
       );
     }
     const problems = validateBotConfig(parsed.data);
+    for (const api of parsed.data.actions.customApis) {
+      if (api.auth.type !== 'none' && !api.auth.secretEnc) problems.push(`customApis: "${api.name}" needs its ${api.auth.type === 'basic' ? 'password' : api.auth.type === 'bearer' ? 'token' : 'API key'}`);
+    }
     if (problems.length) throw badRequest('Invalid bot configuration', problems.map((message) => ({ path: 'config', message })));
     return parsed.data;
+  }
+
+  /**
+   * Seals each custom API's new credential (`auth.secret`) and keeps the stored one when none is sent. An API that
+   * no longer needs a credential drops it.
+   */
+  private sealSecrets(raw: Record<string, unknown>, previous: CustomApi[]): Record<string, unknown> {
+    const actions = raw.actions as { customApis?: unknown } | undefined;
+    if (!actions || !Array.isArray(actions.customApis)) return raw;
+    const customApis = actions.customApis.map((item: unknown) => {
+      if (!item || typeof item !== 'object') return item;
+      const api = item as { id?: unknown; auth?: IncomingAuth };
+      const { secret, hasSecret: _shown, secretEnc: _sent, ...auth } = (api.auth ?? {}) as IncomingAuth & { hasSecret?: unknown; secretEnc?: unknown };
+      if (auth.type === undefined || auth.type === 'none') return { ...api, auth };
+      const kept = previous.find((p) => p.id === api.id)?.auth.secretEnc;
+      const sealed = typeof secret === 'string' && secret.trim() ? this.secrets.encrypt(secret.trim()) : kept;
+      return { ...api, auth: sealed ? { ...auth, secretEnc: sealed } : auth };
+    });
+    return { ...raw, actions: { ...actions, customApis } };
+  }
+
+  /** The config as stored, credentials included. */
+  private async storedConfig(tx: Db, orgId: string, id: string): Promise<BotConfig> {
+    const [row] = await tx
+      .select({ config: schema.bots.config })
+      .from(schema.bots)
+      .where(and(eq(schema.bots.id, id), eq(schema.bots.organizationId, orgId)));
+    if (!row) throw notFound('Bot');
+    return BotConfigSchema.parse(row.config);
   }
 
   private checkBusinessContact(config: BotConfig, previous?: BotConfig) {
@@ -229,11 +300,23 @@ export class BotsService {
       model: row.model,
       effort: row.effort,
       maxOutputTokens: row.maxOutputTokens,
-      // Parse on read so rows written before a new config field existed get its default.
-      config: BotConfigSchema.parse(row.config),
+      // Parse on read so rows written before a new config field existed get its default. Credentials never leave.
+      config: redactSecrets(BotConfigSchema.parse(row.config)),
       knowledgeBaseIds,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
   }
+}
+
+/** The config with each custom API's sealed credential replaced by whether there is one. */
+function redactSecrets(config: BotConfig): BotConfig {
+  if (!config.actions.customApis.length) return config;
+  return {
+    ...config,
+    actions: {
+      ...config.actions,
+      customApis: config.actions.customApis.map(({ auth: { secretEnc, ...auth }, ...api }) => ({ ...api, auth: { ...auth, hasSecret: Boolean(secretEnc) } })),
+    },
+  };
 }
