@@ -1,21 +1,30 @@
 import type { BotConfig, Channel, ChannelType } from '../../lib/types';
 import { PERSONALITY_TEMPLATES, type PersonalityTemplate } from '../bots/sections';
 
-/** The AI Agents tabs, in GHL's order. Knowledge Base and Agent Logs keep their older addresses working. */
+/**
+ * The AI Agents tabs, in GHL's order. Knowledge Base and Agent Logs keep their older addresses working. `hidden` tabs
+ * are kept but not shown (hidden on request, 2026-10-10); their addresses open Conversation AI.
+ */
 export const AGENT_TABS = [
-  { id: 'getting-started', label: 'Getting Started', to: '/ai-agents/getting-started' },
-  { id: 'agent-studio', label: 'Agent Studio', to: '/ai-agents/agent-studio' },
-  { id: 'voice-ai', label: 'Voice AI', to: '/ai-agents/voice-ai' },
-  { id: 'conversation-ai', label: 'Conversation AI', to: '/ai-agents/conversation-ai' },
-  { id: 'knowledge-base', label: 'Knowledge Base', to: '/knowledge' },
-  { id: 'templates', label: 'Agent Templates', to: '/ai-agents/templates' },
-  { id: 'content-ai', label: 'Content AI', to: '/ai-agents/content-ai' },
-  { id: 'logs', label: 'Agent Logs', to: '/ai-agents/logs' },
+  { id: 'getting-started', label: 'Getting Started', to: '/ai-agents/getting-started', hidden: false },
+  { id: 'agent-studio', label: 'Agent Studio', to: '/ai-agents/agent-studio', hidden: true },
+  { id: 'voice-ai', label: 'Voice AI', to: '/ai-agents/voice-ai', hidden: true },
+  { id: 'conversation-ai', label: 'Conversation AI', to: '/ai-agents/conversation-ai', hidden: false },
+  { id: 'knowledge-base', label: 'Knowledge Base', to: '/knowledge', hidden: false },
+  { id: 'templates', label: 'Agent Templates', to: '/ai-agents/templates', hidden: false },
+  { id: 'content-ai', label: 'Content AI', to: '/ai-agents/content-ai', hidden: true },
+  { id: 'logs', label: 'Agent Logs', to: '/ai-agents/logs', hidden: false },
 ] as const;
 export type AgentTab = (typeof AGENT_TABS)[number]['id'];
 
+/** A tab that's shown (a hidden one's address isn't a tab). */
 export function isAgentTab(value: string | undefined): value is AgentTab {
-  return AGENT_TABS.some((t) => t.id === value);
+  return AGENT_TABS.some((t) => t.id === value && !t.hidden);
+}
+
+/** A tab that exists but is hidden: its address goes to Conversation AI. */
+export function isHiddenAgentTab(value: string | undefined): boolean {
+  return AGENT_TABS.some((t) => t.id === value && t.hidden);
 }
 
 /** Where an agent is live: its channels, Test chat aside. */

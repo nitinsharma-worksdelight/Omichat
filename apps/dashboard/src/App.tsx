@@ -6,7 +6,7 @@ import { Layout } from './components/Layout';
 import { Button, EmptyState, ErrorBanner, Spinner } from './components/ui';
 import { LiveStreamProvider } from './lib/live';
 import { navigate, useRoute } from './lib/router';
-import { isAgentTab } from './pages/agents/shared';
+import { isAgentTab, isHiddenAgentTab } from './pages/agents/shared';
 
 // Pages load on demand so the first paint only needs the shell and the overview.
 const AppointmentsPage = lazy(() => import('./pages/appointments/AppointmentsPage').then((m) => ({ default: m.AppointmentsPage })));
@@ -81,12 +81,13 @@ function Routes() {
   const [first, second, third] = route.segments;
   // The old Bots list now lives under AI Agents → Conversation AI.
   useEffect(() => {
-    if (first === 'bots' && !second) navigate('/ai-agents/conversation-ai', { replace: true });
+    if ((first === 'bots' && !second) || (first === 'ai-agents' && isHiddenAgentTab(second))) navigate('/ai-agents/conversation-ai', { replace: true });
   }, [first, second]);
   switch (first) {
     case undefined:
       return <AiAgentsPage tab="conversation-ai" />;
     case 'ai-agents':
+      if (isHiddenAgentTab(second)) return null;
       return isAgentTab(second) || second === undefined ? <AiAgentsPage tab={second ?? 'conversation-ai'} /> : <NotFound />;
     case 'overview':
       return <OverviewPage />;

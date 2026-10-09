@@ -14,18 +14,19 @@ export type PanelId = 'actions' | 'kb' | 'mode' | 'timing' | 'behavior' | 'summa
 export type ActionId = 'api' | 'booking' | 'workflow' | 'contact' | 'stop' | 'handover' | 'transfer' | 'followup' | 'qualification' | 'tools';
 
 /** GHL's "Setup Your Actions" menu, then the platform's other abilities under "More". */
-const ACTION_MENU: Array<{ id: ActionId; label: string; more?: boolean }> = [
+const ACTION_MENU: Array<{ id: ActionId; label: string; more?: boolean; hidden?: boolean }> = [
   { id: 'api', label: 'API Call' },
   { id: 'booking', label: 'Appointment Booking' },
   { id: 'workflow', label: 'Trigger a Workflow' },
   { id: 'contact', label: 'Contact Info' },
-  { id: 'stop', label: 'Stop Bot' },
+  { id: 'stop', label: 'Stop Bot', hidden: true },
   { id: 'handover', label: 'Human Handover' },
-  { id: 'transfer', label: 'Transfer Bot' },
-  { id: 'followup', label: 'Auto Followup' },
+  { id: 'transfer', label: 'Transfer Bot', hidden: true },
+  { id: 'followup', label: 'Auto Followup', hidden: true },
   { id: 'qualification', label: 'Lead Qualification', more: true },
   { id: 'tools', label: 'Tools, CRM & approvals', more: true },
 ];
+/** Not on the platform yet: hidden from the menu on request (2026-10-10), kept so they can be switched back on. */
 const SOON = new Set<ActionId>(['stop', 'transfer', 'followup']);
 
 type Sub = 'persona' | 'goals' | 'business' | 'guardrails' | 'starters';
@@ -435,7 +436,7 @@ function Panel({ id, open, onToggle, icon, title, sub, children }: { id: PanelId
 function ActionsMenu({ onPick, disabled }: { onPick: (id: ActionId) => void; disabled: boolean }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const list = ACTION_MENU.filter((a) => a.label.toLowerCase().includes(q.trim().toLowerCase()));
+  const list = ACTION_MENU.filter((a) => !a.hidden && a.label.toLowerCase().includes(q.trim().toLowerCase()));
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);

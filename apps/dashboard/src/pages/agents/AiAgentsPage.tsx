@@ -1,18 +1,19 @@
-import { ArrowUpDown, CheckCircle2, Circle, ExternalLink, Info, Plus, Search, ShieldCheck } from 'lucide-react';
-import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
+import { ArrowUpDown, ExternalLink, Info, Plus, Search, ShieldCheck } from 'lucide-react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useApprovals } from '../../components/approvals';
 import { Button, Card, cx, EmptyState, ErrorBanner, Select, SkeletonRows, Spinner } from '../../components/ui';
 import { formatDateTime, formatNumber, TOOL_LABELS } from '../../lib/format';
-import { roleAtLeast, useBots, useChannels, useKnowledgeBases, useOrg } from '../../lib/queries';
+import { roleAtLeast, useBots, useKnowledgeBases, useOrg } from '../../lib/queries';
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../../lib/api';
-import { PERSONALITY_TEMPLATES } from '../bots/sections';
 import { AgentsDashboard } from './AgentsDashboard';
 import { AgentsList, FoldersComingSoon } from './AgentsList';
-import { CreateAgentModal, useCreateAgent } from './CreateAgentModal';
-import { AGENT_TABS, agentChannels, agentPreset, type AgentTab } from './shared';
+import { CreateAgentModal } from './CreateAgentModal';
+import { GettingStarted } from './GettingStarted';
+import { Templates } from './Templates';
+import { AGENT_TABS, type AgentTab } from './shared';
 
 const KnowledgePage = lazy(() => import('../knowledge/KnowledgePage').then((m) => ({ default: m.KnowledgePage })));
 const ApprovalsPage = lazy(() => import('../approvals/ApprovalsPage').then((m) => ({ default: m.ApprovalsPage })));
@@ -26,7 +27,7 @@ export function AiAgentsPage({ tab, kbId = null }: { tab: AgentTab; kbId?: strin
         <div className="flex items-end gap-6 overflow-x-auto">
           <h1 className="shrink-0 pb-3 pl-1 text-[19px] leading-7 font-medium text-fg">AI Agents</h1>
           <nav aria-label="AI Agents" className="flex gap-1">
-            {AGENT_TABS.map((t) => (
+            {AGENT_TABS.filter((t) => !t.hidden).map((t) => (
               <Link
                 key={t.id}
                 to={t.to}
@@ -277,112 +278,6 @@ function AgentStudio() {
       </div>
       <FoldersComingSoon open={folderOpen} onClose={() => setFolderOpen(false)} />
       <CreateAgentModal open={create.open} onClose={() => create.setOpen(false)} />
-    </section>
-  );
-}
-
-/** Four steps with what's already done ticked, from the organization's real agents, knowledge and channels. */
-function GettingStarted() {
-  const bots = useBots();
-  const kbs = useKnowledgeBases();
-  const channels = useChannels();
-  const create = useCreateOpen();
-  const list = bots.data ?? [];
-  // The steps open the agent worked on last.
-  const first = [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-  const built = list.some((b) => b.config.instructions.trim() || b.knowledgeBaseIds.length);
-  const deployed = list.some((b) => agentChannels(channels.data, b.id).some((c) => c.status === 'active' && c.channel === 'webchat') && b.isActive);
-  // `done: null`: a step there's no record of (testing), shown without a tick either way.
-  const steps: Array<{ title: string; text: string; done: boolean | null; action?: ReactNode }> = [
-    {
-      title: 'Create an agent',
-      text: 'General Q&A, appointment booking, a template, or from scratch.',
-      done: list.length > 0,
-      action: create.canCreate && (
-        <Button variant="primary" onClick={() => create.setOpen(true)}>
-          Create Agent
-        </Button>
-      ),
-    },
-    {
-      title: 'Build it',
-      text: `Write the prompt, add knowledge${(kbs.data?.length ?? 0) ? '' : ' (add a knowledge base first)'}, set up actions and how it replies.`,
-      done: Boolean(built),
-      action: first && <Button onClick={() => navigate(`/bots/${first.id}`)}>Open {first.name}</Button>,
-    },
-    {
-      title: 'Test it',
-      text: 'Try it in the test panel beside the settings. Nothing there reaches your contacts.',
-      done: null,
-      action: first && <Button onClick={() => navigate(`/bots/${first.id}`)}>Test</Button>,
-    },
-    {
-      title: 'Deploy it',
-      text: 'Connect it to your website chat and switch it On.',
-      done: deployed,
-      action: first && <Button onClick={() => navigate(`/bots/${first.id}?tab=deploy`)}>Deploy</Button>,
-    },
-  ];
-  return (
-    <section className="max-w-3xl space-y-4 px-4 py-7 sm:px-8">
-      <div>
-        <h2 className="font-display text-[28px] leading-9 font-medium text-fg">Getting Started</h2>
-        <p className="text-[16px] text-fg-2">Create an agent, build it, test it and deploy it to a channel.</p>
-      </div>
-      {bots.isLoading ? (
-        <SkeletonRows rows={4} />
-      ) : (
-        <ol className="space-y-2.5">
-          {steps.map((s, i) => (
-            <li key={s.title} className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface p-4 shadow-card">
-              {s.done ? (
-                <CheckCircle2 className="size-6 shrink-0 text-success" aria-label="Done" />
-              ) : (
-                <Circle className="size-6 shrink-0 text-faint" aria-label={s.done === null ? 'Step' : 'Not done yet'} />
-              )}
-              <span className="min-w-0 flex-1">
-                <span className="block font-semibold text-fg">
-                  {i + 1}. {s.title}
-                </span>
-                <span className="block text-body-sm text-fg-2">{s.text}</span>
-              </span>
-              {s.action}
-            </li>
-          ))}
-        </ol>
-      )}
-      <CreateAgentModal open={create.open} onClose={() => create.setOpen(false)} />
-    </section>
-  );
-}
-
-/** Agent Templates: start an agent with a template's personality and goal filled in. */
-function Templates() {
-  const kbs = useKnowledgeBases();
-  const create = useCreateAgent();
-  const { role } = useAuth();
-  const canCreate = roleAtLeast(role, 'admin');
-  return (
-    <section className="space-y-5 px-4 py-7 sm:px-8">
-      <div>
-        <h2 className="font-display text-[28px] leading-9 font-medium text-fg">Agent Templates</h2>
-        <p className="text-[16px] text-fg-2">Start an agent with its personality and goal filled in. You can change everything afterwards.</p>
-      </div>
-      {create.error ? <ErrorBanner error={create.error} title="We couldn't create the agent." /> : null}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {PERSONALITY_TEMPLATES.map((t) => (
-          <Card key={t.id} className="flex flex-col gap-2 p-5">
-            <h3 className="text-[16px] font-semibold text-fg">{t.label}</h3>
-            <p className="text-body-sm text-fg-2">{t.description}</p>
-            <p className="flex-1 text-caption text-muted">Goal: {t.goal}</p>
-            {canCreate && (
-              <Button className="self-start" loading={create.isPending && create.variables?.name.startsWith(t.label)} onClick={() => create.mutate(agentPreset(t, (kbs.data ?? []).map((k) => k.id)))}>
-                Use template
-              </Button>
-            )}
-          </Card>
-        ))}
-      </div>
     </section>
   );
 }
