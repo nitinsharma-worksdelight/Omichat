@@ -132,7 +132,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   const unansweredSweeper = new UnansweredSweeper(db, conversations, logger, clock);
   const analytics = new AnalyticsService(tenantDb, clock);
   const customApis = new CustomApiService(bots, { allowPrivateUrls });
-  const toolExecutor = new ToolExecutor(createTools({ contacts, qualification, knowledge, scheduling, automation, deals, customApis }), tenantDb, logger, () => automation.kick());
+  const toolExecutor = new ToolExecutor(createTools({ contacts, qualification, knowledge, scheduling, automation, deals, customApis, conversations }), tenantDb, logger, () => automation.kick());
   const orchestrator = new AiOrchestrator({
     env,
     tenantDb,
@@ -191,6 +191,8 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
       // Reminders (and any email whose send failed and is waiting to retry) every minute.
       // Handed-off chats nobody has answered within their bot's limit, every minute.
       timers.push(setInterval(() => void handoffWatcher.escalateOverdue().catch((err) => logger.error({ err }, 'handoff watch failed')), 60_000));
+      // Handover scenarios whose "Reactivate bot after" time is up go back to the assistant, every minute.
+      timers.push(setInterval(() => void handoffWatcher.reactivateDue().catch((err) => logger.error({ err }, 'handover reactivation failed')), 60_000));
       // Customer messages the AI never answered (nothing queued, or the job died): queued again every minute.
       timers.push(setInterval(() => void unansweredSweeper.run().catch((err) => logger.error({ err }, 'unanswered-message sweep failed')), 60_000));
       timers.push(setInterval(() => void appointmentEmails.sendDue().catch((err) => logger.error({ err }, 'appointment email run failed')), 60_000));

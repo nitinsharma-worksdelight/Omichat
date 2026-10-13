@@ -234,12 +234,7 @@ export const SETTINGS: SettingInfo[] = [
   { id: 'booking.requireQualification', section: 'booking', label: 'Only book qualified leads', keywords: ['qualified'] },
   { id: 'booking.allowReschedule', section: 'booking', label: 'Allow rescheduling', keywords: ['reschedule', 'move appointment'] },
   { id: 'booking.allowCancel', section: 'booking', label: 'Allow cancelling', keywords: ['cancel', 'cancellation'] },
-  { id: 'handoff.enabled', section: 'handoff', label: 'Allow handoff', keywords: ['talk to a person', 'handoff on'] },
-  { id: 'handoff.keywords', section: 'handoff', label: 'Trigger phrases', keywords: ['keywords', 'talk to a human'] },
-  { id: 'handoff.message', section: 'handoff', label: 'Handoff message', keywords: ['transfer message'] },
-  { id: 'handoff.notifyTeam', section: 'handoff', label: 'Notify the team', keywords: ['alert', 'notification', 'email the team'] },
-  { id: 'handoff.waitMinutes', section: 'handoff', label: 'If nobody replies', keywords: ['wait', 'timeout', 'escalate', 'fallback', 'overdue'] },
-  { id: 'handoff.respectTeamHours', section: 'handoff', label: 'Away message outside team hours', keywords: ['hours', 'away', 'offline', 'closed'] },
+  { id: 'handoff.scenarios', section: 'handoff', label: 'Human Handover scenarios', keywords: ['talk to a person', 'talk to a human', 'trigger phrases', 'handoff message', 'notify', 'away', 'team hours', 'if nobody replies'] },
   { id: 'guardrails.stayOnTopic', section: 'guardrails', label: 'Stay on topic', keywords: ['off topic', 'focus'] },
   { id: 'guardrails.forbiddenTopics', section: 'guardrails', label: 'Forbidden topics', keywords: ['avoid', 'banned topics', 'competitors'] },
   { id: 'guardrails.unknownAnswer', section: 'guardrails', label: "When it doesn't know the answer", keywords: ['unknown answer', "don't know", 'fallback'] },
@@ -512,7 +507,7 @@ export function essentials(draft: BotDraft, ctx: EditorContext): Essential[] {
     section: 'handoff',
     done: c.handoff.enabled,
     summary: c.handoff.enabled
-      ? `Hands the chat to your team when asked${c.handoff.notifyTeam ? ', and tells them' : ''}.`
+      ? `Hands the chat to your team: ${c.handoff.scenarios.filter((s) => s.enabled).map((s) => s.name).join(', ')}.`
       : "Off: visitors can't reach a person.",
     nextStep: 'Turn on handoff so visitors can reach your team.',
     action: 'Set up handoff',

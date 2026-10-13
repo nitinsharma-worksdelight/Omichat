@@ -383,7 +383,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
               {view === 'leadCapture' && <LeadCaptureSection value={draft.config.leadCapture} onChange={(v) => setConfig('leadCapture', v)} ctx={ctx} />}
               {view === 'qualification' && <QualificationSection value={draft.config.qualification} onChange={(v) => setConfig('qualification', v)} ctx={ctx} />}
               {view === 'booking' && <BookingSection value={draft.config.booking} onChange={(v) => setConfig('booking', v)} ctx={ctx} />}
-              {view === 'handoff' && <HandoffSection value={draft.config.handoff} onChange={(v) => setConfig('handoff', v)} ctx={ctx} />}
+              {view === 'handoff' && <HandoffSection value={draft.config.handoff} botId={botId} />}
               {view === 'guardrails' && <GuardrailsSection value={draft.config.guardrails} onChange={(v) => setConfig('guardrails', v)} ctx={ctx} />}
               {view === 'actions' && <ActionsSection value={draft.config.actions} onChange={(v) => setConfig('actions', v)} ctx={ctx} />}
               {view === 'model' && (

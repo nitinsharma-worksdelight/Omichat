@@ -39,6 +39,7 @@ export const ToolKey = z.enum([
   'create_deal',
   'update_deal',
   'call_api',
+  'stop_bot',
 ]);
 export type ToolKey = z.infer<typeof ToolKey>;
 
@@ -164,6 +165,21 @@ export const QualificationSchema = z.object({
   disqualifiedMessage: z.string().max(500).default(''),
 });
 
+/** A web link (http or https) only: the assistant shares it in chat, so `javascript:` and the like must never get through. */
+function isHttpUrl(value: string): boolean {
+  // No spaces or line breaks: the link goes into the assistant's instructions as one line.
+  if (/[\s\u0000-\u001f]/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** What a booking passes to the workflows it triggers. A workflow that needs any other input from the chat can't run after a booking. */
+export const BOOKING_WORKFLOW_INPUTS = ['appointment_id', 'appointment_time', 'appointment_timezone'] as const;
+
 export const BookingSchema = z.object({
   enabled: z.boolean().default(false),
   calendarId: z.string().uuid().nullable().default(null),
@@ -173,27 +189,174 @@ export const BookingSchema = z.object({
   requireQualification: z.boolean().default(false),
   allowReschedule: z.boolean().default(true),
   allowCancel: z.boolean().default(true),
+  /** "Don't book appointment (only send the booking link)": the assistant shares `bookingLink` instead of booking. */
+  linkOnly: z.boolean().default(false),
+  bookingLink: z.union([z.literal(''), z.string().trim().max(500).refine(isHttpUrl, 'Must be a web link starting with http:// or https://')]).default(''),
+  /** "Pause bot responses after booking": once the assistant books, it confirms and stops replying (until staff resume it). */
+  pauseAfterBooking: z.boolean().default(false),
+  /** "Trigger workflow after booking": these workflows run whenever the assistant books an appointment. */
+  triggerWorkflows: z.boolean().default(false),
+  workflowKeys: z.array(z.string().min(1).max(80)).max(10).default([]),
+  /** "Transfer Employee post appointment booking": the conversation is assigned to this team member after booking. */
+  transferEmployee: z.boolean().default(false),
+  transferUserId: z.string().uuid().nullable().default(null),
 });
 
-export const HandoffSchema = z.object({
-  enabled: z.boolean().default(true),
-  keywords: z
-    .array(z.string().trim().min(2).max(60))
-    .max(30)
-    .default(['talk to a human', 'real person', 'speak to someone', 'human agent', 'customer service', 'representative']),
-  message: z
-    .string()
-    .max(500)
-    .default("I'm connecting you with a member of our team. They'll reply here as soon as possible."),
-  notifyTeam: z.boolean().default(true),
+/** The longest a handed-off chat can stay with the team before the assistant takes it back: 30 days. */
+export const MAX_HANDOFF_REACTIVATE_MINUTES = 30 * 24 * 60;
+/** At most this many handover scenarios per bot (GHL allows six handover actions per bot). */
+export const MAX_HANDOFF_SCENARIOS = 6;
+/** The ready-made scenarios (GHL's three). A trigger phrase or a "talk to the team" starter uses `human_requested`. */
+export const HANDOFF_PRESETS = ['human_requested', 'lack_of_information', 'failed_to_resolve'] as const;
+
+/**
+ * Told to the customer when a handoff doesn't come from a scenario: the AI reply limit, the monthly budget, or the
+ * assistant handing over without naming one. The only handover wording that isn't the business's own.
+ */
+export const SYSTEM_HANDOFF_MESSAGE = "I'm connecting you with a member of our team. They'll reply here as soon as possible.";
+
+/**
+ * A situation in which the assistant hands the chat to a person ("Human Handover" scenarios). The assistant decides from
+ * the trigger condition and the example phrases; the scenario then says who gets the chat, what the customer is told,
+ * whether a task is created, which tags are added, and when the assistant takes the chat back. Human Requested's
+ * example phrases also hand over at once, without the AI, when a customer's message contains one.
+ */
+export const HandoffScenarioSchema = z.object({
+  /** Kept across edits; assigned when missing. */
+  id: z.string().uuid().optional(),
+  /** Which ready-made scenario this started as; null for one the business added. */
+  preset: z.enum(HANDOFF_PRESETS).nullable().default(null),
+  enabled: z.boolean().default(false),
+  name: z.string().trim().min(1).max(80),
+  condition: z.string().trim().min(1).max(300),
+  /** Up to 30: Human Requested took over the old trigger phrases (at most 30). */
+  examples: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
+  /** The team member who gets the chat; null = keep the contact's current assignee (else the customer's owner). */
+  assignTo: z.string().uuid().nullable().default(null),
+  /** Sent word for word when the chat is handed over (the away message instead, outside team hours, if that's on). */
+  finalMessage: z.string().trim().min(1).max(500),
+  /** The assistant takes the chat back after this long, unless the team replied within it. */
+  reactivate: z
+    .object({ enabled: z.boolean().default(true), afterMinutes: z.number().int().min(1).max(MAX_HANDOFF_REACTIVATE_MINUTES).default(480) })
+    .default({ enabled: true, afterMinutes: 480 }),
+  /** A follow-up task on the contact (due in 24 hours), for whoever gets the chat. */
+  createTask: z.boolean().default(true),
+  tags: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
+});
+export type HandoffScenario = z.infer<typeof HandoffScenarioSchema>;
+
+/** Fixed ids for the scenarios made here, so a bot that hasn't been saved since reads the same ids every time. */
+const PRESET_IDS = {
+  human_requested: '0a5d0f0e-0000-4000-8000-000000000001',
+  lack_of_information: '0a5d0f0e-0000-4000-8000-000000000002',
+  failed_to_resolve: '0a5d0f0e-0000-4000-8000-000000000003',
+  complaint: '0a5d0f0e-0000-4000-8000-000000000004',
+} as const;
+
+/** GHL's three ready-made scenarios, as a new bot gets them: all off. */
+export function defaultHandoffScenarios(): HandoffScenario[] {
+  const ready = { enabled: false, assignTo: null, reactivate: { enabled: true, afterMinutes: 480 }, createTask: true, tags: ['human handover'] };
+  return [
+    {
+      ...ready,
+      id: PRESET_IDS.human_requested,
+      preset: 'human_requested',
+      name: 'Human Requested',
+      condition: 'Direct request to speak with human',
+      examples: ['I want to talk to the manager', 'I want to talk to a human'],
+      finalMessage: "Sure! I'm transferring your request to a human agent. Someone from the team will get back to you shortly.",
+    },
+    {
+      ...ready,
+      id: PRESET_IDS.lack_of_information,
+      preset: 'lack_of_information',
+      name: 'Lack of information',
+      condition: 'The AI cannot find the relevant information or lacks knowledge on the question asked',
+      examples: [],
+      finalMessage: "I'm sorry, but I don't have the answer to your question at the moment. I've passed it on to our team, and someone will get back to you shortly.",
+    },
+    {
+      ...ready,
+      id: PRESET_IDS.failed_to_resolve,
+      preset: 'failed_to_resolve',
+      name: 'Failed to resolve issue',
+      condition: 'Multiple attempts to resolve the issue has failed',
+      examples: [],
+      finalMessage: "Apologies, but I'm unable to process your request currently. I've escalated it to our team, and someone will get back to you shortly.",
+    },
+  ];
+}
+
+const LEGACY_KEYWORDS = ['talk to a human', 'real person', 'speak to someone', 'human agent', 'customer service', 'representative'];
+
+/**
+ * Handoff settings from before scenarios (an `enabled` switch, trigger phrases, one message, "notify the team") become
+ * scenarios that behave the same: Human Requested with the old phrases and message, Failed to resolve issue and a
+ * "Complaint or sensitive issue" scenario for the other reasons the assistant used to hand over, all with the old
+ * message and nothing extra (no task, tags or take-back, which didn't exist). A bot with handoff off gets them all off.
+ * No handoff settings at all (a new bot) = GHL's three, off.
+ */
+function migrateHandoff(raw: unknown): unknown {
+  if (raw === undefined || raw === null) return { scenarios: defaultHandoffScenarios() };
+  if (typeof raw !== 'object' || 'scenarios' in raw) return raw;
+  const old = raw as { enabled?: unknown; keywords?: unknown; message?: unknown };
+  const on = old.enabled !== false;
+  const message = typeof old.message === 'string' && old.message.trim() ? old.message.trim().slice(0, 500) : SYSTEM_HANDOFF_MESSAGE;
+  const phrases = (Array.isArray(old.keywords) ? old.keywords : LEGACY_KEYWORDS)
+    .filter((k): k is string => typeof k === 'string' && k.trim().length >= 2)
+    .map((k) => k.trim().slice(0, 120))
+    .slice(0, 30);
+  const asBefore = { assignTo: null, finalMessage: message, reactivate: { enabled: false, afterMinutes: 480 }, createTask: false, tags: [] };
+  const [human, lack, failed] = defaultHandoffScenarios();
+  return {
+    ...raw,
+    scenarios: [
+      { ...human!, ...asBefore, enabled: on, examples: phrases },
+      lack!,
+      { ...failed!, ...asBefore, enabled: on },
+      {
+        ...asBefore,
+        id: PRESET_IDS.complaint,
+        preset: null,
+        enabled: on,
+        name: 'Complaint or sensitive issue',
+        condition: 'The customer is upset or complaining, or raises a refund, billing, legal or safety issue',
+        examples: [],
+      },
+    ],
+  };
+}
+
+/** What is stored: the scenarios, plus the timing settings shown under Timing & Pacing. */
+const HandoffFieldsSchema = z.object({
   /** After a handoff, alert the team (and run `fallback`) if nobody has answered in this many minutes. 0 = never. */
   waitMinutes: z.number().int().min(0).max(1440).default(0),
   /** What happens when that time is up. Both resume options hand the chat back to the assistant. */
   fallback: z.enum(['keep_waiting', 'resume_ai', 'ask_contact_details']).default('keep_waiting'),
-  /** Outside the organization's team hours, the customer gets `awayMessage` instead of `message` (only when this is on). */
+  /** Outside the organization's team hours, the customer gets `awayMessage` instead of the handover message. */
   respectTeamHours: z.boolean().default(false),
   awayMessage: z.string().max(500).default("Our team is away right now. We'll reply here as soon as we're back."),
+  scenarios: z
+    .array(HandoffScenarioSchema)
+    .max(MAX_HANDOFF_SCENARIOS)
+    .default([])
+    .transform((list) => list.map((scenario) => ({ ...scenario, id: scenario.id ?? crypto.randomUUID() }))),
 });
+export const HandoffFallbackSchema = HandoffFieldsSchema.shape.fallback;
+
+/**
+ * Human Handover. Everything is a scenario: handover is on while one is (`enabled`, derived), and Human Requested's
+ * example phrases are the instant trigger phrases (`keywords`, derived). Read with older settings, it migrates them.
+ */
+export const HandoffSchema = z.preprocess(migrateHandoff, HandoffFieldsSchema).transform((h) => {
+  const human = h.scenarios.find((s) => s.enabled && s.preset === 'human_requested');
+  return { ...h, enabled: h.scenarios.some((s) => s.enabled), keywords: human ? human.examples.filter((e) => e.trim().length >= 2) : [] };
+});
+
+/** The handover scenarios in force (switched on). */
+export function activeHandoffScenarios(config: Pick<BotConfig, 'handoff'>): HandoffScenario[] {
+  return config.handoff.scenarios.filter((s) => s.enabled);
+}
 
 /** At most this many starters per bot (enabled or not). */
 export const MAX_CONVERSATION_STARTERS = 10;
@@ -237,6 +400,37 @@ export const GuardrailsSchema = z.object({
   unknownAnswer: z.enum(['offer_handoff', 'collect_contact', 'say_dont_know']).default('collect_contact'),
   maxAiRepliesPerConversation: z.number().int().min(1).max(500).default(60),
 });
+
+/** At most this many Stop Bot scenarios per bot. */
+export const MAX_STOP_SCENARIOS = 10;
+/** The longest a stopped bot can sleep before it restarts on its own: 30 days. */
+export const MAX_STOP_MINUTES = 30 * 24 * 60;
+
+/**
+ * A situation in which the assistant stops replying in a conversation ("Stop Bot"): the customer says goodbye, asks
+ * not to be contacted, and so on. The assistant decides from the trigger condition and the example phrases, sends the
+ * final message, tags the contact, and stays silent until it restarts (after a set time, or when staff resume it).
+ */
+export const StopScenarioSchema = z.object({
+  /** Kept across edits; assigned when missing. */
+  id: z.string().uuid().optional(),
+  enabled: z.boolean().default(false),
+  /** What the assistant calls it; unique within the bot. */
+  name: z.string().trim().min(1).max(80),
+  /** When to stop, in words: "When the contact says goodbye or similar phrases". */
+  condition: z.string().trim().min(1).max(300),
+  /** Things a customer might say in this situation. */
+  examples: z.array(z.string().trim().min(1).max(120)).max(10).default([]),
+  /** Sent word for word as the last message before the assistant goes quiet; empty = say nothing. */
+  finalMessage: z.string().trim().max(500).default(''),
+  /** Start again after this long; off = stay stopped until staff resume the conversation. */
+  reactivate: z
+    .object({ enabled: z.boolean().default(true), afterMinutes: z.number().int().min(1).max(MAX_STOP_MINUTES).default(1440) })
+    .default({ enabled: true, afterMinutes: 1440 }),
+  /** Tags added to the contact when the assistant stops. Created when they don't exist yet. */
+  tags: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
+});
+export type StopScenario = z.infer<typeof StopScenarioSchema>;
 
 /** At most this many custom API actions per bot. */
 export const MAX_CUSTOM_APIS = 10;
@@ -328,6 +522,28 @@ export function apiPlaceholders(api: Pick<CustomApi, 'url' | 'headers' | 'query'
   return [...found];
 }
 
+function handoffScenarioProblems(scenarios: HandoffScenario[]): string[] {
+  const problems: string[] = [];
+  const names = new Set<string>();
+  for (const s of scenarios) {
+    const name = s.name.toLowerCase();
+    if (names.has(name)) problems.push(`handoff.scenarios: two scenarios are called "${s.name}"`);
+    names.add(name);
+  }
+  return problems;
+}
+
+function stopScenarioProblems(scenarios: StopScenario[]): string[] {
+  const problems: string[] = [];
+  const names = new Set<string>();
+  for (const s of scenarios) {
+    const name = s.name.toLowerCase();
+    if (names.has(name)) problems.push(`stopScenarios: two scenarios are called "${s.name}"`);
+    names.add(name);
+  }
+  return problems;
+}
+
 function customApiProblems(apis: CustomApi[]): string[] {
   const problems: string[] = [];
   const keys = new Set<string>();
@@ -371,6 +587,12 @@ export const ActionsSchema = z.object({
     .max(MAX_CUSTOM_APIS)
     .default([])
     .transform((apis) => apis.map((api) => ({ ...api, id: api.id ?? crypto.randomUUID() }))),
+  /** Situations in which the assistant stops replying in a conversation (`stop_bot`). */
+  stopScenarios: z
+    .array(StopScenarioSchema)
+    .max(MAX_STOP_SCENARIOS)
+    .default([])
+    .transform((list) => list.map((scenario) => ({ ...scenario, id: scenario.id ?? crypto.randomUUID() }))),
 });
 
 export const BotConfigSchema = z.object({
@@ -381,7 +603,7 @@ export const BotConfigSchema = z.object({
   leadCapture: LeadCaptureSchema.default(LeadCaptureSchema.parse({})),
   qualification: QualificationSchema.default(QualificationSchema.parse({})),
   booking: BookingSchema.default(BookingSchema.parse({})),
-  handoff: HandoffSchema.default(HandoffSchema.parse({})),
+  handoff: HandoffSchema,
   guardrails: GuardrailsSchema.default(GuardrailsSchema.parse({})),
   actions: ActionsSchema.default(ActionsSchema.parse({})),
   conversationStarters: ConversationStartersSchema,
@@ -487,6 +709,9 @@ export function validateBotConfig(config: BotConfig): string[] {
     problems.push('qualification: warm threshold must be <= hot threshold');
   }
   if (config.booking.enabled && !config.booking.calendarId) problems.push('booking: enabled but no calendar selected');
+  if (config.booking.linkOnly && !config.booking.bookingLink) problems.push('booking: "only send the booking link" needs a booking link');
+  if (config.booking.triggerWorkflows && config.booking.workflowKeys.length === 0) problems.push('booking: choose a workflow to trigger after booking');
+  if (config.booking.transferEmployee && !config.booking.transferUserId) problems.push('booking: choose who gets the conversation after booking');
   const seen = new Set<string>();
   for (const f of config.leadCapture.fields) {
     if (seen.has(f.field)) problems.push(`leadCapture: duplicate field "${f.field}"`);
@@ -501,9 +726,11 @@ export function validateBotConfig(config: BotConfig): string[] {
     if (starterLabels.has(label)) problems.push(`conversationStarters: duplicate label "${s.label}"`);
     starterLabels.add(label);
     if (s.enabled && s.action === 'handoff' && !config.handoff.enabled) {
-      problems.push(`conversationStarters: "${s.label}" hands the chat to your team, but Human handoff is off`);
+      problems.push(`conversationStarters: "${s.label}" hands the chat to your team, but no Human Handover scenario is on`);
     }
   }
   problems.push(...customApiProblems(config.actions.customApis));
+  problems.push(...stopScenarioProblems(config.actions.stopScenarios));
+  problems.push(...handoffScenarioProblems(config.handoff.scenarios));
   return problems;
 }

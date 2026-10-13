@@ -6,7 +6,7 @@ import type { SecretBox } from '../../lib/crypto';
 import { badRequest, notFound } from '../../lib/errors';
 import { friendlyError } from '../../lib/validation';
 import { DEFAULT_LIFECYCLE_STAGES } from '../tenancy/bootstrap';
-import { BotConfigSchema, businessContactProblems, EffortSchema, STANDARD_LEAD_FIELDS, validateBotConfig, type BotConfig, type CustomApi, type Effort } from './config';
+import { BOOKING_WORKFLOW_INPUTS, BotConfigSchema, businessContactProblems, EffortSchema, STANDARD_LEAD_FIELDS, validateBotConfig, type BotConfig, type CustomApi, type Effort } from './config';
 
 /**
  * A model id for the configured provider. Deliberately not tied to any vendor's naming: the provider
@@ -114,7 +114,7 @@ export class BotsService {
       const config = input.config ? this.parseConfig({ ...stored, ...this.sealSecrets(input.config, stored.actions.customApis) }) : stored;
       if (input.config) this.checkBusinessContact(config, stored);
       const kbIds = input.knowledgeBaseIds ?? current.knowledgeBaseIds;
-      await this.checkReferences(tx, scope.orgId, config, kbIds);
+      await this.checkReferences(tx, scope.orgId, config, kbIds, stored);
       await tx
         .update(schema.bots)
         .set({
@@ -222,9 +222,14 @@ export class BotsService {
     if (problems.length) throw badRequest('Invalid bot configuration', problems);
   }
 
-  private async checkReferences(tx: Db, orgId: string, config: BotConfig, kbIds: string[]) {
+  /**
+   * `previous` is the stored config on an update. A person, calendar or workflow it already named that has since gone
+   * (a member left, a workflow was deleted) isn't checked again: otherwise nothing else on the bot could be saved until
+   * that was fixed. Anything newly chosen is checked.
+   */
+  private async checkReferences(tx: Db, orgId: string, config: BotConfig, kbIds: string[], previous?: BotConfig) {
     const problems: string[] = [];
-    if (config.booking.calendarId) {
+    if (config.booking.calendarId && config.booking.calendarId !== previous?.booking.calendarId) {
       const [cal] = await tx
         .select({ id: schema.calendars.id })
         .from(schema.calendars)
@@ -238,13 +243,41 @@ export class BotsService {
         .where(and(eq(schema.knowledgeBases.organizationId, orgId), inArray(schema.knowledgeBases.id, kbIds)));
       if (found.length !== new Set(kbIds).size) problems.push('knowledgeBaseIds contains an unknown knowledge base');
     }
-    if (config.actions.workflowKeys.length) {
+    const newActionKeys = config.actions.workflowKeys.filter((k) => !previous?.actions.workflowKeys.includes(k));
+    const newBookingKeys = config.booking.workflowKeys.filter((k) => !previous?.booking.workflowKeys.includes(k));
+    const workflowKeys = [...new Set([...newActionKeys, ...newBookingKeys])];
+    if (workflowKeys.length) {
       const found = await tx
-        .select({ key: schema.workflows.key })
+        .select({ key: schema.workflows.key, askFirst: schema.workflows.askFirst, isActive: schema.workflows.isActive, inputFields: schema.workflows.inputFields })
         .from(schema.workflows)
-        .where(and(eq(schema.workflows.organizationId, orgId), inArray(schema.workflows.key, config.actions.workflowKeys)));
-      const missing = config.actions.workflowKeys.filter((k) => !found.some((f) => f.key === k));
+        .where(and(eq(schema.workflows.organizationId, orgId), inArray(schema.workflows.key, workflowKeys)));
+      const missing = workflowKeys.filter((k) => !found.some((f) => f.key === k));
       if (missing.length) problems.push(`unknown workflow keys: ${missing.join(', ')}`);
+      // After a booking nobody is there to answer a question or give an approval, so such a workflow could never run.
+      for (const w of found.filter((f) => newBookingKeys.includes(f.key))) {
+        if (!w.isActive) problems.push(`booking: workflow "${w.key}" is switched off`);
+        if (w.askFirst) problems.push(`booking: workflow "${w.key}" asks the team first, so it can't run by itself after a booking`);
+        const unmet = w.inputFields.filter((f) => f.required && (f.source ?? 'chat') === 'chat' && !(BOOKING_WORKFLOW_INPUTS as readonly string[]).includes(f.name));
+        if (unmet.length) {
+          problems.push(`booking: workflow "${w.key}" needs ${unmet.map((f) => `"${f.name}"`).join(', ')} from the chat, which a booking can't give (it passes ${BOOKING_WORKFLOW_INPUTS.join(', ')})`);
+        }
+      }
+    }
+    if (config.booking.transferUserId && config.booking.transferUserId !== previous?.booking.transferUserId) {
+      const [member] = await tx
+        .select({ userId: schema.memberships.userId })
+        .from(schema.memberships)
+        .where(and(eq(schema.memberships.organizationId, orgId), eq(schema.memberships.userId, config.booking.transferUserId)));
+      if (!member) problems.push('booking: the conversation is transferred to someone who is not on your team');
+    }
+    const keptAssignees = new Set((previous?.handoff.scenarios ?? []).map((s) => s.assignTo));
+    const assignees = [...new Set(config.handoff.scenarios.map((s) => s.assignTo).filter((id): id is string => Boolean(id) && !keptAssignees.has(id as string)))];
+    if (assignees.length) {
+      const found = await tx
+        .select({ userId: schema.memberships.userId })
+        .from(schema.memberships)
+        .where(and(eq(schema.memberships.organizationId, orgId), inArray(schema.memberships.userId, assignees)));
+      if (found.length !== assignees.length) problems.push('handoff.scenarios: a scenario hands chats to someone who is not on your team');
     }
     const { lifecycleStages, owners, deals } = config.actions;
     if (lifecycleStages.length) {

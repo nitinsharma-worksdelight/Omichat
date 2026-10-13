@@ -221,7 +221,7 @@ outside AI Agents stay separate.
   - Appointment Booking: two steps, Calendar Selection and Advanced Options. Asking the team covers
     booking/rescheduling/cancelling; Remove switches booking off.
   - Trigger a Workflow, Contact Info, Human Handover, Lead Qualification, Tools/CRM: reuse the existing sections.
-  - Stop Bot, Transfer Bot, Auto Followup: "coming soon".
+  - Stop Bot: see the follow-ups below. Transfer Bot, Auto Followup: "coming soon" (now hidden).
   - Every modal edits the draft; nothing is stored until Save.
 - **API Call (new backend):**
   - Stored in `config.actions.customApis` (JSON, no migration).
@@ -296,11 +296,98 @@ outside AI Agents stay separate.
   - Getting Started opened the oldest agent.
 - No real model was called.
 
+**Follow-ups after the first build (2026-10-10 to 2026-10-13):**
+- Hidden on request, kept in code: the Agent Studio, Voice AI and Content AI tabs (`hidden: true` in
+  `pages/agents/shared.ts`; their old addresses open Conversation AI), the Marketplace Templates card in Create new
+  agent, and the Transfer Bot and Auto Followup actions (`hidden` in `SettingsPanels.tsx`).
+- Getting Started rebuilt as a landing page plus a six-step "create and deploy an agent" guide with a "not replying?"
+  checklist; Agent Templates rebuilt as a gallery with category filter and search.
+- **Stop Bot (2026-10-13), from the GHL screenshots.** Scenarios live in `config.actions.stopScenarios` (no migration):
+  name, trigger condition, example phrases, final message, optional restart time, tags.
+  - **The assistant:** the new `stop_bot` tool is offered while a scenario is on. The assistant decides from the
+    condition and the examples. A match sends only the final message word for word (what the model wrote beside the
+    call is dropped, and no further model call is made), adds the tags (created when missing) and goes quiet.
+  - **The conversation:** it stays the AI's (`ai_active`), so the team isn't alerted. The stop is
+    `conversations.metadata.aiStop` (`modules/ai/stop.ts`).
+  - **While stopped:** no reply, and the approval follow-up stays quiet too. The unanswered-message sweeper skips it.
+    A message that arrived while stopped is never answered later, even after the stop ends.
+  - **Ending:** after the restart time, the first newer customer message restarts it (event
+    `conversation.bot_restarted`, actor system). With the restart time off, only staff end it: "Resume AI" on the
+    conversation, which now also works on a stopped chat. Taking over or closing also ends it.
+  - **New events:** `conversation.bot_stopped` and `conversation.bot_restarted`, shown on the conversation timeline.
+  - **Dashboard:** the Stop Bot modal (scenario list with On/Off, Enable scenario, name, trigger condition, example
+    phrases, final message, "Reactivate bot after" with minutes/hours/days, tags; "New Scenario", Cancel, Save; Delete
+    scenario) and, on a stopped conversation, a banner with "Resume AI".
+  - **Tests:** `test/stop-bot.test.ts`, 11 tests. 3 of them fail without the guard in the orchestrator. Full server
+    suite 539/539; typecheck and build clean.
+  - **Browser:** modal layout against the screenshots, validation, Save then Save agent, the data back after a reload
+    and reopening, and the banner and Resume AI (the banner with injected data). A live stop with the real model was
+    not run.
+
+- **Human Handover, scenarios only (2026-10-13), like GHL; plan approved with the suggested answers.**
+  - **No General settings.** Handover is on while a scenario is on (`handoff.enabled` and `handoff.keywords` are
+    now worked out from the scenarios). Max 6 scenarios, as in GHL.
+  - **Each scenario:** name, trigger condition, example phrases (Human Requested and custom scenarios only), assign
+    to a user (or keep the current assignee), final message, "Reactivate bot after" (8 h), a follow-up task (due in
+    24 h) and tags.
+  - **Ready-made:** Human Requested, Lack of information and Failed to resolve issue. New agents get all three off.
+  - **Existing bots:** an old handoff (no `scenarios`) is migrated on read and keeps its behaviour:
+    - Human Requested = old on/off, old trigger phrases and old message.
+    - Failed to resolve issue = old on/off.
+    - Custom "Complaint or sensitive issue" = old on/off.
+    - No task, tags or reactivation.
+    - The new-org starter bot comes through this path, so it starts with handover on.
+  - **Fixed internal defaults:**
+    - The team is always alerted.
+    - AI errors and the budget still hand over, with a system message.
+    - The reply limit hands over only while a scenario is on.
+  - **Timing & Pacing:** keeps "if nobody answers", "then" and team hours, and now has the away message. Outside
+    team hours the away message replaces the scenario's message.
+  - **Human Requested phrases** hand over at once, with no AI call. Taking the chat back still waits while the team is
+    replying.
+  - **Full settings editor:** its Human Handover section is now just a link to the scenarios.
+  - **Fix:** the editor's change check no longer depends on key order, so
+    opening a modal and saving with no edits no longer marks the agent unsaved.
+  - **Tests:** `test/handoff-scenarios.test.ts` (migration, new agents, each scenario, off, away message,
+    validation, reply limit, AI error, take-back). Full suite 550/550.
+  - **Browser:** a migrated bot showing 4 scenarios with no General settings; turning them all off and saving
+    (handover off); turning one back on from Actions; the away message field; a trigger phrase in the test chat
+    handing over at once.
+
+- **Appointment Booking: Advanced Options like GHL (2026-10-14), from the screenshot.**
+  - **UI:** the GHL layout:
+    - a stepper with a ✓ on the finished step;
+    - four checkboxes, each with its own field once checked;
+    - "Allow bot to cancel" and "Allow bot to reschedule" switches with ⓘ;
+    - a Note box the user can dismiss;
+    - Previous and Save buttons.
+  - **Our own settings:** "Details needed", "Only book qualified leads", "Ask the team before booking" and
+    "Appointment title" sit below the GHL options, under "More booking settings", in the same style.
+  - **New settings in `booking`:** all off by default, so existing bots are unchanged. The server refuses a checked
+    option that is missing what it needs.
+    - **Don't book (only send the booking link):** `linkOnly` + `bookingLink`. `check_availability` and
+      `book_appointment` are removed, and the prompt gives the link. List, reschedule and cancel stay on.
+    - **Pause bot responses after booking:** `pauseAfterBooking`. The confirmation is sent, then the bot is
+      stopped as "Appointment booked" until staff press Resume AI.
+    - **Trigger workflow after booking:** `triggerWorkflows` + `workflowKeys`. Each chosen workflow runs once,
+      with `appointment_id`, `appointment_time` and `appointment_timezone`. A workflow that asks the team first
+      can't be chosen.
+    - **Transfer Employee post appointment booking:** `transferEmployee` + `transferUserId`. The conversation is
+      assigned to that member (the assistant keeps replying), and the member is notified.
+  - **Not repeated:** a retried turn or a duplicate booking doesn't run the follow-ups again. A follow-up that fails
+    is logged and doesn't undo the booking.
+  - **Tests:** `test/booking-advanced.test.ts`, 7 tests. Full suite 557/557.
+  - **Browser:**
+    - the new layout, in dark and light;
+    - each checkbox's validation;
+    - Save, then Save agent;
+    - on the server: the saved settings, no booking tools in link-only mode, and the link in the prompt.
+
 **Assumptions and limits:**
 - Screens not in the screenshots were designed by us and approved with the design: the booking Advanced Options, the
   panel contents, the Workflow, Contact and Handover modals, the API Authentication, General and Test tabs, and
   Getting Started, Templates and Logs.
-- Not on the platform yet, so "coming soon": folders, Multi calendars, Stop Bot, Transfer Bot, Auto Followup,
+- Not on the platform yet, so "coming soon": folders, Multi calendars, Transfer Bot, Auto Followup,
   Voice AI, Content AI, marketplace channels, and every channel except the chat widget.
 - Agent Studio lists the same agents as Agents List.
 - "Time saved" is an estimate.

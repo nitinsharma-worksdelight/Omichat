@@ -189,8 +189,9 @@ describe('handoff alerts', () => {
   });
   afterAll(() => t.close());
 
-  it('with notifyTeam off, staff are alerted only when the AI hands off because of an error', async () => {
+  it('every handoff alerts the team: "notify the team" is gone with the general handoff settings', async () => {
     const org = await createOrg(t.c, 'Quiet Co');
+    // An old bot that had notifyTeam off: migrated to scenarios, which always alert.
     await t.c.bots.update(org.scope, org.bot.id, { config: { handoff: { enabled: true, notifyTeam: false } } });
 
     t.llm.setScript([]);
@@ -209,7 +210,7 @@ describe('handoff alerts', () => {
     }
     await t.c.automation.dispatchPending();
     const alerts = (await t.c.automation.listNotifications(org.scope, null)).filter((n) => n.type === 'conversation.handoff_requested');
-    expect(alerts.map((n) => n.link)).toEqual([`/conversations/${failed.conversationId}`]);
+    expect(alerts.map((n) => n.link).sort()).toEqual([asked, transferred, failed].map((r) => `/conversations/${r.conversationId}`).sort());
     // Every handoff is still an event, so webhooks (n8n) see all three.
     const handoffs = (await t.c.automation.listEvents(org.scope, {})).filter((e) => e.type === 'conversation.handoff_requested');
     expect(handoffs).toHaveLength(3);

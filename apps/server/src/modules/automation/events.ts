@@ -20,6 +20,8 @@ export const EVENT_TYPES = [
   'conversation.started',
   'conversation.handoff_requested',
   'conversation.resumed_by_ai',
+  'conversation.bot_stopped',
+  'conversation.bot_restarted',
   'conversation.handoff_overdue',
   'conversation.assigned',
   'conversation.unanswered',

@@ -144,7 +144,7 @@ describe('conversation starters in the bot configuration', () => {
     expect(await offered(org)).toEqual([]);
   });
 
-  it('"talk to the team" needs Human handoff on, unless it is hidden', async () => {
+  it('"talk to the team" needs a Human Handover scenario on, unless it is hidden', async () => {
     const org = await createOrg(t.c, 'No Handoff Clinic');
     const res = await t.app.inject({
       method: 'PATCH',
@@ -154,7 +154,7 @@ describe('conversation starters in the bot configuration', () => {
     });
     expect(res.statusCode).toBe(400);
     expect((res.json() as ErrorBody).error.details.map((d) => d.message)).toContain(
-      'conversationStarters: "Talk to the team" hands the chat to your team, but Human handoff is off',
+      'conversationStarters: "Talk to the team" hands the chat to your team, but no Human Handover scenario is on',
     );
     const hidden = await t.app.inject({
       method: 'PATCH',
@@ -218,7 +218,8 @@ describe('clicking a starter', () => {
 
     expect(t.llm.requests).toHaveLength(0);
     const conv = await t.c.conversations.get(org.scope, sent.conversationId);
-    expect(conv).toMatchObject({ status: 'human_active', handoffReason: 'Customer chose "Talk to the team"' });
+    // The starter bot's Human Requested scenario (migrated from the old handoff settings) handles it.
+    expect(conv).toMatchObject({ status: 'human_active', handoffReason: 'Human Requested: Customer chose "Talk to the team"' });
     const messages = await t.c.conversations.messages(org.scope, sent.conversationId);
     expect(messages.map((m) => m.content)).toEqual([TEAM.message, expect.stringMatching(/connecting you with a member of our team/)]);
     await t.c.automation.dispatchPending();

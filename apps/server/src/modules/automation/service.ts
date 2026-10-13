@@ -118,7 +118,14 @@ function notificationFor(event: EventRow, contactName: string | null): StaffNoti
       const to = typeof p.assignedUserId === 'string' ? p.assignedUserId : null;
       // Nobody to tell, or they assigned it to themselves.
       if (!to || to === event.actorUserId) return null;
-      return { title: `${who} was assigned to you`, body: p.auto ? 'You own this customer, so their handoff came to you.' : 'A teammate assigned this conversation to you.', link: convLink, userId: to };
+      const body = p.viaScenario
+        ? 'A handover scenario assigned this conversation to you.'
+        : p.auto
+          ? 'You own this customer, so their handoff came to you.'
+        : p.reason === 'appointment_booked'
+          ? 'The assistant booked an appointment and assigned this conversation to you.'
+          : 'A teammate assigned this conversation to you.';
+      return { title: `${who} was assigned to you`, body, link: convLink, userId: to };
     }
     case 'conversation.handoff_overdue':
       return { title: `${who} is still waiting for a reply`, body: `Handed to the team ${String(p.waitedMinutes)} minutes ago and nobody has answered.`, link: convLink };

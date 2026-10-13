@@ -11,7 +11,8 @@ import { actionSummary, approvalState } from '../approvals/service';
 import type { AutomationService } from '../automation/service';
 import type { OrgSettings } from '../../db/schema';
 import { isTeamOpen } from '../handoff/hours';
-import { handoffStarter, STANDARD_LEAD_FIELDS } from '../bots/config';
+import { activeHandoffScenarios, handoffStarter, STANDARD_LEAD_FIELDS, SYSTEM_HANDOFF_MESSAGE, type HandoffScenario } from '../bots/config';
+import { activeStop, aiStopOf, arrivedWhileStopped, BOOKED_STOP_ID } from './stop';
 import type { BotsService, BotView } from '../bots/service';
 import type { ChannelRegistry } from '../channels/adapter';
 import { openingGreeting } from '../channels/service';
@@ -130,6 +131,10 @@ export class AiOrchestrator {
     ]);
     // A person has the chat (they will say it), or nobody is answering for the organization at all.
     if (conv.status !== 'ai_active' || !org?.aiEnabled || !conv.botId) return;
+    // The assistant stopped itself in this chat (Stop Bot): it stays quiet, this follow-up included. Except the pause
+    // after a booking: the booking just now approved is what the customer is waiting to hear about.
+    const stop = activeStop(conv.metadata, this.now());
+    if (stop && stop.scenarioId !== BOOKED_STOP_ID) return;
     const rows = await conversations.recentRows(scope, conv.id, 14);
     const said = rows.some((m) => m.direction === 'outbound' && m.senderType === 'human' && req.decidedAt && m.createdAt >= req.decidedAt);
     const already = rows.some((m) => m.metadata.approvalFollowUp === req.id);
@@ -289,6 +294,17 @@ export class AiOrchestrator {
       return;
     }
     if (conv.status !== 'ai_active') return;
+    // The assistant stopped itself here (Stop Bot). A customer message that arrived while it was stopped is never
+    // answered, even after the stop ends; one that arrived after the stop ended restarts the assistant first.
+    const aiStop = aiStopOf(conv.metadata);
+    if (aiStop) {
+      if (arrivedWhileStopped(aiStop, latestInbound.createdAt)) {
+        log.info({ scenario: aiStop.scenarioName }, 'assistant is stopped in this conversation; not replying');
+        await this.deps.conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId: '', messageId: null });
+        return;
+      }
+      await this.deps.conversations.restartBot(scope, conv.id, { actor: 'system', reason: 'time was up' });
+    }
     // Nobody will answer: tell the team, and tell the widget to stop showing "typing".
     const unanswered = (reason: 'ai_disabled' | 'bot_inactive' | 'no_bot') =>
       this.deps.automation
@@ -313,7 +329,11 @@ export class AiOrchestrator {
       await unanswered('bot_inactive');
       return;
     }
-    const handoffMessage = this.handoffMessage(bot, org);
+    // What the customer is told at a handoff: the away message outside team hours (when that's on), else the scenario's
+    // own message, else (a handoff no scenario covers) the system's.
+    const outsideHours = bot.config.handoff.respectTeamHours && !isTeamOpen(org.settings, org.timezone, this.now());
+    const messageFor = (scenario: HandoffScenario | null) => (outsideHours ? bot.config.handoff.awayMessage : scenario ? scenario.finalMessage : SYSTEM_HANDOFF_MESSAGE);
+    const handoffMessage = messageFor(null);
 
     const pendingText = pending.map((m) => m.content).join('\n');
     const { history, unsummarized } = selectHistory(
@@ -326,14 +346,16 @@ export class AiOrchestrator {
 
     // ---- 2. Guards that don't need the model ----
     // A "talk to the team" starter counts only while it's still one of this bot's enabled starters.
+    // Asking for a person this way is the "Human Requested" scenario, when the business switched it on.
+    const humanRequested = activeHandoffScenarios(bot.config).find((s) => s.preset === 'human_requested') ?? null;
     const chosen = handoffStarter(bot.config, pending.map((m) => state.starterOf.get(m.id)));
     if (chosen) {
-      await this.handoff(scope, conv.id, bot, `Customer chose "${chosen.label}"`, handoffMessage, { answersThrough: job.triggerMessageId });
+      await this.handoff(scope, conv.id, bot, `Customer chose "${chosen.label}"`, messageFor(humanRequested), { answersThrough: job.triggerMessageId, scenario: humanRequested });
       return;
     }
     // Each message on its own, so the end of one and the start of the next can't make a phrase together.
     if (bot.config.handoff.enabled && pending.some((m) => matchesHandoffKeyword(m.content, bot.config.handoff.keywords))) {
-      await this.handoff(scope, conv.id, bot, 'Customer asked for a person', handoffMessage, { answersThrough: job.triggerMessageId });
+      await this.handoff(scope, conv.id, bot, 'Customer asked for a person', messageFor(humanRequested), { answersThrough: job.triggerMessageId, scenario: humanRequested });
       return;
     }
     // With handoff switched off the assistant never passes a chat to the team, so the cap doesn't apply
@@ -468,6 +490,10 @@ export class AiOrchestrator {
     const streaming = this.deps.channels.get(conv.channel).streaming;
     const citations = new Map<string, RetrievedChunk>((retrieval?.chunks ?? []).map((c) => [c.id, c]));
     let handoffReason: string | null = null;
+    /** The handover scenario the assistant said matched: its message replaces the reply, and its settings apply. */
+    let handoffScenario: HandoffScenario | null = null;
+    /** Set when a Stop Bot scenario matched: the final message to send (maybe empty), and then the assistant goes quiet. */
+    let stopMessage: string | null = null;
     let usage = EMPTY_USAGE;
     let iterations = 0;
     // The reply check, for bots that book: what this turn booked, and the slots the calendar returned (this turn's and
@@ -500,8 +526,12 @@ export class AiOrchestrator {
       setContactId: (id) => {
         contactId = id;
       },
-      requestHandoff: (reason) => {
+      requestHandoff: (reason, scenario) => {
         handoffReason = reason;
+        handoffScenario = (scenario && activeHandoffScenarios(bot.config).find((s) => s.name === scenario)) || null;
+      },
+      requestStop: (message) => {
+        stopMessage = message;
       },
       activity: (label, opts) =>
         conversations.publish(job.orgId, { type: 'ai.activity', conversationId: conv.id, runId, label, ...(opts?.internal ? { internal: true } : {}) }),
@@ -596,6 +626,12 @@ export class AiOrchestrator {
           role: 'user',
           content: results.map((r) => ({ type: 'tool_result' as const, toolUseId: r.toolCallId, content: r.content, isError: r.isError })),
         });
+        // Stopped, or handed over in a scenario: only the business's own message goes out, so no further model call and
+        // nothing the model wrote.
+        if (stopMessage !== null || handoffScenario !== null) {
+          texts.length = 0;
+          break;
+        }
       }
       if (corrected && outcome === 'completed' && !handoffReason) {
         const still = checkReply(texts.join('\n\n'), replyFacts());
@@ -605,7 +641,7 @@ export class AiOrchestrator {
       if (lockLost.aborted) throw new TurnStopped();
       // A model that returns nothing (or only stops at its token limit while writing a tool call) would leave the
       // customer in silence with a "completed" run: treat it like any other temporary failure.
-      if (outcome === 'completed' && !handoffReason && followUps.length === 0 && !texts.join('').trim()) {
+      if (outcome === 'completed' && !handoffReason && stopMessage === null && followUps.length === 0 && !texts.join('').trim()) {
         throw new LlmError('unavailable', true, 'The model returned no reply text', this.deps.llm.info.provider);
       }
     } catch (err) {
@@ -643,7 +679,9 @@ export class AiOrchestrator {
     const aiActive = (c: ConversationRow) => c.status === 'ai_active';
     const answerMeta = answers(job.triggerMessageId);
     if (outcome !== 'skipped') {
-      const finalText = texts.join('\n\n').trim() || (handoffReason ? handoffMessage : '');
+      const scenario = handoffScenario as HandoffScenario | null;
+      const finalText =
+        stopMessage !== null ? stopMessage : scenario ? messageFor(scenario) : texts.join('\n\n').trim() || (handoffReason ? handoffMessage : '');
       if (finalText) {
         const message = await conversations.addOutboundIf(
           scope,
@@ -660,8 +698,8 @@ export class AiOrchestrator {
         if (message) messageId = message.id;
         else outcome = 'skipped';
       }
-      // Not after a handoff (the team takes it from here) or when a human took over.
-      if (outcome !== 'skipped' && !handoffReason) {
+      // Not after a handoff (the team takes it from here), after a stop, or when a human took over.
+      if (outcome !== 'skipped' && !handoffReason && stopMessage === null) {
         for (const f of followUps) {
           const sent = await conversations.addOutboundIf(
             scope,
@@ -676,13 +714,17 @@ export class AiOrchestrator {
       }
       if (outcome !== 'skipped' && handoffReason) {
         outcome = 'handoff';
-        await conversations.setStatus(scope, conv.id, 'human_active', {
+        const reason = scenario ? `${scenario.name}: ${handoffReason}` : handoffReason;
+        const updated = await conversations.setStatus(scope, conv.id, 'human_active', {
           actor: 'ai',
-          reason: handoffReason,
-          notifyTeam: bot.config.handoff.notifyTeam,
+          reason,
+          // Every handoff alerts the team (each member's own notification settings decide how).
+          notifyTeam: true,
           // Never reopens a conversation that was closed while the reply was being written.
           onlyFrom: ['ai_active'],
+          ...this.scenarioStatus(scenario),
         });
+        if (scenario && updated.status === 'human_active') await this.afterScenarioHandoff(scope, updated, scenario, reason);
       }
     }
 
@@ -690,12 +732,6 @@ export class AiOrchestrator {
     await conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId, messageId });
     await this.deps.automation.kick();
     await this.maybeFold(job.orgId, conv.id, conv.summarizedThroughMessageId, unsummarized);
-  }
-
-  /** What a customer is told when handed to the team: the away message outside team hours, if the bot asks for that. */
-  private handoffMessage(bot: BotView, org: { settings: OrgSettings; timezone: string }): string {
-    const h = bot.config.handoff;
-    return h.respectTeamHours && !isTeamOpen(org.settings, org.timezone, this.now()) ? h.awayMessage : h.message;
   }
 
   private async stillAiActive(orgId: string, conversationId: string): Promise<boolean> {
@@ -712,22 +748,62 @@ export class AiOrchestrator {
     bot: BotView | null,
     reason: string,
     message: string,
-    opts: { alwaysNotify?: boolean; answersThrough: string },
+    opts: { alwaysNotify?: boolean; answersThrough: string; scenario?: HandoffScenario | null },
   ) {
+    const scenario = opts.scenario ?? null;
     const sent = await this.deps.conversations.addOutboundIf(
       scope,
       { conversationId, senderType: 'ai', content: message, metadata: answers(opts.answersThrough) },
       (c) => c.status === 'ai_active',
     );
     if (!sent) return;
-    await this.deps.conversations.setStatus(scope, conversationId, 'human_active', {
+    const fullReason = scenario ? `${scenario.name}: ${reason}` : reason;
+    const updated = await this.deps.conversations.setStatus(scope, conversationId, 'human_active', {
       actor: 'ai',
-      reason,
-      // An error handoff always alerts staff: nobody else would know the AI stopped answering.
-      notifyTeam: opts.alwaysNotify || (bot?.config.handoff.notifyTeam ?? true),
+      reason: fullReason,
+      // Every handoff alerts the team; an error one most of all, since nobody else would know the AI stopped answering.
+      notifyTeam: true,
       onlyFrom: ['ai_active'],
+      ...this.scenarioStatus(scenario),
     });
+    if (scenario && updated.status === 'human_active') await this.afterScenarioHandoff(scope, updated, scenario, fullReason);
     await this.deps.automation.kick();
+  }
+
+  /** What a handover scenario changes in the handoff itself: who gets the chat, and when the assistant takes it back. */
+  private scenarioStatus(scenario: HandoffScenario | null) {
+    if (!scenario) return {};
+    return {
+      assignTo: scenario.assignTo,
+      reactivate: scenario.reactivate.enabled
+        ? { at: new Date(this.now().getTime() + scenario.reactivate.afterMinutes * 60_000), afterMinutes: scenario.reactivate.afterMinutes, scenario: scenario.name }
+        : null,
+    };
+  }
+
+  /** After a scenario's handoff: its follow-up task (for whoever got the chat) and its tags. Failures don't undo the handoff. */
+  private async afterScenarioHandoff(scope: { orgId: string }, conv: ConversationRow, scenario: HandoffScenario, reason: string) {
+    const log = this.deps.logger.child({ conversationId: conv.id, scenario: scenario.name });
+    if (scenario.createTask) {
+      await this.deps.contacts
+        .createTask(scope, {
+          title: `Follow up: ${scenario.name}`,
+          description: `The assistant handed this conversation over. ${reason}`,
+          contactId: conv.contactId,
+          conversationId: conv.id,
+          assigneeUserId: conv.assignedUserId,
+          // As in GHL: due a day after the handover.
+          dueAt: new Date(this.now().getTime() + 24 * 3_600_000),
+          priority: 'normal',
+          createdBy: 'ai',
+        })
+        .catch((err) => log.error({ err }, 'handover task could not be created'));
+    }
+    if (scenario.tags.length) {
+      await this.deps.contacts
+        .addTags(scope, conv.contactId, scenario.tags, { addedBy: 'ai', allowCreate: true })
+        .catch((err) => log.error({ err }, 'handover tags could not be added'));
+    }
   }
 
   private async finishRun(

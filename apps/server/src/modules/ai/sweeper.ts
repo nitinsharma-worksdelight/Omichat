@@ -57,6 +57,10 @@ export class UnansweredSweeper {
                   select 1 from messages t
                   where t.conversation_id = c.id and t.id::text = a.metadata ->> 'answersThrough' and t.created_at >= m.created_at))
           )
+          -- A message that arrived while the assistant was stopped (Stop Bot) is never answered later.
+          and not (
+            (c.metadata -> 'aiStop') is not null
+            and ((c.metadata -> 'aiStop' ->> 'until') is null or m.created_at <= (c.metadata -> 'aiStop' ->> 'until')::timestamptz))
           and not exists (
             select 1 from ai_runs r
             where r.conversation_id = c.id and r.trigger_message_id = m.id and r.created_at > ${attempted}::timestamptz)

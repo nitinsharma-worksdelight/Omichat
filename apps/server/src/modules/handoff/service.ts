@@ -1,7 +1,7 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { rowsOf, schema, type Db } from '../../db/client';
 import type { TenantDb } from '../../db/tenant';
-import { HandoffSchema } from '../bots/config';
+import { HandoffFallbackSchema } from '../bots/config';
 import { recordEvent } from '../automation/events';
 import type { ConversationsService } from '../conversations/service';
 import { notice } from '../conversations/pending';
@@ -65,9 +65,71 @@ export class HandoffWatcher {
     return claimed.length;
   }
 
+  /**
+   * Handover scenarios with "Reactivate bot after": the assistant takes a handed-off chat back once its time is up,
+   * unless the team replied within the last `reactivateAfterMinutes` (then it waits that long after their latest reply).
+   */
+  async reactivateDue(): Promise<number> {
+    const now = this.clock();
+    const due = rowsOf<{ id: string; organization_id: string }>(
+      await this.db.execute(sql`
+        select c.id, c.organization_id from conversations c
+        where c.status = 'human_active' and (c.metadata ->> 'reactivateAt') is not null
+          and (c.metadata ->> 'reactivateAt')::timestamptz <= ${now.toISOString()}::timestamptz
+        order by (c.metadata ->> 'reactivateAt')::timestamptz
+        limit 100`),
+    );
+    let reactivated = 0;
+    for (const row of due) {
+      try {
+        if (await this.reactivate(row.organization_id, row.id, now)) reactivated++;
+      } catch (err) {
+        this.logger.error({ err, conversationId: row.id }, 'handover reactivation failed');
+      }
+    }
+    return reactivated;
+  }
+
+  private async reactivate(orgId: string, conversationId: string, now: Date): Promise<boolean> {
+    const c = schema.conversations;
+    const m = schema.messages;
+    const decision = await this.tenantDb.run(orgId, async (tx) => {
+      const [conv] = await tx.select().from(c).where(eq(c.id, conversationId)).for('update');
+      const at = typeof conv?.metadata.reactivateAt === 'string' ? Date.parse(conv.metadata.reactivateAt) : NaN;
+      if (!conv || conv.status !== 'human_active' || !Number.isFinite(at) || at > now.getTime()) return 'skip' as const;
+      const minutes = Number(conv.metadata.reactivateAfterMinutes) || 0;
+      const [lastStaff] = await tx
+        .select({ at: m.createdAt })
+        .from(m)
+        .where(and(eq(m.conversationId, conv.id), eq(m.senderType, 'human')))
+        .orderBy(desc(m.createdAt))
+        .limit(1);
+      const quietSince = lastStaff ? lastStaff.at.getTime() + minutes * 60_000 : 0;
+      if (quietSince > now.getTime()) {
+        // The team is talking to them: try again once they've been quiet for the full time.
+        await tx
+          .update(c)
+          .set({ metadata: sql`${c.metadata} || ${JSON.stringify({ reactivateAt: new Date(quietSince).toISOString() })}::jsonb` })
+          .where(eq(c.id, conv.id));
+        return 'later' as const;
+      }
+      return { minutes, scenario: typeof conv.metadata.handoffScenario === 'string' ? conv.metadata.handoffScenario : null };
+    });
+    if (decision === 'skip' || decision === 'later') return false;
+    const hours = decision.minutes % 60 === 0 ? `${decision.minutes / 60} hour${decision.minutes === 60 ? '' : 's'}` : `${decision.minutes} minutes`;
+    // Back with the assistant: it answers anything the customer wrote that nobody replied to.
+    await this.conversations.setStatus({ orgId }, conversationId, 'ai_active', {
+      actor: 'system',
+      reason: `Reactivated after ${hours}${decision.scenario ? ` (${decision.scenario})` : ''}`,
+      onlyFrom: ['human_active'],
+    });
+    await this.onEvent();
+    return true;
+  }
+
   private async escalate(row: OverdueRow): Promise<void> {
     const scope = { orgId: row.organization_id };
-    const fallback = HandoffSchema.shape.fallback.catch('keep_waiting').parse(row.fallback);
+    const fallback = HandoffFallbackSchema.catch('keep_waiting').parse(row.fallback);
     const c = schema.conversations;
     // Claimed a moment ago, but a person may have replied, closed it or taken it back since: look again with the row
     // locked, and only then alert. A retry after a failed fallback doesn't alert twice.

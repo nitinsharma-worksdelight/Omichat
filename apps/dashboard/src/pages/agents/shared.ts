@@ -50,7 +50,8 @@ export function newAgentName(now = new Date()): string {
 /** The first choice when creating an agent. */
 export type AgentKind = 'qa' | 'booking' | 'market' | 'scratch';
 
-export const AGENT_KINDS: Array<{ id: AgentKind; title: string; description: string }> = [
+/** `hidden`: kept but not offered (Marketplace Templates hidden on request, 2026-10-13; the Agent Templates tab has the templates). */
+export const AGENT_KINDS: Array<{ id: AgentKind; title: string; description: string; hidden?: boolean }> = [
   {
     id: 'qa',
     title: 'General Q&A',
@@ -63,7 +64,7 @@ export const AGENT_KINDS: Array<{ id: AgentKind; title: string; description: str
     description:
       'This agent helps streamline the appointment booking process by assisting users in selecting available slots and confirming appointments. Perfect for businesses with a high volume of scheduling needs.',
   },
-  { id: 'market', title: 'Marketplace Templates', description: 'Discover pre-built agent templates. Get your AI agents up and running in minutes.' },
+  { id: 'market', title: 'Marketplace Templates', description: 'Discover pre-built agent templates. Get your AI agents up and running in minutes.', hidden: true },
   {
     id: 'scratch',
     title: 'Start from Scratch',

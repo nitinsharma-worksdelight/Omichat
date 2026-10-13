@@ -7,8 +7,10 @@ import type { BotConfig, BotConfigSection, CustomApi } from '../../../lib/types'
 import { askedFor, type BotDraft } from '../../bots/editorNav';
 import { BusinessSection, GoalsSection, GuardrailsSection, PersonaSection, StartersSection, type EditorContext, type PersonalityTemplate } from '../../bots/sections';
 import { bookingAbilities } from '../../bots/warnings';
-import { BookingModal, ComingSoonActionModal, ContactInfoModal, HandoverModal, QualificationModal, ToolsModal, WorkflowModal } from './ActionModals';
+import { BookingModal, ComingSoonActionModal, ContactInfoModal, QualificationModal, ToolsModal, WorkflowModal } from './ActionModals';
 import { CustomApiModal } from './CustomApiModal';
+import { HumanHandoverModal } from './HumanHandoverModal';
+import { StopBotModal } from './StopBotModal';
 
 export type PanelId = 'actions' | 'kb' | 'mode' | 'timing' | 'behavior' | 'summary';
 export type ActionId = 'api' | 'booking' | 'workflow' | 'contact' | 'stop' | 'handover' | 'transfer' | 'followup' | 'qualification' | 'tools';
@@ -19,7 +21,7 @@ const ACTION_MENU: Array<{ id: ActionId; label: string; more?: boolean; hidden?:
   { id: 'booking', label: 'Appointment Booking' },
   { id: 'workflow', label: 'Trigger a Workflow' },
   { id: 'contact', label: 'Contact Info' },
-  { id: 'stop', label: 'Stop Bot', hidden: true },
+  { id: 'stop', label: 'Stop Bot' },
   { id: 'handover', label: 'Human Handover' },
   { id: 'transfer', label: 'Transfer Bot', hidden: true },
   { id: 'followup', label: 'Auto Followup', hidden: true },
@@ -27,7 +29,7 @@ const ACTION_MENU: Array<{ id: ActionId; label: string; more?: boolean; hidden?:
   { id: 'tools', label: 'Tools, CRM & approvals', more: true },
 ];
 /** Not on the platform yet: hidden from the menu on request (2026-10-10), kept so they can be switched back on. */
-const SOON = new Set<ActionId>(['stop', 'transfer', 'followup']);
+const SOON = new Set<ActionId>(['transfer', 'followup']);
 
 type Sub = 'persona' | 'goals' | 'business' | 'guardrails' | 'starters';
 
@@ -81,17 +83,45 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
       rows.push({ key: `api-${a.id ?? i}`, label: `API Call: ${a.name}`, summary: `${a.method} ${host}${a.askFirst ? ' · asks the team first' : ''}`, open: () => openAction('api', i), off: !a.enabled });
     });
     if (config.booking.enabled) {
-      const cal = ctx.calendars.find((c) => c.id === config.booking.calendarId);
+      const b = config.booking;
+      const cal = ctx.calendars.find((c) => c.id === b.calendarId);
       rows.push({
         key: 'booking',
         label: 'Appointment Booking',
-        summary: `${cal ? cal.name : 'No calendar'}${config.actions.askFirst.includes('book_appointment') ? ' · asks the team first' : ''}`,
+        summary: [
+          cal ? cal.name : 'No calendar',
+          b.linkOnly && 'sends the booking link',
+          config.actions.askFirst.includes('book_appointment') && 'asks the team first',
+          b.pauseAfterBooking && 'pauses after booking',
+          b.triggerWorkflows && 'runs workflows',
+          b.transferEmployee && 'transfers to a team member',
+        ]
+          .filter(Boolean)
+          .join(' · '),
         open: () => openAction('booking'),
       });
     }
     if (config.actions.workflowKeys.length) rows.push({ key: 'workflow', label: 'Trigger a Workflow', summary: config.actions.workflowKeys.join(', '), open: () => openAction('workflow') });
     if (config.leadCapture.enabled) rows.push({ key: 'contact', label: 'Contact Info', summary: askedFor(config.leadCapture, ctx.customFields) ?? 'Saves details when shared.', open: () => openAction('contact') });
-    if (config.handoff.enabled) rows.push({ key: 'handover', label: 'Human Handover', summary: `On request${config.handoff.notifyTeam ? ' · notifies the team' : ''}`, open: () => openAction('handover') });
+    if (config.actions.stopScenarios.length) {
+      const on = config.actions.stopScenarios.filter((x) => x.enabled);
+      rows.push({
+        key: 'stop',
+        label: 'Stop Bot',
+        summary: on.length ? `${on.map((x) => x.name).join(', ')}` : `${config.actions.stopScenarios.length} scenario${config.actions.stopScenarios.length === 1 ? '' : 's'}, all off`,
+        open: () => openAction('stop'),
+        off: on.length === 0,
+      });
+    }
+    if (config.handoff.enabled) {
+      const on = config.handoff.scenarios.filter((x) => x.enabled);
+      rows.push({
+        key: 'handover',
+        label: 'Human Handover',
+        summary: on.map((x) => x.name).join(', '),
+        open: () => openAction('handover'),
+      });
+    }
     if (config.qualification.enabled) rows.push({ key: 'qualification', label: 'Lead Qualification', summary: `${config.qualification.questions.length} question${config.qualification.questions.length === 1 ? '' : 's'}`, open: () => openAction('qualification') });
     const a = config.actions;
     const crm = [a.lifecycleStages.length && 'stages', a.owners.length && 'owners', a.removeTags && 'tags', a.deals.enabled && 'deals', a.askFirst.length && 'approvals', a.disabledTools.length && `${a.disabledTools.length} tools off`].filter(Boolean);
@@ -222,9 +252,14 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
               checked={config.handoff.respectTeamHours}
               onChange={(v) => setConfig('handoff', { ...config.handoff, respectTeamHours: v })}
             />
+            {config.handoff.respectTeamHours && (
+              <Field label="Away message" hint="Sent instead of the scenario's final message when a chat is handed over outside team hours.">
+                <Textarea rows={2} maxLength={500} value={config.handoff.awayMessage} onChange={(e) => setConfig('handoff', { ...config.handoff, awayMessage: e.target.value })} />
+              </Field>
+            )}
           </>
         ) : (
-          <p className="text-caption text-muted">Turn on Human Handover (Actions) to set what happens when the team doesn't answer in time.</p>
+          <p className="text-caption text-muted">Turn on a Human Handover scenario (Actions) to set what happens when the team doesn't answer in time.</p>
         )}
       </Panel>
 
@@ -347,7 +382,7 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
         }}
         onClose={close}
       />
-      <HandoverModal
+      <HumanHandoverModal
         open={action === 'handover'}
         value={config.handoff}
         ctx={ctx}
@@ -379,7 +414,17 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
         }}
         onClose={close}
       />
-      <ComingSoonActionModal which={action && SOON.has(action) ? (action as 'stop' | 'transfer' | 'followup') : null} onClose={close} />
+      <StopBotModal
+        open={action === 'stop'}
+        scenarios={config.actions.stopScenarios}
+        tagSuggestions={ctx.tags.map((t) => t.name)}
+        onApply={(stopScenarios) => {
+          setConfig('actions', { ...config.actions, stopScenarios });
+          close();
+        }}
+        onClose={close}
+      />
+      <ComingSoonActionModal which={action && SOON.has(action) ? (action as 'transfer' | 'followup') : null} onClose={close} />
 
       <Drawer
         open={sub !== null}

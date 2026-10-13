@@ -16,7 +16,10 @@ export function toDraft(bot: Bot): BotDraft {
   };
 }
 
-export const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** Key order doesn't count: an editor that rebuilds an object with the same values hasn't changed it. */
+const sorted = (_key: string, v: unknown) =>
+  v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v;
+export const same = (a: unknown, b: unknown) => JSON.stringify(a, sorted) === JSON.stringify(b, sorted);
 
 /** Only what changed: top-level fields plus whole config sections (the server replaces a section wholesale). */
 export function buildPatch(base: BotDraft, draft: BotDraft): Record<string, unknown> {

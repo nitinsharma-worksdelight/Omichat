@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { ChannelType, WorkflowInputField } from '../../db/schema';
 import type { BotView } from '../bots/service';
-import type { CustomApi, ToolKey } from '../bots/config';
+import type { CustomApi, StopScenario, ToolKey } from '../bots/config';
 
 /** Everything a tool may act on. Identity fields come from the server, never from model output. */
 export interface ToolContext {
@@ -15,7 +15,10 @@ export interface ToolContext {
   orgTimezone: string;
   now: Date;
   setContactId(id: string): void;
-  requestHandoff(reason: string): void;
+  /** `scenario`: the name of the handover scenario that matched, whose settings then apply. */
+  requestHandoff(reason: string, scenario?: string): void;
+  /** The assistant stops replying here (Stop Bot): this turn sends only `message` (when not empty), then goes quiet. */
+  requestStop(message: string): void;
   /** `internal`: bookkeeping the customer doesn't need to see (staff still do). */
   activity(label: string, opts?: { internal?: boolean }): Promise<void>;
   /** Posts a message of the server's own right after the model's reply (e.g. a consent question, verbatim). */
@@ -38,6 +41,11 @@ export interface ToolSchemaContext {
   owners: Array<{ id: string; name: string }>;
   /** The pipeline the deal actions work in; null when they're off. */
   pipeline: { id: string; name: string; stages: Array<{ id: string; name: string }> } | null;
+}
+
+/** The Stop Bot scenarios that are switched on. */
+export function enabledStops(ctx: Pick<ToolSchemaContext, 'bot'>): StopScenario[] {
+  return ctx.bot.config.actions.stopScenarios.filter((s) => s.enabled);
 }
 
 /** The custom APIs the assistant may call (switched on, in the bot's order). */

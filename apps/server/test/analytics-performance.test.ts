@@ -79,7 +79,7 @@ describe('analytics performance', () => {
     const p = await perf();
     expect(p.handoffs).toMatchObject({ total: 4, byAi: 3, takenOverByStaff: 1, answered: 2, unanswered: 1 });
     expect(p.handoffs.firstReplySeconds).toEqual({ median: 1200, p90: 1680 });
-    expect(p.handoffs.reasons[0]).toEqual({ reason: 'Customer asked for a person', count: 3 });
+    expect(p.handoffs.reasons[0]).toEqual({ reason: 'Human Requested: Customer asked for a person', count: 3 });
     expect(p.handoffRate).toBe(1);
   });
 

@@ -1243,59 +1243,31 @@ export function BookingSection({ value, onChange, ctx }: SectionProps<Booking>) 
 
 // ---------- Handoff ----------
 
-export function HandoffSection({ value, onChange, ctx }: SectionProps<Handoff>) {
-  const set = <K extends keyof Handoff>(key: K, v: Handoff[K]) => onChange({ ...value, [key]: v });
+/**
+ * Human Handover is set up with scenarios in the agent editor (Actions → Human Handover), and its timing under Timing &
+ * Pacing. This full editor only says what's on and where to change it, so nothing is set in two places.
+ */
+export function HandoffSection({ value, botId }: { value: Handoff; botId: string }) {
+  const on = value.scenarios.filter((s) => s.enabled);
   return (
-    <FeatureCard
-      title="Allow handoff"
-      setting="handoff.enabled"
-      checked={value.enabled}
-      onChange={(v) => set('enabled', v)}
-      summary={
-        value.enabled
-          ? `Hands the chat to your team when asked${value.notifyTeam ? ', and tells them' : ''}. ${capitalize(ctx.assistantName)} can also decide to hand over.`
-          : "Visitors can't reach a person through the chat."
-      }
-    >
-      <Setting id="handoff.keywords">
-        <Field label="Trigger phrases" hint="If a visitor's message contains one of these, the chat goes straight to a human.">
-          <ChipsInput value={value.keywords} onChange={(keywords) => set('keywords', keywords.filter((k) => k.length >= 2))} placeholder="talk to a human" />
-        </Field>
-      </Setting>
-      <Setting id="handoff.message">
-        <Field label="Handoff message" hint="Sent to the visitor when the conversation is handed over.">
-          <Textarea rows={3} maxLength={500} value={value.message} onChange={(e) => set('message', e.target.value)} />
-        </Field>
-      </Setting>
-      <Setting id="handoff.notifyTeam">
-        <Toggle label="Notify the team" description="In-app notification plus email to your notification addresses." checked={value.notifyTeam} onChange={(v) => set('notifyTeam', v)} />
-      </Setting>
-      <Setting id="handoff.waitMinutes">
-        <Field label="If nobody replies" hint="Minutes to wait after a handoff before alerting the team again and doing what's chosen below. 0 means never.">
-          <NumberInput min={0} max={1440} step={1} value={value.waitMinutes} onChange={(v) => set('waitMinutes', v ?? 0)} />
-        </Field>
-        <Field label="Then" hint={`Both "take back" options hand the chat back to ${capitalize(ctx.assistantName)}; your team can still take it over again.`}>
-          <Select value={value.fallback} disabled={value.waitMinutes === 0} onChange={(e) => set('fallback', e.target.value as Handoff['fallback'])}>
-            <option value="keep_waiting">Keep waiting (just alert the team)</option>
-            <option value="resume_ai">Tell the visitor and let the assistant keep helping</option>
-            <option value="ask_contact_details">Ask for email or phone and let the assistant keep helping</option>
-          </Select>
-        </Field>
-      </Setting>
-      <Setting id="handoff.respectTeamHours">
-        <Toggle
-          label="Use the away message outside team hours"
-          description="Team hours are set in Settings → Organization."
-          checked={value.respectTeamHours}
-          onChange={(v) => set('respectTeamHours', v)}
-        />
-        {value.respectTeamHours && (
-          <Field label="Away message" hint="Sent instead of the handoff message when your team is away.">
-            <Textarea rows={3} maxLength={500} value={value.awayMessage} onChange={(e) => set('awayMessage', e.target.value)} />
-          </Field>
+    <SettingsCard title="Human Handover" description="Scenarios decide when the chat goes to a person, to whom, and what the customer is told.">
+      <p className="text-body-sm text-fg-2">
+        {on.length ? (
+          <>
+            <span className="font-semibold text-success-text">On</span> · {on.map((s) => s.name).join(', ')}
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-fg-2">Off</span> · no scenario is switched on, so the assistant doesn't hand chats to your team (an error or the monthly budget still
+            does).
+          </>
         )}
-      </Setting>
-    </FeatureCard>
+      </p>
+      <Link to={`/bots/${botId}?setup=handover`} className="inline-block text-body-sm font-medium text-accent-text hover:underline">
+        Set up scenarios in the agent editor → Actions → Human Handover
+      </Link>
+      <p className="text-caption text-muted">Waiting for a reply, the away message and team hours are under Timing &amp; Pacing there.</p>
+    </SettingsCard>
   );
 }
 
@@ -1416,7 +1388,7 @@ export function StartersSection({
               </div>
               {s.enabled && s.action === 'handoff' && !handoffEnabled && (
                 <p className="pl-9 text-caption text-warning-text">
-                  Human handoff is off (Handoff tab), so this starter can't be saved as shown. Turn handoff on, choose “Send the message”, or hide it.
+                  No Human Handover scenario is on, so this starter can't be saved as shown. Turn on Human Requested (Actions → Human Handover), choose “Send the message”, or hide it.
                 </p>
               )}
               {s.enabled && starterProblem(s, booking) && <p className="pl-9 text-caption text-warning-text">{starterProblem(s, booking)}</p>}

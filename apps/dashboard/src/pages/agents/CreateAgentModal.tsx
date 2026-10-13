@@ -74,8 +74,8 @@ export function CreateAgentModal({ open, onClose, initialTemplate }: { open: boo
     >
       {create.error ? <ErrorBanner className="mb-4" error={create.error} title="We couldn't create the agent." /> : null}
       {step === 'choose' ? (
-        <div role="radiogroup" aria-label="Agent type" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {AGENT_KINDS.map((k) => {
+        <div role="radiogroup" aria-label="Agent type" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {AGENT_KINDS.filter((k) => !k.hidden).map((k) => {
             const checked = kind === k.id;
             return (
               <label

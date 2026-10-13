@@ -213,6 +213,7 @@ export const TOOL_KEYS = [
   'create_deal',
   'update_deal',
   'call_api',
+  'stop_bot',
 ] as const;
 export type ToolKey = (typeof TOOL_KEYS)[number];
 /** Turned on through their own settings (stages, owners, removing tags, deals), not the tool switches. */
@@ -334,18 +335,51 @@ export interface Booking {
   requireQualification: boolean;
   allowReschedule: boolean;
   allowCancel: boolean;
+  /** "Don't book appointment (only send the booking link)". */
+  linkOnly: boolean;
+  bookingLink: string;
+  /** "Pause bot responses after booking": the assistant confirms, then stays quiet until staff resume it. */
+  pauseAfterBooking: boolean;
+  /** "Trigger workflow after booking". */
+  triggerWorkflows: boolean;
+  workflowKeys: string[];
+  /** "Transfer Employee post appointment booking": the conversation is assigned to this member. */
+  transferEmployee: boolean;
+  transferUserId: string | null;
 }
 
+/** Human Handover: everything is a scenario. `enabled` and `keywords` are worked out by the server from them. */
 export interface Handoff {
+  /** Read-only: a scenario is switched on. */
   enabled: boolean;
+  /** Read-only: Human Requested's example phrases while it is on; they hand over at once, without the AI. */
   keywords: string[];
-  message: string;
-  notifyTeam: boolean;
   /** Minutes after a handoff before the team is alerted and `fallback` runs; 0 = never. */
   waitMinutes: number;
   fallback: HandoffFallback;
   respectTeamHours: boolean;
   awayMessage: string;
+  scenarios: HandoffScenario[];
+}
+
+export type HandoffPreset = 'human_requested' | 'lack_of_information' | 'failed_to_resolve';
+
+/** One Human Handover scenario: when the chat goes to a person, to whom, what the customer is told, and what follows. */
+export interface HandoffScenario {
+  /** Assigned by the server on first save. */
+  id?: string;
+  /** Which ready-made scenario it started as; null for the business's own. */
+  preset: HandoffPreset | null;
+  enabled: boolean;
+  name: string;
+  condition: string;
+  examples: string[];
+  /** The team member who gets the chat; null = the usual rules (whoever had it, else the customer's owner). */
+  assignTo: string | null;
+  finalMessage: string;
+  reactivate: { enabled: boolean; afterMinutes: number };
+  createTask: boolean;
+  tags: string[];
 }
 
 export type HandoffFallback = 'keep_waiting' | 'resume_ai' | 'ask_contact_details';
@@ -376,6 +410,29 @@ export interface Actions {
   askFirst: AskFirstTool[];
   /** HTTP APIs the assistant may call (the "API Call" action). */
   customApis: CustomApi[];
+  /** Situations in which the assistant stops replying in a conversation (the "Stop Bot" action). */
+  stopScenarios: StopScenario[];
+}
+
+/** One Stop Bot scenario: when the assistant goes quiet, what it says last, and what happens to the contact. */
+export interface StopScenario {
+  /** Assigned by the server on first save. */
+  id?: string;
+  enabled: boolean;
+  name: string;
+  condition: string;
+  examples: string[];
+  finalMessage: string;
+  reactivate: { enabled: boolean; afterMinutes: number };
+  tags: string[];
+}
+
+/** On a conversation (`metadata.aiStop`) while the assistant is stopped in it. */
+export interface AiStop {
+  scenarioName: string;
+  at: string;
+  /** When it starts again, or null: until the team resume it. */
+  until: string | null;
 }
 
 export type CustomApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -1010,6 +1067,8 @@ export const EVENT_TYPES = [
   'conversation.started',
   'conversation.handoff_requested',
   'conversation.resumed_by_ai',
+  'conversation.bot_stopped',
+  'conversation.bot_restarted',
   'conversation.handoff_overdue',
   'conversation.assigned',
   'conversation.unanswered',

@@ -324,6 +324,7 @@ export class ApprovalsService {
       },
       // Ask-first actions don't hand off, stream progress or post follow-up messages.
       requestHandoff: () => {},
+      requestStop: () => {},
       activity: async () => {},
       postAfterReply: () => {},
       schema: schemaCtx,

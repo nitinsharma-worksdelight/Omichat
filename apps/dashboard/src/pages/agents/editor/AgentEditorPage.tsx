@@ -54,7 +54,7 @@ export function AgentEditorPage({ botId }: { botId: string }) {
   const [testOpen, setTestOpen] = useState(false);
   const setup = route.query.get('setup');
   const [panel, setPanel] = useState<PanelId | null>(setup === 'kb' ? 'kb' : 'actions');
-  const [startAction, setStartAction] = useState<ActionId | null>(setup === 'booking' ? 'booking' : null);
+  const [startAction, setStartAction] = useState<ActionId | null>(setup === 'booking' ? 'booking' : setup === 'handover' ? 'handover' : null);
   const tab = route.query.get('tab') === 'deploy' ? 'deploy' : 'build';
   const documents = useQueries({
     queries: (draft?.knowledgeBaseIds ?? []).map((id) => ({ queryKey: ['documents', id], queryFn: () => get<KbDocument[]>(`/v1/knowledge-bases/${id}/documents`) })),

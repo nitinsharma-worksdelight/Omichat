@@ -229,6 +229,10 @@ export function describeEvent(e: EventItem): string {
       return `Handed to a human${p.reason ? ` — ${str(p.reason)}` : ''}`;
     case 'conversation.resumed_by_ai':
       return 'AI resumed the conversation';
+    case 'conversation.bot_stopped':
+      return `AI stopped replying${p.scenario ? ` (${str(p.scenario)})` : ''}${p.until ? `, until ${formatDateTime(str(p.until))}` : ', until the team resumes it'}`;
+    case 'conversation.bot_restarted':
+      return e.actor === 'user' ? 'The team restarted the AI' : 'The AI started replying again (its time was up)';
     case 'conversation.closed':
       return 'Conversation closed';
     case 'conversation.reopened':
@@ -309,4 +313,5 @@ export const TOOL_LABELS: Record<string, { label: string; description: string }>
   create_deal: { label: 'Create deal', description: 'Open a deal for the contact (one open deal each).' },
   update_deal: { label: 'Update deal', description: 'Move the contact’s deal, change its value or close date, or (if allowed) mark it won or lost.' },
   call_api: { label: 'Call API', description: 'Call one of the APIs set up under Actions → API Call.' },
+  stop_bot: { label: 'Stop bot', description: 'Stop replying when one of the Stop Bot scenarios happens (e.g. the customer says goodbye).' },
 };

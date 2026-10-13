@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import type { ChannelType } from '../../db/schema';
-import { fillCustomValues, STANDARD_LEAD_FIELDS, type BotConfig } from '../bots/config';
+import { activeHandoffScenarios, fillCustomValues, STANDARD_LEAD_FIELDS, type BotConfig } from '../bots/config';
 import type { BotView } from '../bots/service';
 import type { ContactDetail } from '../contacts/service';
 import type { RetrievedChunk } from '../knowledge/service';
@@ -86,9 +86,11 @@ export function buildSystemPrompt(
   // What the bot can actually do this turn. Without a tool list, its settings decide.
   const active = new Set(input.activeTools ?? []);
   const has = (tool: string, fallback: boolean) => (input.activeTools ? active.has(tool) : fallback);
-  const canBook = has('book_appointment', c.booking.enabled);
-  const canMove = canBook && has('reschedule_appointment', c.booking.allowReschedule);
-  const canCancel = canBook && has('cancel_appointment', c.booking.allowCancel);
+  const canBook = has('book_appointment', c.booking.enabled && !c.booking.linkOnly);
+  // "Only send the booking link": the customer books through the link; changes still work here when allowed.
+  const sendsLink = !canBook && c.booking.enabled && c.booking.linkOnly && Boolean(c.booking.calendarId && c.booking.bookingLink);
+  const canMove = (canBook || sendsLink) && has('reschedule_appointment', c.booking.allowReschedule);
+  const canCancel = (canBook || sendsLink) && has('cancel_appointment', c.booking.allowCancel);
 
   sections.push(
     `You are ${p.assistantName}, the ${p.role} for ${company}. You chat with ${company}'s customers and prospects on its behalf.`,
@@ -100,6 +102,7 @@ export function buildSystemPrompt(
   if (c.leadCapture.enabled) goals.push('Capture the contact details the business needs, naturally and without being pushy.');
   if (c.qualification.enabled && c.qualification.questions.length) goals.push('Qualify leads by working the qualification questions into the conversation.');
   if (canBook) goals.push(`Book appointments (${c.booking.appointmentTitle}) for customers who want one.`);
+  if (sendsLink) goals.push('Send the booking link to customers who want an appointment.');
   if (c.handoff.enabled) goals.push('Hand the conversation to the human team when that serves the customer better.');
   sections.push(
     `## Your goals\n${goals.map((g) => `- ${g}`).join('\n')}${
@@ -207,15 +210,21 @@ export function buildSystemPrompt(
     : c.handoff.enabled
       ? 'hand the conversation to the team with transfer_to_human'
       : 'suggest they contact the business directly';
+  const changes =
+    canMove && canCancel
+      ? '- To change or cancel a booking: call list_my_appointments, confirm with the customer, then reschedule_appointment or cancel_appointment.'
+      : canMove
+        ? `- To change a booking: call list_my_appointments, confirm with the customer, then reschedule_appointment. You can't cancel bookings in this chat: never say one is cancelled; to cancel, ${toTeam}.`
+        : canCancel
+          ? `- To cancel a booking: call list_my_appointments, confirm with the customer, then cancel_appointment. You can't move bookings in this chat: never say one is moved; to change the time, ${toTeam}.`
+          : `- You can't move or cancel bookings in this chat: never say one is moved or cancelled. For a change or cancellation, ${toTeam}.`;
+  const tooClose =
+    !canMove && !canCancel
+      ? ''
+      : c.handoff.enabled
+        ? "- If a change or cancellation is refused because it's too close to the appointment, explain the policy and offer to connect them with the team (transfer_to_human). Don't promise the change."
+        : "- If a change or cancellation is refused because it's too close to the appointment, explain the policy and suggest they contact the business directly. Don't promise the change.";
   if (canBook) {
-    const changes =
-      canMove && canCancel
-        ? '- To change or cancel a booking: call list_my_appointments, confirm with the customer, then reschedule_appointment or cancel_appointment.'
-        : canMove
-          ? `- To change a booking: call list_my_appointments, confirm with the customer, then reschedule_appointment. You can't cancel bookings in this chat: never say one is cancelled; to cancel, ${toTeam}.`
-          : canCancel
-            ? `- To cancel a booking: call list_my_appointments, confirm with the customer, then cancel_appointment. You can't move bookings in this chat: never say one is moved; to change the time, ${toTeam}.`
-            : `- You can't move or cancel bookings in this chat: never say one is moved or cancelled. For a change or cancellation, ${toTeam}.`;
     sections.push(
       [
         '## Booking appointments',
@@ -231,11 +240,19 @@ export function buildSystemPrompt(
         '- After booking, confirm the date, time and timezone back to the customer.',
         '- Never say a confirmation email is on its way unless book_appointment returned customer_confirmation_sent: true; then you can say it went to the address it gives. The same goes for change and cancellation emails (customer_update_email_sent, customer_cancellation_email_sent). Never say a text message was sent.',
         changes,
-        !canMove && !canCancel
-          ? ''
-          : c.handoff.enabled
-            ? "- If a change or cancellation is refused because it's too close to the appointment, explain the policy and offer to connect them with the team (transfer_to_human). Don't promise the change."
-            : "- If a change or cancellation is refused because it's too close to the appointment, explain the policy and suggest they contact the business directly. Don't promise the change.",
+        tooClose,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
+  } else if (sendsLink) {
+    sections.push(
+      [
+        '## Booking appointments',
+        `- When a customer wants an appointment, send them this booking link so they can pick a time and book: ${c.booking.bookingLink}`,
+        "- You can't book in this chat or see open times: never offer times as available, and never say an appointment is booked.",
+        changes,
+        tooClose,
       ]
         .filter(Boolean)
         .join('\n'),
@@ -255,7 +272,8 @@ export function buildSystemPrompt(
     sections.push(
       [
         '## Handing off to a person',
-        'Call transfer_to_human when the customer asks for a person, is upset or complaining, raises a refund, billing, legal or safety issue, or when you cannot help after a genuine attempt. Then tell them a team member will reply here.',
+        "Hand the conversation to the team in these situations the business set up, even where other guidance here says otherwise (for example, what to do when you don't know an answer). When one happens, call transfer_to_human with its name as scenario, and write nothing else:",
+        ...activeHandoffScenarios(c).map((s) => `- ${s.name}: ${s.condition}`),
       ].join('\n'),
     );
   }
@@ -627,6 +645,8 @@ function describeAction(c: EarlierAction): string | null {
       return `started the "${str(input.workflow_key)}" workflow`;
     case 'call_api':
       return `called the "${str(input.api)}" API`;
+    case 'stop_bot':
+      return `stopped replying ("${str(input.scenario)}")`;
     case 'transfer_to_human':
       return `handed the conversation to the team: ${str(input.reason)}`;
     case 'set_lifecycle_stage':

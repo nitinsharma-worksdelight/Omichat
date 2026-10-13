@@ -2,8 +2,9 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors';
 import type { AutomationService } from '../automation/service';
-import { STANDARD_LEAD_FIELDS } from '../bots/config';
+import { activeHandoffScenarios, STANDARD_LEAD_FIELDS } from '../bots/config';
 import type { ContactsService } from '../contacts/service';
+import type { ConversationsService } from '../conversations/service';
 import type { DealsService, DealView } from '../deals/service';
 import type { KnowledgeService } from '../knowledge/service';
 import { consentVersion, isPlainNo } from '../leads/attribution';
@@ -12,7 +13,8 @@ import { DAY_PARTS, parseLocalStart, weeklyHoursLabel } from '../scheduling/avai
 import { changePolicy, customerTime, type CustomerEmailOutcome } from '../scheduling/notifications';
 import type { SchedulingService } from '../scheduling/service';
 import { checkInputs, type CustomApiService } from './custom-api';
-import { defineTool, enabledApis, type ToolContext, type ToolDefinition, type ToolOutcome, type ToolSchemaContext } from './types';
+import { BOOKED_STOP_ID } from '../ai/stop';
+import { defineTool, enabledApis, enabledStops, type ToolContext, type ToolDefinition, type ToolOutcome, type ToolSchemaContext } from './types';
 
 export interface ToolDeps {
   contacts: ContactsService;
@@ -22,6 +24,7 @@ export interface ToolDeps {
   automation: AutomationService;
   deals: DealsService;
   customApis: CustomApiService;
+  conversations: ConversationsService;
 }
 
 const LOCAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -87,7 +90,7 @@ function contactSummary(c: Awaited<ReturnType<ContactsService['get']>>) {
 }
 
 export function createTools(deps: ToolDeps): ToolDefinition[] {
-  const { contacts, qualification, knowledge, scheduling, automation, deals, customApis } = deps;
+  const { contacts, qualification, knowledge, scheduling, automation, deals, customApis, conversations } = deps;
 
   const saveContactDetails = defineTool({
     key: 'save_contact_details',
@@ -195,11 +198,13 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
       let guidance: string;
       if (result.status === 'qualified') {
         // Without the booking tool the bot can't book, so it never offers to.
-        const canBook = bookingEnabled(ctx.schema) && !ctx.bot.config.actions.disabledTools.includes('book_appointment');
+        const canBook = booksHere(ctx.schema) && !ctx.bot.config.actions.disabledTools.includes('book_appointment');
         guidance = {
           offer_booking: canBook
             ? 'Qualification complete: this lead is a good fit. Offer to book an appointment next.'
-            : 'Qualification complete: this lead is a good fit. Make sure you have their required contact details (never ask for optional ones) so the team can arrange an appointment.',
+            : sendsLink(ctx.schema)
+              ? 'Qualification complete: this lead is a good fit. Offer them the booking link next.'
+              : 'Qualification complete: this lead is a good fit. Make sure you have their required contact details (never ask for optional ones) so the team can arrange an appointment.',
           collect_contact: 'Qualification complete: this lead is a good fit. Make sure you have their required contact details (never ask for optional ones) so the team can follow up.',
           handoff: 'Qualification complete: this lead is a good fit. Transfer the conversation to the team now.',
           none: 'Qualification complete. Continue helping the customer.',
@@ -251,13 +256,56 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
   });
 
   const bookingEnabled = (ctx: ToolSchemaContext) => ctx.bot.config.booking.enabled && Boolean(ctx.bot.config.booking.calendarId);
+  /** "Only send the booking link": the assistant shares the link instead of checking times and booking. */
+  const sendsLink = (ctx: ToolSchemaContext) => bookingEnabled(ctx) && ctx.bot.config.booking.linkOnly;
+  const booksHere = (ctx: ToolSchemaContext) => bookingEnabled(ctx) && !ctx.bot.config.booking.linkOnly;
+
+  /**
+   * The Advanced Options that follow a new booking: run the chosen workflows, give the conversation to the chosen
+   * team member, then pause the assistant. Each is done on its own; one failing doesn't stop the others or the booking.
+   */
+  async function afterBooking(ctx: ToolContext, appointment: { id: string; label: string; timezone: string }): Promise<Record<string, unknown>> {
+    const booking = ctx.bot.config.booking;
+    const done: Record<string, unknown> = {};
+    if (booking.triggerWorkflows) {
+      // Together, so a slow workflow holds up the confirmation by its own time, not by the sum of all of them.
+      await Promise.all(
+        booking.workflowKeys.map(async (key) => {
+          const why = await automation
+            .triggerWorkflow(scope(ctx), {
+              key,
+              inputs: { appointment_id: appointment.id, appointment_time: appointment.label, appointment_timezone: appointment.timezone },
+              contactId: ctx.contactId,
+              conversationId: ctx.conversationId,
+              allowedKeys: booking.workflowKeys,
+            })
+            .then((result) => (result.ok ? null : (result.error ?? 'it failed')))
+            .catch((err: unknown) => (err instanceof Error ? err.message : 'it failed'));
+          if (why) await ctx.activity(`Workflow "${key}" after booking didn't run: ${why}`, { internal: true });
+        }),
+      );
+    }
+    if (booking.transferEmployee && booking.transferUserId) {
+      try {
+        await conversations.assign(scope(ctx), ctx.conversationId, booking.transferUserId, null, { reason: 'appointment_booked' });
+      } catch {
+        await ctx.activity("Couldn't assign the conversation after booking (that person may have left the team)", { internal: true });
+      }
+    }
+    if (booking.pauseAfterBooking) {
+      await conversations.stopBot(scope(ctx), ctx.conversationId, { scenarioId: BOOKED_STOP_ID, scenarioName: 'Appointment booked', until: null, tags: [] });
+      done.bot_paused = true;
+      done.instruction = 'This is your last message in this conversation: confirm the booking and say goodbye. Do not ask further questions.';
+    }
+    return done;
+  }
 
   const checkAvailability = defineTool({
     key: 'check_availability',
     activity: 'Checking availability…',
     description: () =>
       'Look up open appointment slots. Call this before proposing any times, and again whenever the customer asks about a different day or time. Only offer times this returns — never invent availability. To find out whether ONE specific time is free ("is 6 PM available?"), pass it as `time`. To list a part of the day, use time_of_day or from_time/to_time. The list it returns is complete for what was asked: a time that is not in it is not available.',
-    enabled: bookingEnabled,
+    enabled: booksHere,
     schema: () =>
       z.object({
         date_from: z.string().regex(DATE).optional().describe('First day to search, YYYY-MM-DD (calendar timezone). Defaults to today.'),
@@ -400,7 +448,7 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
         'Set customer_confirmed=true only after they confirmed.',
         `If they named the kind of appointment (a check-up, a consultation), pass it as service; otherwise it is titled "${ctx.bot.config.booking.appointmentTitle}".`,
       ].join(' '),
-    enabled: bookingEnabled,
+    enabled: booksHere,
     schema: () =>
       z.object({
         start: z.string().regex(LOCAL_DATETIME).describe('Slot start exactly as returned by check_availability (YYYY-MM-DDTHH:mm, calendar timezone)'),
@@ -441,6 +489,8 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
           createdBy: 'ai',
         });
         const yours = customerTime(result.appointment.startsAt, calendar.timezone, contact.timezone);
+        // Only for a new booking: a retried turn finds the same slot already booked and has done these already.
+        const after = result.duplicate ? {} : await afterBooking(ctx, result.appointment);
         return {
           ok: true,
           data: {
@@ -455,6 +505,7 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
             // True only when a confirmation email is really on its way to the customer's own address.
             ...emailResult('confirmation', result.customerEmail),
             changes_allowed_until: changePolicy(calendar),
+            ...after,
           },
         };
       } catch (err) {
@@ -751,17 +802,53 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
     },
   });
 
+  const stopBot = defineTool({
+    key: 'stop_bot',
+    description: (ctx) =>
+      [
+        'Stop replying in this conversation when one of these situations clearly happens. Only call it when the customer really means it; a question, or a thanks that comes with a new request, is not a reason to stop. Situations:',
+        ...enabledStops(ctx).map((s) => `- "${s.name}": ${s.condition}${s.examples.length ? `. Examples: ${s.examples.map((e) => `"${e}"`).join(', ')}` : ''}`),
+        "After calling it, write nothing else: the business's own final message (if it has one) is sent for you, and you go quiet.",
+      ].join('\n'),
+    enabled: (ctx) => enabledStops(ctx).length > 0,
+    schema: (ctx) => z.object({ scenario: z.enum(enabledStops(ctx).map((s) => s.name) as [string, ...string[]]) }),
+    async run(input, ctx) {
+      const scenario = enabledStops(ctx.schema).find((s) => s.name === input.scenario);
+      if (!scenario) return fail(`"${input.scenario}" isn't a situation you may stop for.`);
+      const until = scenario.reactivate.enabled ? new Date(ctx.now.getTime() + scenario.reactivate.afterMinutes * 60_000) : null;
+      // A retried turn finds the conversation already stopped: it still sends the final message, but tags and logs once.
+      const first = await conversations.stopBot(scope(ctx), ctx.conversationId, { scenarioId: scenario.id!, scenarioName: scenario.name, until, tags: scenario.tags });
+      if (first && scenario.tags.length) {
+        // The business chose these tags, so they're created when they don't exist yet.
+        await contacts.addTags(scope(ctx), ctx.contactId, scenario.tags, { addedBy: 'ai', allowCreate: true }).catch(() => undefined);
+      }
+      ctx.requestStop(scenario.finalMessage);
+      return { ok: true, data: { stopped: true, instruction: 'Do not write anything else. The conversation is over for now.' } };
+    },
+  });
+
   const transferToHuman = defineTool({
     key: 'transfer_to_human',
-    description: () =>
-      'Hand the conversation to a human team member. Call this when the customer asks for a person, is upset or complaining, raises a refund/legal/billing dispute or anything sensitive, or when you cannot help after a genuine attempt. After calling it, tell the customer a team member will reply here.',
+    // On while a Human Handover scenario is (`handoff.enabled` is derived from them).
+    description: (ctx) =>
+      [
+        'Hand the conversation to a human team member in the situations the business set up. When one happens, call this at once with its name as scenario: its own message is sent for you, so write nothing else.',
+        ...activeHandoffScenarios(ctx.bot.config).map((s) => `- "${s.name}": ${s.condition}${s.examples.length ? `. Examples: ${s.examples.map((e) => `"${e}"`).join(', ')}` : ''}`),
+        'Only when other guidance here tells you to connect the customer with the team for something none of these covers, call it without a scenario, then tell them a team member will reply here.',
+      ].join('\n'),
     enabled: (ctx) => ctx.bot.config.handoff.enabled,
-    schema: () => z.object({ reason: z.string().min(3).max(300) }),
+    schema: (ctx) =>
+      z.object({
+        reason: z.string().min(3).max(300),
+        scenario: z.enum(activeHandoffScenarios(ctx.bot.config).map((s) => s.name) as [string, ...string[]]).optional().describe('The situation that matched'),
+      }),
     async run(input, ctx) {
-      ctx.requestHandoff(input.reason);
+      ctx.requestHandoff(input.reason, input.scenario);
       return {
         ok: true,
-        data: { transferred: true, instruction: 'Let the customer know a team member will reply in this chat soon. Do not call further tools.' },
+        data: input.scenario
+          ? { transferred: true, instruction: "Do not write anything else: the business's own message is sent for you." }
+          : { transferred: true, instruction: 'Let the customer know a team member will reply in this chat soon. Do not call further tools.' },
       };
     },
   });
@@ -998,6 +1085,7 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
     notifyTeam,
     triggerWorkflow,
     callApi,
+    stopBot,
     transferToHuman,
     askMarketingConsent,
     recordMarketingConsent,

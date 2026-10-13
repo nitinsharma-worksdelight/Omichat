@@ -11,6 +11,7 @@ import { queryBool } from '../../lib/validation';
 import type { SummaryJob } from '../ai/summary';
 import { recordEvent } from '../automation/events';
 import { trimPageUrl } from '../leads/attribution';
+import { aiStopOf, type AiStop } from '../ai/stop';
 import { pendingInbound } from './pending';
 import type { ChannelRegistry } from '../channels/adapter';
 import { toContactView, type ContactsService } from '../contacts/service';
@@ -456,6 +457,72 @@ export class ConversationsService {
     await this.publish(scope.orgId, { type: 'conversation.assigned', conversationId, assignedUserId: userId });
   }
 
+  /**
+   * The assistant stops replying in this conversation (a Stop Bot scenario matched). The conversation stays the AI's;
+   * staff aren't asked to take over. `until` null = until staff resume it. Returns false when it was already stopped
+   * (a retried turn), so what follows (tags, the event) isn't done twice.
+   */
+  async stopBot(scope: Scope, conversationId: string, stop: { scenarioId: string; scenarioName: string; until: Date | null; tags: string[] }): Promise<boolean> {
+    const stopped = await inScope(this.tenantDb, scope, async (tx) => {
+      const conv = await this.row(tx, scope.orgId, conversationId, { lock: true });
+      // Only the assistant's own conversation: a person who took over (or closed it) a moment ago isn't "stopped".
+      if (conv.status !== 'ai_active') return false;
+      if (aiStopOf(conv.metadata)) return false;
+      const value: AiStop = { scenarioId: stop.scenarioId, scenarioName: stop.scenarioName, at: new Date().toISOString(), until: stop.until?.toISOString() ?? null };
+      await tx
+        .update(schema.conversations)
+        .set({ metadata: sql`${schema.conversations.metadata} || ${JSON.stringify({ aiStop: value })}::jsonb` })
+        .where(eq(schema.conversations.id, conv.id));
+      await recordEvent(tx, {
+        orgId: scope.orgId,
+        type: 'conversation.bot_stopped',
+        actor: 'ai',
+        contactId: conv.contactId,
+        conversationId: conv.id,
+        payload: { scenario: stop.scenarioName, until: value.until, tags: stop.tags },
+      });
+      return true;
+    });
+    if (stopped) {
+      await this.opts.onEventRecorded?.();
+      await this.publish(scope.orgId, { type: 'conversation.status', conversationId, status: 'ai_active' });
+    }
+    return stopped;
+  }
+
+  /** Starts a stopped assistant again (its time was up, or staff resumed it). A no-op when it isn't stopped. */
+  async restartBot(scope: Scope, conversationId: string, by: { actor: 'user' | 'system'; actorUserId?: string; reason: string }): Promise<void> {
+    const cleared = await inScope(this.tenantDb, scope, async (tx) => {
+      const conv = await this.row(tx, scope.orgId, conversationId, { lock: true });
+      if (!aiStopOf(conv.metadata)) return false;
+      await this.clearStop(tx, conv, by);
+      return true;
+    });
+    if (cleared) {
+      await this.opts.onEventRecorded?.();
+      await this.publish(scope.orgId, { type: 'conversation.status', conversationId, status: 'ai_active' });
+    }
+  }
+
+  private async clearStop(tx: Db, conv: ConversationRow, by: { actor: 'user' | 'system'; actorUserId?: string; reason: string }) {
+    const stop = aiStopOf(conv.metadata);
+    const [row] = await tx
+      .update(schema.conversations)
+      .set({ metadata: sql`${schema.conversations.metadata} - 'aiStop'` })
+      .where(eq(schema.conversations.id, conv.id))
+      .returning();
+    await recordEvent(tx, {
+      orgId: conv.organizationId,
+      type: 'conversation.bot_restarted',
+      actor: by.actor,
+      actorUserId: by.actorUserId,
+      contactId: conv.contactId,
+      conversationId: conv.id,
+      payload: { scenario: stop?.scenarioName ?? null, reason: by.reason },
+    });
+    return row!;
+  }
+
   async setStatus(
     scope: Scope,
     conversationId: string,
@@ -470,6 +537,10 @@ export class ConversationsService {
       onlyFrom?: ConversationStatus[];
       /** Staff reopening a closed chat (to `human_active`): its own event, not a handoff, and no new recap. */
       reopen?: boolean;
+      /** A handover scenario's team member, who gets the chat whoever had it before. */
+      assignTo?: string | null;
+      /** A handover scenario's: the assistant takes the chat back then, unless the team replied in the last `afterMinutes`. */
+      reactivate?: { at: Date; afterMinutes: number; scenario: string } | null;
     },
   ) {
     let changed = false;
@@ -478,6 +549,10 @@ export class ConversationsService {
       // sees the first's result and, when it asked for the same status, changes nothing and records no second event.
       const conv = await this.row(tx, scope.orgId, conversationId, { lock: true });
       if (opts.reopen && conv.status !== 'closed') throw conflict('This conversation is not closed');
+      // "Resume AI" on a conversation the assistant stopped itself: it is already the AI's, so only the stop ends.
+      if (conv.status === status && status === 'ai_active' && opts.actor === 'user' && aiStopOf(conv.metadata)) {
+        return this.clearStop(tx, conv, { actor: 'user', actorUserId: opts.actorUserId, reason: 'resumed by staff' });
+      }
       if (conv.status === status) return conv;
       if (opts.onlyFrom && !opts.onlyFrom.includes(conv.status)) return conv;
       if (conv.status === 'closed') {
@@ -500,9 +575,11 @@ export class ConversationsService {
       // Who looks after it: whoever took it over, else whoever already had it, else the customer's owner when they're a
       // member. Handing the chat back to the AI doesn't take it from them (they get it back at the next handoff); only
       // closing it leaves it with nobody.
+      // A scenario's person who has since left the team isn't given the chat: it falls to the usual rules.
+      const scenarioPerson = opts.assignTo && (await this.isMember(tx, scope.orgId, opts.assignTo)) ? opts.assignTo : null;
       const assignee =
         status === 'human_active'
-          ? (opts.actorUserId ?? conv.assignedUserId ?? (await this.memberOwner(tx, scope.orgId, conv.contactId)))
+          ? (scenarioPerson ?? opts.actorUserId ?? conv.assignedUserId ?? (await this.memberOwner(tx, scope.orgId, conv.contactId)))
           : status === 'ai_active'
             ? conv.assignedUserId
             : null;
@@ -521,7 +598,14 @@ export class ConversationsService {
           firstStaffReplyAt: status === 'human_active' && opts.actor === 'user' && !opts.reopen ? new Date() : null,
           handoffEscalatedAt: null,
           // A new handoff (or a return to the AI) starts the overdue alert afresh.
-          metadata: sql`${schema.conversations.metadata} - 'overdueAlerted'`,
+          // (A stop belongs to the AI's conversation, and a planned take-back to one handoff: any change of status ends them.)
+          metadata: opts.reactivate
+            ? sql`(${schema.conversations.metadata} - 'overdueAlerted' - 'aiStop') || ${JSON.stringify({
+                reactivateAt: opts.reactivate.at.toISOString(),
+                reactivateAfterMinutes: opts.reactivate.afterMinutes,
+                handoffScenario: opts.reactivate.scenario,
+              })}::jsonb`
+            : sql`${schema.conversations.metadata} - 'overdueAlerted' - 'aiStop' - 'reactivateAt' - 'reactivateAfterMinutes' - 'handoffScenario'`,
         })
         .where(eq(schema.conversations.id, conv.id))
         .returning();
@@ -554,7 +638,7 @@ export class ConversationsService {
           actor: 'system',
           contactId: conv.contactId,
           conversationId: conv.id,
-          payload: { assignedUserId: assignee, previousUserId: conv.assignedUserId, auto: true },
+          payload: { assignedUserId: assignee, previousUserId: conv.assignedUserId, auto: true, ...(scenarioPerson && assignee === scenarioPerson ? { viaScenario: opts.reactivate?.scenario ?? true } : {}) },
         });
       }
       return row!;
@@ -574,8 +658,11 @@ export class ConversationsService {
     return updated;
   }
 
-  /** Gives the conversation to a team member (or nobody). The new assignee is notified unless they did it themselves. */
-  async assign(scope: Scope, conversationId: string, userId: string | null, actorUserId: string) {
+  /**
+   * Gives the conversation to a team member (or nobody). The new assignee is notified unless they did it themselves.
+   * `actorUserId` null: the assistant did it, for `reason` (after booking an appointment).
+   */
+  async assign(scope: Scope, conversationId: string, userId: string | null, actorUserId: string | null, opts: { reason?: string } = {}) {
     const result = await inScope(this.tenantDb, scope, async (tx) => {
       const conv = await this.row(tx, scope.orgId, conversationId);
       if (userId && !(await this.isMember(tx, scope.orgId, userId))) throw badRequest('That person is not a member of this organization');
@@ -584,11 +671,11 @@ export class ConversationsService {
       await recordEvent(tx, {
         orgId: scope.orgId,
         type: 'conversation.assigned',
-        actor: 'user',
-        actorUserId,
+        actor: actorUserId ? 'user' : 'ai',
+        actorUserId: actorUserId ?? undefined,
         contactId: conv.contactId,
         conversationId: conv.id,
-        payload: { assignedUserId: userId, previousUserId: conv.assignedUserId, auto: false },
+        payload: { assignedUserId: userId, previousUserId: conv.assignedUserId, auto: false, ...(opts.reason ? { reason: opts.reason } : {}) },
       });
       return row!;
     });

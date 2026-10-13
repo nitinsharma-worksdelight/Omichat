@@ -32,6 +32,9 @@ export async function bootstrapOrganization(
   const config = BotConfigSchema.parse({
     persona: { companyName: org.name },
     booking: { enabled: false, calendarId: calendar!.id },
+    // The starter bot hands over as bots always did (Human Requested with the usual trigger phrases, Failed to resolve
+    // issue, Complaint or sensitive issue). Agents created later start with GHL's three scenarios, off.
+    handoff: { enabled: true },
   });
   const [bot] = await tx
     .insert(schema.bots)

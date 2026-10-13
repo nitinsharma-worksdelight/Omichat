@@ -32,7 +32,7 @@ import { Link, navigate } from '../../lib/router';
 import { useLiveEvents } from '../../lib/live';
 import { useSse } from '../../lib/sse';
 import { useAuth } from '../../auth/AuthContext';
-import type { ConversationDetail, ConversationListItem, ConversationStatus, Deal, Message, SummaryRequest, Timeline } from '../../lib/types';
+import type { AiStop, ConversationDetail, ConversationListItem, ConversationStatus, Deal, Message, SummaryRequest, Timeline } from '../../lib/types';
 import { DealDrawer } from '../deals/DealsPage';
 
 const PAGE = 30;
@@ -429,6 +429,12 @@ function Thread({ conversationId }: { conversationId: string }) {
           </div>
         </div>
         <SummaryBar conv={conv} messages={messages.data} canRefresh={canReply} />
+        <StoppedBanner
+          conv={conv}
+          canResume={canReply}
+          resuming={setStatus.isPending && setStatus.variables === 'resume'}
+          onResume={() => setStatus.mutate('resume')}
+        />
         {approvals.data?.length ? (
           <div className="space-y-2 border-b border-border bg-surface px-5 py-3.5">
             {approvals.data.map((a) => (
@@ -768,6 +774,27 @@ function MessageBubble({ message, contactName: name, streaming }: { message: Pic
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The assistant stopped itself in this chat (Stop Bot): says so, until when, and lets the team start it again. */
+function StoppedBanner({ conv, canResume, resuming, onResume }: { conv: ConversationDetail; canResume: boolean; resuming: boolean; onResume: () => void }) {
+  const stop = conv.metadata.aiStop as AiStop | undefined;
+  if (conv.status !== 'ai_active' || !stop?.scenarioName) return null;
+  // A stop whose time is up ends by itself at the customer's next message: nothing to show.
+  if (stop.until && Date.parse(stop.until) <= Date.now()) return null;
+  return (
+    <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-warning-soft px-5 py-2.5">
+      <p className="min-w-0 flex-1 text-body-sm text-warning-text">
+        <b>The AI stopped replying here</b> ({stop.scenarioName}).{' '}
+        {stop.until ? `It starts again on ${formatDateTime(stop.until)}.` : 'It stays quiet until you resume it.'} Messages sent meanwhile are not answered by the AI.
+      </p>
+      {canResume && (
+        <Button size="sm" icon={<Sparkles className="size-3.5 text-ai" />} loading={resuming} onClick={onResume}>
+          Resume AI
+        </Button>
+      )}
     </div>
   );
 }
