@@ -12,6 +12,7 @@ import { Link, navigate, useRoute, withQuery } from '../../lib/router';
 import type { Bot, BotConfig, BotConfigSection, BotPreview, KbDocument } from '../../lib/types';
 import { buildPatch, same, toDraft } from './draft';
 import { EditorOverview, SaveBar, SaveErrors, SectionHeader, SettingsMenu, SettingsSearch, type SettingsTarget } from './editor';
+import { timingProblems } from '../../lib/settingErrors';
 import { businessProblems, CONFIG_SECTIONS, essentials, isEditorView, sectionOfError, SECTIONS, type BotDraft, type EditorView, type SectionId } from './editorNav';
 import { Playground } from './Playground';
 import { bookingAbilities, bookingCalendar, botWarnings } from './warnings';
@@ -162,7 +163,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
   const save = async () => {
     if (!dirty || !draft) return;
     // Checked here first, so the fields to fix are listed (and marked in the menu) without a round trip.
-    const problems = businessProblems(draft.config.business, base?.config.business);
+    const problems = [...businessProblems(draft.config.business, base?.config.business), ...timingProblems(draft.config)];
     if (problems.length) {
       setSaveError(new ApiError(400, 'validation_error', 'Request validation failed', problems));
       return;

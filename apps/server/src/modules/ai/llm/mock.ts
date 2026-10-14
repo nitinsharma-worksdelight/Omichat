@@ -21,6 +21,13 @@ export class MockLlmProvider implements LlmProvider {
     this.info = describeDefaults('mock', defaults);
   }
 
+  /** The models this provider "offers" for `modelExists`; null = it can't tell (the default). */
+  catalog: string[] | null = null;
+
+  async modelExists(model: string): Promise<boolean | null> {
+    return this.catalog ? this.catalog.includes(model) : null;
+  }
+
   setScript(turns: MockTurn[]): void {
     this.script = [...turns];
     this.calls = 0;

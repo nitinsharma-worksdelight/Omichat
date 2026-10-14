@@ -4,6 +4,7 @@ import { Drawer } from '../../../components/overlay';
 import { Badge, Button, cx, Field, Input, NumberInput, Select, Textarea, Toggle } from '../../../components/ui';
 import { Link } from '../../../lib/router';
 import type { BotConfig, BotConfigSection, CustomApi } from '../../../lib/types';
+import { timingFieldError } from '../../../lib/settingErrors';
 import { askedFor, type BotDraft } from '../../bots/editorNav';
 import { BusinessSection, GoalsSection, GuardrailsSection, PersonaSection, StartersSection, type EditorContext, type PersonalityTemplate } from '../../bots/sections';
 import { bookingAbilities } from '../../bots/warnings';
@@ -226,7 +227,7 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
       </Panel>
 
       <Panel id="timing" open={open} onToggle={onToggle} icon={<Clock className="size-4.5" />} title="Timing & Pacing" sub="When the bot replies, and when it stops">
-        <Field label="Max AI replies per conversation" hint="After this, the conversation waits for your team.">
+        <Field label="Max AI replies per conversation" hint="After this, the conversation waits for your team." error={timingFieldError('maxAiReplies', config.guardrails.maxAiRepliesPerConversation)}>
           <NumberInput
             min={1}
             max={500}
@@ -236,7 +237,7 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
         </Field>
         {config.handoff.enabled ? (
           <>
-            <Field label="If nobody answers a handoff (minutes)" hint="Alert the team again after this long. 0 means never.">
+            <Field label="If nobody answers a handoff (minutes)" hint="Alert the team again after this long. 0 means never." error={timingFieldError('waitMinutes', config.handoff.waitMinutes)}>
               <NumberInput min={0} max={1440} value={config.handoff.waitMinutes} onChange={(v) => setConfig('handoff', { ...config.handoff, waitMinutes: Math.round(v ?? 0) })} />
             </Field>
             <Field label="Then">

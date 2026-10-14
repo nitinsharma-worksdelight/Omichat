@@ -3,7 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { ErrorBanner, Input, Select, Skeleton } from '../../components/ui';
 import { get } from '../../lib/api';
-import { formatNumber } from '../../lib/format';
+import { formatNumber, formatNumericDate } from '../../lib/format';
 import { useBots, useChannels, useOrg } from '../../lib/queries';
 import { Link } from '../../lib/router';
 import type { AgentsDashboard as Dashboard, ChannelType } from '../../lib/types';
@@ -11,6 +11,8 @@ import { BarChart, shift, todayIn } from '../analytics/AnalyticsPage';
 import { channelKindName } from './shared';
 
 const NO_DATA = "Data for the selected timeframe isn't available.";
+/** Not every contact in Leads: only the people an AI agent replied to in the period. */
+const CONTACTS_DEFINITION = 'People an AI agent replied to in this period, each counted once. Contacts it never replied to (added by hand, imported or only seen in Leads) are not counted.';
 
 function timeSaved(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
@@ -45,7 +47,7 @@ export function AgentsDashboard() {
   const empty = d ? d.uniqueContacts === 0 && d.actionsTriggered === 0 && d.appointmentsBooked === 0 && d.aiReplies === 0 : true;
   const cards: Array<{ label: string; value: string; hint?: string }> = d
     ? [
-        { label: 'Total Unique Contacts', value: formatNumber(d.uniqueContacts) },
+        { label: 'Total Unique Contacts', value: formatNumber(d.uniqueContacts), hint: CONTACTS_DEFINITION },
         { label: 'Total Actions Triggered', value: formatNumber(d.actionsTriggered) },
         { label: 'Total Appointment Booked', value: formatNumber(d.appointmentsBooked) },
         { label: 'Time Saved', value: timeSaved(d.timeSavedMinutes), hint: `Estimated at ${d.minutesPerReply} minutes of your team's time per AI reply (${formatNumber(d.aiReplies)} replies).` },
@@ -118,7 +120,7 @@ export function AgentsDashboard() {
                   )}
                 </span>
                 <span className="font-display text-[24px] leading-8 font-bold text-fg tabular-nums">{empty ? '-' : card.value}</span>
-                <span className="text-caption text-fg-2">{empty ? NO_DATA : `${d!.from} → ${d!.to}`}</span>
+                <span className="text-caption text-fg-2">{empty ? NO_DATA : `${formatNumericDate(d!.from)} → ${formatNumericDate(d!.to)}`}</span>
               </>
             ) : (
               <>
@@ -134,10 +136,13 @@ export function AgentsDashboard() {
       <section aria-labelledby="contacts-chart" className="rounded-lg border border-border bg-surface p-6 shadow-card">
         <h2 id="contacts-chart" className="text-[17px] leading-6 font-medium text-fg">
           Total Unique Contacts{' '}
-          <span className="text-body-sm text-muted" title="Contacts the AI replied to, each counted once per day (or week)">
+          <span className="text-body-sm text-muted" title={CONTACTS_DEFINITION}>
             ⓘ
           </span>
         </h2>
+        <p className="mt-1 text-body-sm text-muted">
+          {CONTACTS_DEFINITION} Counted once per {d?.interval === 'week' ? 'week' : 'day'}.
+        </p>
         {!d ? (
           <Skeleton className="mt-4 h-48 w-full" />
         ) : empty ? (

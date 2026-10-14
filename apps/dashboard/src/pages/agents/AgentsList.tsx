@@ -23,6 +23,9 @@ function StatusPill({ on }: { on: boolean }) {
   );
 }
 
+/** Folders don't exist yet: their button stays hidden (instead of opening a "coming soon" dialog) until they do. */
+const SHOW_FOLDERS = false;
+
 /** Conversation AI → Agents List: every agent, searchable, as a table or cards. */
 export function AgentsList({ onCreate }: { onCreate: () => void }) {
   const route = useRoute();
@@ -179,7 +182,7 @@ export function AgentsList({ onCreate }: { onCreate: () => void }) {
         </div>
         <label className="flex h-9 w-80 max-w-full items-center gap-2 rounded-lg border border-border-strong bg-input-bg px-3 text-muted focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--ring)]">
           <Search className="size-4 shrink-0" aria-hidden />
-          <span className="sr-only">Search agents and folders</span>
+          <span className="sr-only">Search agents</span>
           <input
             type="search"
             value={query}
@@ -187,13 +190,15 @@ export function AgentsList({ onCreate }: { onCreate: () => void }) {
               setPage(0);
               setParam({ q: e.target.value || null });
             }}
-            placeholder="Search agents and folders"
+            placeholder="Search agents"
             className="min-w-0 flex-1 bg-transparent text-body text-fg placeholder:text-faint focus:outline-none"
           />
         </label>
-        <Button icon={<FolderPlus className="size-4" aria-hidden />} onClick={() => setFolderOpen(true)}>
-          Create folder
-        </Button>
+        {SHOW_FOLDERS && (
+          <Button icon={<FolderPlus className="size-4" aria-hidden />} onClick={() => setFolderOpen(true)}>
+            Create folder
+          </Button>
+        )}
       </div>
 
       {bots.isLoading ? (

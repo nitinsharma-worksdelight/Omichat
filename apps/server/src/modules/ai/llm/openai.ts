@@ -141,9 +141,23 @@ export class OpenAIProvider implements LlmProvider {
   /** Models that rejected the encrypted-reasoning include (non-reasoning models may). Learned at runtime. */
   private readonly noReasoningInclude = new Set<string>();
 
+  /** Only OpenAI's own endpoint is known to answer "no such model" for a model it doesn't offer. */
+  private readonly official: boolean;
+
   constructor(opts: OpenAIProviderOptions) {
     this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseURL, timeout: opts.timeoutMs, maxRetries: 2 });
     this.info = describeDefaults('openai', opts.defaults);
+    this.official = /^https:\/\/api\.openai\.com(\/|$)/.test(opts.baseURL);
+  }
+
+  async modelExists(model: string): Promise<boolean | null> {
+    if (!this.official) return null;
+    try {
+      await this.client.models.retrieve(model, { timeout: 5_000, maxRetries: 0 });
+      return true;
+    } catch (err) {
+      return err instanceof OpenAI.NotFoundError ? false : null;
+    }
   }
 
   async generate(request: LlmRequest, options: GenerateOptions = {}): Promise<LlmResponse> {

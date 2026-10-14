@@ -10,7 +10,7 @@ import { fieldErrors, get, post } from '../../lib/api';
 import { timeAgo } from '../../lib/format';
 import { useDebounced } from '../../lib/hooks';
 import { useAction } from '../../lib/mutations';
-import { isEmail } from '../../lib/validate';
+import { isEmail, isPhoneLike } from '../../lib/validate';
 import { roleAtLeast, useOrg, useTags } from '../../lib/queries';
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
 import type { Contact, ContactList, LeadTier, QualificationStatus, SourceOptions } from '../../lib/types';
@@ -327,13 +327,14 @@ function CreateContactModal({ open, onClose }: { open: boolean; onClose: () => v
   const local = {
     firstName: [form.firstName, form.lastName, form.email, form.phone].some((v) => v.trim()) ? null : 'Add a name, email or phone',
     email: form.email.trim() && !isEmail(form.email) ? 'Enter a valid email address' : null,
+    phone: form.phone.trim() && !isPhoneLike(form.phone) ? 'Enter a valid phone number' : null,
   };
   const server = fieldErrors(create.error);
   const errorOf = (k: keyof typeof empty) => (tried ? (local as Record<string, string | null>)[k] : null) || server[k] || null;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTried(true);
-    if (local.firstName || local.email) return;
+    if (local.firstName || local.email || local.phone) return;
     create.mutate(form);
   };
   const set = (k: keyof typeof empty) => (e: { target: { value: string } }) => {

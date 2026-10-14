@@ -91,7 +91,7 @@ export function Templates() {
             <ul className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {shown.map((t) => {
                 const cat = categoryOf(t);
-                const busy = create.isPending && create.variables?.name.startsWith(t.label);
+                const busy = create.isPending && create.variables?.name?.startsWith(t.label);
                 return (
                   <li key={t.id} className="flex flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-card transition-shadow hover:shadow-raise">
                     <div className="relative flex h-36 items-center justify-between gap-3 overflow-hidden bg-ai-soft px-5">

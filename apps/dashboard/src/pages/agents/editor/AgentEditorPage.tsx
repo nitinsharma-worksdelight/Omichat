@@ -11,6 +11,7 @@ import { currentPath, navigate, useRoute, withQuery } from '../../../lib/router'
 import type { Bot, KbDocument } from '../../../lib/types';
 import { PromptPreviewDrawer } from '../../bots/BotEditorPage';
 import { buildPatch, toDraft } from '../../bots/draft';
+import { settingLabel, timingProblems } from '../../../lib/settingErrors';
 import { businessProblems, errorText, type BotDraft } from '../../bots/editorNav';
 import { Playground } from '../../bots/Playground';
 import type { EditorContext, PersonalityTemplate } from '../../bots/sections';
@@ -122,7 +123,7 @@ export function AgentEditorPage({ botId }: { botId: string }) {
       setSaveError(new ApiError(400, 'validation_error', 'Give the agent a name.', [{ path: 'name', message: 'Give the agent a name.' }]));
       return;
     }
-    const problems = businessProblems(draft.config.business, base?.config.business);
+    const problems = [...businessProblems(draft.config.business, base?.config.business), ...timingProblems(draft.config)];
     if (problems.length) {
       setSaveError(new ApiError(400, 'validation_error', 'Request validation failed', problems));
       return;
@@ -372,7 +373,7 @@ export function AgentEditorPage({ botId }: { botId: string }) {
 
       {saveError ? (
         <div className="px-4 pb-2">
-          <ErrorBanner error={saveError} details={details.length ? details.map((d) => ({ ...d, message: errorText(d) })) : undefined} title="The agent wasn't saved." />
+          <ErrorBanner error={saveError} details={details.length ? details.map((d) => ({ path: settingLabel(d.path), message: errorText(d) })) : undefined} title="The agent wasn't saved." />
         </div>
       ) : null}
 

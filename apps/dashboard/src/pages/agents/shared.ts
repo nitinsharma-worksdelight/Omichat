@@ -42,9 +42,9 @@ export function channelsSummary(channels: Channel[]): string {
   return live.map((c) => (c.channel === 'webchat' ? `${channelKindName(c.channel)} (${c.name})` : channelKindName(c.channel))).join(', ');
 }
 
-/** GHL names a new agent by when it was made: "New Agent Oct 10, 12:05 AM". */
-export function newAgentName(now = new Date()): string {
-  return `New Agent ${now.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+/** "Oct 10, 12:05 AM": when a template agent was made, to tell copies of one template apart. */
+function madeAt(now = new Date()): string {
+  return now.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 /** The first choice when creating an agent. */
@@ -74,7 +74,8 @@ export const AGENT_KINDS: Array<{ id: AgentKind; title: string; description: str
 
 /** What a new agent is created with, and what the editor opens on first. */
 export interface AgentPreset {
-  name: string;
+  /** `null`: the next "New Employee <number>", worked out from the agents there already are when it is created. */
+  name: string | null;
   /** Sections sent on create; fields left out get the server's defaults. */
   config: { persona?: Partial<BotConfig['persona']>; goals?: Partial<BotConfig['goals']>; instructions?: string };
   knowledgeBaseIds: string[];
@@ -91,11 +92,11 @@ const BOOKING_PROMPT =
 export function agentPreset(kind: Exclude<AgentKind, 'market'> | PersonalityTemplate, kbIds: string[]): AgentPreset {
   const persona = (p: PersonalityTemplate) => ({ persona: { ...p.persona } });
   if (typeof kind !== 'string') {
-    return { name: `${kind.label} ${newAgentName().slice('New Agent '.length)}`, config: { ...persona(kind), goals: { primary: kind.goal } }, knowledgeBaseIds: kbIds, setup: null };
+    return { name: `${kind.label} ${madeAt()}`, config: { ...persona(kind), goals: { primary: kind.goal } }, knowledgeBaseIds: kbIds, setup: null };
   }
   const support = PERSONALITY_TEMPLATES.find((t) => t.id === 'support')!;
   const booking = PERSONALITY_TEMPLATES.find((t) => t.id === 'booking')!;
-  if (kind === 'qa') return { name: newAgentName(), config: { ...persona(support), instructions: QA_PROMPT }, knowledgeBaseIds: kbIds, setup: 'kb' };
-  if (kind === 'booking') return { name: newAgentName(), config: { ...persona(booking), instructions: BOOKING_PROMPT, goals: { primary: booking.goal } }, knowledgeBaseIds: [], setup: 'booking' };
-  return { name: newAgentName(), config: {}, knowledgeBaseIds: [], setup: null };
+  if (kind === 'qa') return { name: null, config: { ...persona(support), instructions: QA_PROMPT }, knowledgeBaseIds: kbIds, setup: 'kb' };
+  if (kind === 'booking') return { name: null, config: { ...persona(booking), instructions: BOOKING_PROMPT, goals: { primary: booking.goal } }, knowledgeBaseIds: [], setup: 'booking' };
+  return { name: null, config: {}, knowledgeBaseIds: [], setup: null };
 }

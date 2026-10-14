@@ -15,7 +15,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import type { ErrorDetail } from '../../lib/api';
+import type { ErrorDetail } from '../../lib/errors';
 import { STANDARD_LEAD_FIELDS, type BotConfig, type BotConfigSection, type BusinessProfile, type CustomFieldDef, type Effort, type LeadCapture } from '../../lib/types';
 import { isEmail, isPhoneLike, isWebsite } from '../../lib/validate';
 import type { EditorContext } from './sections';

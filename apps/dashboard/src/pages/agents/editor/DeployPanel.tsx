@@ -9,17 +9,23 @@ import { useBots, useChannels } from '../../../lib/queries';
 import { Link } from '../../../lib/router';
 import type { Channel } from '../../../lib/types';
 
-/** GHL's channel cards. Only the website chat exists on this platform; the rest say so. */
-const CARDS: Array<{ id: string; name: string; text: string; icon: ReactNode; tone: string }> = [
-  { id: 'sms', name: 'SMS', text: 'Connect your agent to SMS and let your agent respond to messages from your customers.', icon: <Phone className="size-3.5" />, tone: 'bg-[#12b76a]' },
-  { id: 'whatsapp', name: 'WhatsApp', text: 'Connect your agent to WhatsApp and let your agent respond to messages from your customers.', icon: <MessageCircle className="size-3.5" />, tone: 'bg-[#25d366]' },
-  { id: 'instagram', name: 'Instagram', text: 'Connect your agent to Instagram and let your agent respond to messages from your customers.', icon: <span className="text-[11px] font-bold">IG</span>, tone: 'bg-[#e1306c]' },
-  { id: 'facebook', name: 'Facebook', text: 'Connect your agent to Facebook and let your agent respond to messages from your customers.', icon: <span className="text-[12px] font-bold">f</span>, tone: 'bg-[#1877f2]' },
-  { id: 'tiktok', name: 'TikTok', text: 'Connect your agent to your TikTok account(s) and let it respond to direct messages from your customers.', icon: <span className="text-[11px] font-bold">T</span>, tone: 'bg-[#101828]' },
-  { id: 'live', name: 'Live chat', text: 'Connect your agent to live chat and let your agent respond to messages from your customers.', icon: <MessagesSquare className="size-3.5" />, tone: 'bg-[#344054]' },
+/**
+ * GHL's channel cards. Only the website chat exists on this platform, so it is the only one shown; the others are kept
+ * (`hidden`) to switch back on when their channels arrive.
+ */
+const ALL_CARDS: Array<{ id: string; name: string; text: string; icon: ReactNode; tone: string; hidden?: boolean }> = [
+  { id: 'sms', name: 'SMS', text: 'Connect your agent to SMS and let your agent respond to messages from your customers.', icon: <Phone className="size-3.5" />, tone: 'bg-[#12b76a]', hidden: true },
+  { id: 'whatsapp', name: 'WhatsApp', text: 'Connect your agent to WhatsApp and let your agent respond to messages from your customers.', icon: <MessageCircle className="size-3.5" />, tone: 'bg-[#25d366]', hidden: true },
+  { id: 'instagram', name: 'Instagram', text: 'Connect your agent to Instagram and let your agent respond to messages from your customers.', icon: <span className="text-[11px] font-bold">IG</span>, tone: 'bg-[#e1306c]', hidden: true },
+  { id: 'facebook', name: 'Facebook', text: 'Connect your agent to Facebook and let your agent respond to messages from your customers.', icon: <span className="text-[12px] font-bold">f</span>, tone: 'bg-[#1877f2]', hidden: true },
+  { id: 'tiktok', name: 'TikTok', text: 'Connect your agent to your TikTok account(s) and let it respond to direct messages from your customers.', icon: <span className="text-[11px] font-bold">T</span>, tone: 'bg-[#101828]', hidden: true },
+  { id: 'live', name: 'Live chat', text: 'Connect your agent to live chat and let your agent respond to messages from your customers.', icon: <MessagesSquare className="size-3.5" />, tone: 'bg-[#344054]', hidden: true },
   { id: 'widget', name: 'Chat widget', text: 'Connect your agent to chat widget and let your agent respond to messages from your customers.', icon: <Send className="size-3.5" />, tone: 'bg-accent' },
-  { id: 'email', name: 'Email', text: 'Connect your agent to Email and let your agent respond to messages from your customers.', icon: <Mail className="size-3.5" />, tone: 'bg-[#344054]' },
+  { id: 'email', name: 'Email', text: 'Connect your agent to Email and let your agent respond to messages from your customers.', icon: <Mail className="size-3.5" />, tone: 'bg-[#344054]', hidden: true },
 ];
+const CARDS = ALL_CARDS.filter((c) => !c.hidden);
+/** The "Add channels from marketplace" tile: marketplace channels don't exist yet. */
+const SHOW_MARKETPLACE_TILE = false;
 
 /** Deploy: where the agent replies. The website chat connects here; changes apply at once (not on Save). */
 export function DeployPanel({ botId, botName, isActive, canEdit }: { botId: string; botName: string; isActive: boolean; canEdit: boolean }) {
@@ -70,11 +76,13 @@ export function DeployPanel({ botId, botName, isActive, canEdit }: { botId: stri
             </div>
           );
         })}
-        <div aria-disabled="true" className="flex min-h-56 flex-col items-center justify-center gap-1.5 rounded border border-dashed border-faint text-[17px] text-accent-text opacity-70">
-          <Plus className="size-5" aria-hidden />
-          Add channels from marketplace
-          <span className="text-caption text-muted">Coming soon</span>
-        </div>
+        {SHOW_MARKETPLACE_TILE && (
+          <div aria-disabled="true" className="flex min-h-56 flex-col items-center justify-center gap-1.5 rounded border border-dashed border-faint text-[17px] text-accent-text opacity-70">
+            <Plus className="size-5" aria-hidden />
+            Add channels from marketplace
+            <span className="text-caption text-muted">Coming soon</span>
+          </div>
+        )}
       </div>
       <WidgetModal open={widgetOpen} onClose={() => setWidgetOpen(false)} botId={botId} botName={botName} webchats={webchats} canEdit={canEdit} />
     </div>
@@ -90,6 +98,8 @@ function WidgetModal({ open, onClose, botId, botName, webchats, canEdit }: { ope
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [newName, setNewName] = useState('');
+  // The missing name shows once they try to create the chat, then updates as they type.
+  const [tried, setTried] = useState(false);
   const nameOf = (id: string | null) => (bots.data ?? []).find((b) => b.id === id)?.name ?? 'another agent';
 
   const toggle = async (channel: Channel, on: boolean) => {
@@ -115,6 +125,8 @@ function WidgetModal({ open, onClose, botId, botName, webchats, canEdit }: { ope
   };
 
   const create = async () => {
+    if (busy !== null) return;
+    setTried(true);
     if (!newName.trim()) return;
     setBusy('new');
     setError(null);
@@ -122,6 +134,7 @@ function WidgetModal({ open, onClose, botId, botName, webchats, canEdit }: { ope
       await post('/v1/channels/webchat', { name: newName.trim(), botId });
       await qc.invalidateQueries({ queryKey: ['channels'] });
       setNewName('');
+      setTried(false);
       toast.success('Website chat created');
     } catch (e) {
       setError(e);
@@ -181,10 +194,18 @@ function WidgetModal({ open, onClose, botId, botName, webchats, canEdit }: { ope
         )}
         {canEdit && (
           <div className="flex flex-wrap items-end gap-2 border-t border-border pt-4">
-            <Field label="New website chat" className="min-w-56 flex-1">
-              <Input value={newName} maxLength={120} placeholder="e.g. Main website" onChange={(e) => setNewName(e.target.value)} />
+            <Field label="New website chat" className="min-w-56 flex-1" error={tried && !newName.trim() ? 'Enter a name for the website chat.' : null}>
+              <Input
+                value={newName}
+                maxLength={120}
+                placeholder="e.g. Main website"
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void create();
+                }}
+              />
             </Field>
-            <Button loading={busy === 'new'} disabled={!newName.trim() || (busy !== null && busy !== 'new')} onClick={() => void create()}>
+            <Button loading={busy === 'new'} disabled={busy !== null && busy !== 'new'} onClick={() => void create()}>
               Create and connect
             </Button>
           </div>

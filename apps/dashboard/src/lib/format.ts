@@ -23,6 +23,17 @@ export function formatDate(value: string | Date | null | undefined): string {
   return d ? dateFmt.format(d) : '—';
 }
 
+const numericDateFmt = new Intl.DateTimeFormat(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+/**
+ * A calendar date ("YYYY-MM-DD") as numbers in the browser's own order, the way a date picker shows it, so a page's
+ * pickers and the dates beside them agree. Not shifted by time zone: the date is the date.
+ */
+export function formatNumericDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return y && m && d ? numericDateFmt.format(new Date(y, m - 1, d)) : iso;
+}
+
 export function formatTime(value: string | Date | null | undefined): string {
   const d = toDate(value);
   return d ? timeFmt.format(d) : '';

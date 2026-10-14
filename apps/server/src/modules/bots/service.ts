@@ -52,10 +52,29 @@ export interface BotView {
 type IncomingAuth = { type?: unknown; secret?: unknown; [key: string]: unknown };
 
 export class BotsService {
+  /** Models the provider has confirmed, so saving the same one again doesn't ask again. */
+  private readonly knownModels = new Map<string, number>();
+
   constructor(
     private readonly tenantDb: TenantDb,
     private readonly secrets: SecretBox,
+    /** Asks the AI provider whether it offers a model (`null`: couldn't tell, which never blocks a save). */
+    private readonly modelExists: (model: string) => Promise<boolean | null> = async () => null,
   ) {}
+
+  /** A model override the provider says it doesn't offer would break every chat, so it isn't saved. */
+  private async checkModel(model: string | null | undefined): Promise<void> {
+    if (!model) return;
+    const confirmedAt = this.knownModels.get(model);
+    if (confirmedAt !== undefined && Date.now() - confirmedAt < 10 * 60_000) return;
+    const offered = await this.modelExists(model).catch(() => null);
+    if (offered === false) {
+      throw badRequest('Invalid bot configuration', [
+        { path: 'model', message: `"${model}" isn't a model your AI provider offers. Check the spelling, or leave this empty to use the server's model.` },
+      ]);
+    }
+    if (offered === true) this.knownModels.set(model, Date.now());
+  }
 
   async list(scope: Scope): Promise<BotView[]> {
     return inScope(this.tenantDb, scope, async (tx) => {
@@ -84,6 +103,8 @@ export class BotsService {
   async create(scope: Scope, input: z.infer<typeof BotCreateSchema>): Promise<BotView> {
     const config = this.parseConfig(this.sealSecrets(input.config ?? {}, []));
     this.checkBusinessContact(config);
+    // Before the transaction: it waits on the provider's network answer.
+    await this.checkModel(input.model);
     return inScope(this.tenantDb, scope, async (tx) => {
       await this.checkReferences(tx, scope.orgId, config, input.knowledgeBaseIds ?? []);
       const [row] = await tx
@@ -107,6 +128,7 @@ export class BotsService {
    * Every change bumps `version`, which AI runs record for auditability.
    */
   async update(scope: Scope, id: string, input: z.infer<typeof BotUpdateSchema>): Promise<BotView> {
+    await this.checkModel(input.model);
     return inScope(this.tenantDb, scope, async (tx) => {
       const current = await this.load(tx, scope.orgId, id);
       // Merged onto the stored config (credentials included), never the redacted view.

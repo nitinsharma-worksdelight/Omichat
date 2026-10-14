@@ -2,7 +2,8 @@ import { CalendarCheck, CircleHelp, Plus, Store } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Modal } from '../../components/overlay';
 import { Button, cx, ErrorBanner } from '../../components/ui';
-import { post } from '../../lib/api';
+import { get, post } from '../../lib/api';
+import { nextAgentName } from '../../lib/agentNames';
 import { useAction } from '../../lib/mutations';
 import { useKnowledgeBases } from '../../lib/queries';
 import { navigate } from '../../lib/router';
@@ -19,15 +20,22 @@ const ART: Record<AgentKind, ReactNode> = {
 
 /** Creates the agent with what was chosen and opens it in the editor. */
 export function useCreateAgent(onDone?: () => void) {
-  return useAction((preset: AgentPreset) => post<Bot>('/v1/bots', { name: preset.name, config: preset.config, knowledgeBaseIds: preset.knowledgeBaseIds }), {
-    invalidate: [['bots']],
-    success: 'Agent created',
-    errorToast: false,
-    onSuccess: (bot, preset) => {
-      onDone?.();
-      navigate(`/bots/${bot.id}${preset.setup ? `?setup=${preset.setup}` : ''}`);
+  return useAction(
+    async (preset: AgentPreset) => {
+      // Asked now rather than read from a cache, so agents made one after another get 1, 2, 3.
+      const name = preset.name ?? nextAgentName((await get<Bot[]>('/v1/bots').catch(() => [])).map((b) => b.name));
+      return post<Bot>('/v1/bots', { name, config: preset.config, knowledgeBaseIds: preset.knowledgeBaseIds });
     },
-  });
+    {
+      invalidate: [['bots']],
+      success: 'Agent created',
+      errorToast: false,
+      onSuccess: (bot, preset) => {
+        onDone?.();
+        navigate(`/bots/${bot.id}${preset.setup ? `?setup=${preset.setup}` : ''}`);
+      },
+    },
+  );
 }
 
 /** GHL's "Create new agent": four starting points, then (for Marketplace Templates) the templates. */

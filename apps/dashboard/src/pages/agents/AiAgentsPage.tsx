@@ -2,7 +2,7 @@ import { ArrowUpDown, ExternalLink, Info, Plus, Search, ShieldCheck } from 'luci
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { useApprovals } from '../../components/approvals';
-import { Button, Card, cx, EmptyState, ErrorBanner, Select, SkeletonRows, Spinner } from '../../components/ui';
+import { Button, Card, cx, EmptyState, ErrorBanner, PageHeader, Select, SkeletonRows, Spinner } from '../../components/ui';
 import { formatDateTime, formatNumber, TOOL_LABELS } from '../../lib/format';
 import { roleAtLeast, useBots, useKnowledgeBases, useOrg } from '../../lib/queries';
 import { Link, navigate, useRoute, withQuery } from '../../lib/router';
@@ -305,7 +305,8 @@ function AgentLogs() {
   const perf = useQuery({ queryKey: ['agents-logs-performance'], queryFn: () => get<Performance>('/v1/analytics/performance'), enabled: Boolean(org.data) });
   return (
     <div>
-      <ApprovalsPage />
+      <PageHeader title="Agent Logs" description="Approvals waiting for your team, and what your agents did." />
+      <ApprovalsPage embedded />
       <section aria-labelledby="ai-actions" className="space-y-3 px-4 pb-10 sm:px-8">
         <h2 id="ai-actions" className="flex items-center gap-2 text-heading font-semibold text-fg">
           <ShieldCheck className="size-4.5 text-accent-text" aria-hidden />

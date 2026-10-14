@@ -94,6 +94,17 @@ export class AnthropicProvider implements LlmProvider {
     this.info = describeDefaults('anthropic', opts.defaults);
   }
 
+  async modelExists(model: string): Promise<boolean | null> {
+    // Only Anthropic's own endpoint is known to answer "no such model" for a model it doesn't offer.
+    if (!/^https:\/\/api\.anthropic\.com(\/|$)/.test(this.opts.baseURL)) return null;
+    try {
+      await this.client.models.retrieve(model, {}, { timeout: 5_000, maxRetries: 0 });
+      return true;
+    } catch (err) {
+      return err instanceof Anthropic.NotFoundError ? false : null;
+    }
+  }
+
   async generate(request: LlmRequest, options: GenerateOptions = {}): Promise<LlmResponse> {
     const { model, reasoningEffort } = resolveTarget(this.info, request);
     try {

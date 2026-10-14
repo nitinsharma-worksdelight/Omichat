@@ -28,7 +28,7 @@ import { initialsOf, timeAgo } from '../lib/format';
 import { useAction } from '../lib/mutations';
 import { useOrg } from '../lib/queries';
 import { useLiveEvents } from '../lib/live';
-import { appLink, currentPath, Link, navigate, useRoute } from '../lib/router';
+import { appLink, currentPath, Link, navigate, useRoute, withQuery } from '../lib/router';
 import { BrandMark } from './brand';
 import { ThemeToggle } from './theme';
 import { useToast } from './feedback-context';
@@ -217,9 +217,17 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 }
 
-/** Finds an agent: Enter opens the agents list filtered by the words typed. */
+const AGENTS_PATH = '/ai-agents/conversation-ai';
+
+/**
+ * Finds an agent. On the agents list it filters as you type and shares the list's own search box (both read the same
+ * `q` in the address, so clearing one clears the other); from any other page, Enter opens the list filtered by the words.
+ */
 function MenuSearch() {
-  const [query, setQuery] = useState('');
+  const route = useRoute();
+  const onList = route.path === AGENTS_PATH && route.query.get('view') !== 'dashboard';
+  const [typed, setTyped] = useState('');
+  const query = onList ? (route.query.get('q') ?? '') : typed;
   return (
     <form
       role="search"
@@ -227,7 +235,8 @@ function MenuSearch() {
       onSubmit={(e) => {
         e.preventDefault();
         const q = query.trim();
-        navigate(`/ai-agents/conversation-ai?view=agents${q ? `&q=${encodeURIComponent(q)}` : ''}`);
+        setTyped('');
+        navigate(`${AGENTS_PATH}?view=agents${q ? `&q=${encodeURIComponent(q)}` : ''}`);
       }}
     >
       <label className="flex h-8.5 items-center gap-2 rounded-lg bg-nav-item px-2.5 text-nav-muted focus-within:ring-2 focus-within:ring-accent">
@@ -236,7 +245,7 @@ function MenuSearch() {
         <input
           type="search"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => (onList ? navigate(withQuery(route, { q: e.target.value || null }), { replace: true }) : setTyped(e.target.value))}
           placeholder="Search agents"
           className="min-w-0 flex-1 bg-transparent text-body-sm text-nav-fg placeholder:text-nav-muted focus:outline-none"
         />

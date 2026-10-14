@@ -106,7 +106,7 @@ export async function createContainer(env: Env, overrides: ContainerOverrides = 
   const channels = new ChannelsService(db, tenantDb, env.PUBLIC_API_URL);
   const contacts = new ContactsService(tenantDb);
   const qualification = new QualificationService(tenantDb, contacts);
-  const bots = new BotsService(tenantDb, secrets);
+  const bots = new BotsService(tenantDb, secrets, (model) => llm.modelExists?.(model) ?? Promise.resolve(null));
   const deals = new DealsService(tenantDb);
   const knowledge = new KnowledgeService(tenantDb, storage, embeddings, queue, logger, {
     allowPrivateUrls,

@@ -903,6 +903,8 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
   const [title, setTitle] = useState('');
   const [dueAt, setDueAt] = useState('');
   const [priority, setPriority] = useState<Task['priority']>('normal');
+  // The missing title shows once they try to add the task, then updates as they type.
+  const [tried, setTried] = useState(false);
   // The date input's own value (YYYY-MM-DD) against today where the user is; today itself is always fine.
   const today = todayLocal();
   const dueError = dueAt && dueAt < today ? "Due date can't be in the past" : null;
@@ -915,6 +917,7 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
         setTitle('');
         setDueAt('');
         setPriority('normal');
+        setTried(false);
       },
     },
   );
@@ -927,10 +930,12 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
           className="flex flex-wrap items-end gap-x-2 gap-y-3"
           onSubmit={(e) => {
             e.preventDefault();
+            setTried(true);
             if (title.trim() && !dueError) create.mutate();
           }}
+          noValidate
         >
-          <Field label="New task" className="min-w-52 flex-[1_1_14rem]">
+          <Field label="New task" className="min-w-52 flex-[1_1_14rem]" error={tried && !title.trim() ? 'Enter a task title.' : null}>
             <Input value={title} maxLength={200} placeholder="Call back about pricing" onChange={(e) => setTitle(e.target.value)} />
           </Field>
           <Field label="Due" error={dueError} className="w-40 shrink-0">
@@ -943,7 +948,7 @@ function TasksTab({ contactId, canEdit }: { contactId: string; canEdit: boolean 
               <option value="high">High</option>
             </Select>
           </Field>
-          <Button type="submit" icon={<Plus className="size-4" />} loading={create.isPending} disabled={!title.trim() || Boolean(dueError)}>
+          <Button type="submit" icon={<Plus className="size-4" />} loading={create.isPending} disabled={Boolean(dueError)}>
             Add
           </Button>
         </form>

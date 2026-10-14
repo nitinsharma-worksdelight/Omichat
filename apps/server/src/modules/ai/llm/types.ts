@@ -71,6 +71,11 @@ export interface LlmProvider {
   generate(request: LlmRequest, opts?: GenerateOptions): Promise<LlmResponse>;
   /** Cheap startup check (key valid, model reachable). Never throws. */
   verify?(): Promise<{ ok: boolean; message: string }>;
+  /**
+   * Whether the provider offers this model: `true` it does, `false` it says there is no such model, `null` it couldn't
+   * be told (provider unreachable, key rejected, a custom endpoint that doesn't list models). Never throws.
+   */
+  modelExists?(model: string): Promise<boolean | null>;
 }
 
 /** Configured defaults a provider falls back to when a request carries no override. */

@@ -5,6 +5,7 @@ import { Badge, Button, Card, Checkbox, ChipsInput, cx, EmptyState, Field, IconB
 import { initialsOf, slugify, TOOL_LABELS } from '../../lib/format';
 import { finalizeKey } from '../../lib/validate';
 import { Link } from '../../lib/router';
+import { timingFieldError } from '../../lib/settingErrors';
 import { askedFor, businessFieldError, type SectionId } from './editorNav';
 import { hoursSummary, starterProblem, type BookingAbilities, type BotWarning } from './warnings';
 import {
@@ -1300,6 +1301,9 @@ export function StartersSection({
   /** What the assistant can do with appointments: starters that offer more get a note. */
   booking: BookingAbilities;
 }) {
+  // A new, blank starter isn't an error yet: "add the text" shows once its button text has been touched.
+  const [touched, setTouched] = useState<Set<string>>(new Set());
+  const touch = (id: string) => setTouched((t) => (t.has(id) ? t : new Set(t).add(id)));
   // The list order is the display order.
   const commit = (starters: ConversationStarter[]) => onChange(starters.map((s, order) => ({ ...s, order })));
   const set = (i: number, patch: Partial<ConversationStarter>) => commit(value.map((s, j) => (j === i ? { ...s, ...patch } : s)));
@@ -1316,7 +1320,7 @@ export function StartersSection({
     );
   const labelError = (s: ConversationStarter) => {
     const label = s.label.trim().toLowerCase();
-    if (!label) return 'Add the text for the button.';
+    if (!label) return touched.has(s.id) ? 'Add the text for the button.' : null;
     return value.filter((o) => o.label.trim().toLowerCase() === label).length > 1 ? 'Another starter has the same text.' : null;
   };
   const shown = value.filter((s) => s.enabled && (s.action !== 'handoff' || handoffEnabled)).length;
@@ -1351,7 +1355,16 @@ export function StartersSection({
                 <span className="mt-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-caption font-medium text-muted">{i + 1}</span>
                 <div className="grid min-w-0 flex-1 gap-3 @lg:grid-cols-[1fr_230px]">
                   <Field label="Button text" error={labelError(s)}>
-                    <Input value={s.label} maxLength={60} placeholder="Book an appointment" onChange={(e) => set(i, { label: e.target.value })} />
+                    <Input
+                      value={s.label}
+                      maxLength={60}
+                      placeholder="Book an appointment"
+                      onChange={(e) => {
+                        touch(s.id);
+                        set(i, { label: e.target.value });
+                      }}
+                      onBlur={() => touch(s.id)}
+                    />
                   </Field>
                   <Field label="When clicked">
                     <Select value={s.action} onChange={(e) => set(i, { action: e.target.value as StarterAction })}>
@@ -1431,7 +1444,7 @@ export function GuardrailsSection({ value, onChange }: SectionProps<Guardrails>)
             </Field>
           </Setting>
           <Setting id="guardrails.maxAiReplies">
-            <Field label="Max AI replies per conversation" hint="After this, the conversation waits for a human.">
+            <Field label="Max AI replies per conversation" hint="After this, the conversation waits for a human." error={timingFieldError('maxAiReplies', value.maxAiRepliesPerConversation)}>
               <NumberInput min={1} max={500} value={value.maxAiRepliesPerConversation} onChange={(v) => set('maxAiRepliesPerConversation', Math.round(v ?? 1))} />
             </Field>
           </Setting>

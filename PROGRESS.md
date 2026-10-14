@@ -383,6 +383,34 @@ outside AI Agents stay separate.
     - Save, then Save agent;
     - on the server: the saved settings, no booking tools in link-only mode, and the link in the prompt.
 
+- **QA bug sheet "Omni AI Dashboard" (2026-10-14): 14 bugs.** Fixed 11, one was fixed earlier, two are not code bugs.
+  - **BUG-001:** a model the provider doesn't offer was saved and then broke every chat. Saving a model override now
+    asks the provider (`LlmProvider.modelExists`: OpenAI and Anthropic ask their own endpoints; a custom endpoint, an
+    error or a timeout can't tell, and never blocks a save). A "no such model" answer is refused with the field named.
+    Only a model that is sent is asked about, so other changes to a bot are never held up.
+  - **BUG-002:** Timing & Pacing numbers are checked as they're typed (inline errors in plain words) and before the save
+    (builder and full editor). The save banner names fields as the person sees them (`settingLabel`).
+  - **BUG-003:** Create Agent still creates at once (no extra step), but a new agent is now "New Employee 1", then
+    "New Employee 2"… (one past the highest number there is, asked at creation so quick repeats count up). Template
+    agents keep their template name.
+  - **BUG-004:** not a code bug. The list endpoints answer in 3–32 ms with 1,500 contacts and 1,200 chats (PGlite, no
+    network), so the 3–5 s is hosting (API region, cold start) and the 10–14 s test-chat reply is the model. The test
+    chat already streams and shows what the agent is doing. Nothing changed.
+  - **BUG-005:** the count is "people an AI agent replied to" (by design); the definition now shows on the card and
+    under the chart, not only in a tooltip.
+  - **BUG-006:** empty Add task, Add tag and Create and connect now say what's missing (they were silently disabled).
+  - **BUG-007:** the sidebar agent search filters as you type on the list and shares the list's own search; from other
+    pages Enter opens the list.
+  - **BUG-008:** the Dashboard's date captions use the browser's numeric order, like the date pickers.
+  - **BUG-009:** Agent Logs has its own heading; "Approvals" is a section under it.
+  - **BUG-010:** the Create folder button is hidden (`SHOW_FOLDERS`); the search says "Search agents".
+  - **BUG-011:** a new blank starter shows "Add the text for the button" only after the text was touched.
+  - **BUG-012:** the Add contact form also checks the phone on the first submit.
+  - **BUG-013:** already fixed: only the Chat widget card is shown on Deploy.
+  - **BUG-014:** not a code bug. The server already refuses keys like `bad_key_`; the field is old test data to delete in
+    Automations → Custom fields.
+  - **Tests:** `test/qa-bugsheet.test.ts` (17). Related files, 92/92. Browser: each UI fix, on a local server.
+
 **Assumptions and limits:**
 - Screens not in the screenshots were designed by us and approved with the design: the booking Advanced Options, the
   panel contents, the Workflow, Contact and Handover modals, the API Authentication, General and Test tabs, and

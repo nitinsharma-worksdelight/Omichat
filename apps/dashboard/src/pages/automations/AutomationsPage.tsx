@@ -714,7 +714,16 @@ function TagsTab({ canCreate, canDelete }: { canCreate: boolean; canDelete: bool
   const confirm = useConfirm();
   const [name, setName] = useState('');
   const [color, setColor] = useState(TAG_COLORS[1]!);
-  const create = useAction(() => post<Tag>('/v1/tags', { name: name.trim(), color }), { invalidate: [['tags']], success: 'Tag created', onSuccess: () => setName('') });
+  // The missing name shows once they try to add the tag, then updates as they type.
+  const [tried, setTried] = useState(false);
+  const create = useAction(() => post<Tag>('/v1/tags', { name: name.trim(), color }), {
+    invalidate: [['tags']],
+    success: 'Tag created',
+    onSuccess: () => {
+      setName('');
+      setTried(false);
+    },
+  });
   const remove = useAction((id: string) => del(`/v1/tags/${id}`), { invalidate: [['tags'], ['contacts']], success: 'Tag deleted' });
   return (
     <div>
@@ -725,10 +734,12 @@ function TagsTab({ canCreate, canDelete }: { canCreate: boolean; canDelete: bool
             className="flex items-end gap-3"
             onSubmit={(e) => {
               e.preventDefault();
+              setTried(true);
               if (name.trim()) create.mutate();
             }}
+            noValidate
           >
-            <Field label="New tag" className="w-64">
+            <Field label="New tag" className="w-64" error={tried && !name.trim() ? 'Enter a tag name.' : null}>
               <Input value={name} maxLength={60} placeholder="vip" onChange={(e) => setName(e.target.value)} />
             </Field>
             <fieldset>
@@ -747,7 +758,7 @@ function TagsTab({ canCreate, canDelete }: { canCreate: boolean; canDelete: bool
                 ))}
               </div>
             </fieldset>
-            <Button type="submit" icon={<Plus className="size-4" />} loading={create.isPending} disabled={!name.trim()}>
+            <Button type="submit" icon={<Plus className="size-4" />} loading={create.isPending}>
               Add tag
             </Button>
           </form>
