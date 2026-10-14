@@ -249,7 +249,14 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
         data: {
           grounding: result.grounding,
           results: result.chunks.map((c) => ({ source_id: c.id, document_id: c.documentId, title: c.title, content: c.content, url: c.url })),
-          ...(result.chunks.length ? {} : { note: 'Nothing relevant found. Do not guess — say you are not sure and offer to have the team follow up.' }),
+          ...(result.chunks.length
+            ? {}
+            : {
+                note:
+                  ctx.bot.config.handoff.enabled || !ctx.bot.config.actions.disabledTools.includes('create_task')
+                    ? 'Nothing relevant found. Do not guess — say you are not sure. Offer a follow-up only if you can really make one (create_task, or a handover scenario).'
+                    : "Nothing relevant found. Do not guess — say plainly that you don't have that information.",
+              }),
         },
       };
     },
@@ -443,8 +450,9 @@ export function createTools(deps: ToolDeps): ToolDefinition[] {
     description: (ctx) =>
       [
         'Book an appointment in an open slot returned by check_availability.',
-        'Before calling: the customer must have explicitly confirmed the exact date and time, and you must have saved their',
-        ctx.bot.config.booking.requiredFields.join(', ') + '.',
+        ctx.bot.config.booking.requiredFields.length
+          ? `Before calling: the customer must have explicitly confirmed the exact date and time, and you must have saved their ${ctx.bot.config.booking.requiredFields.join(', ')}.`
+          : 'Before calling: the customer must have explicitly confirmed the exact date and time. No contact details are needed for the booking itself.',
         'Set customer_confirmed=true only after they confirmed.',
         `If they named the kind of appointment (a check-up, a consultation), pass it as service; otherwise it is titled "${ctx.bot.config.booking.appointmentTitle}".`,
       ].join(' '),

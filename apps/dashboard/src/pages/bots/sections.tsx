@@ -8,6 +8,7 @@ import { Link } from '../../lib/router';
 import { timingFieldError } from '../../lib/settingErrors';
 import { askedFor, businessFieldError, type SectionId } from './editorNav';
 import { hoursSummary, starterProblem, type BookingAbilities, type BotWarning } from './warnings';
+import { currentTimezoneName } from '../../lib/timezones';
 import {
   ASK_FIRST_TOOLS,
   CRM_TOOL_KEYS,
@@ -55,6 +56,8 @@ export interface EditorContext {
   otherBots: Array<{ name: string; questions: QualificationQuestion[] }>;
   /** Used when a bot has no company name of its own. */
   organizationName: string;
+  /** "Use team hours" is on in Settings → Organization (null: not known yet). Without it the away message is never sent. */
+  teamHoursOn: boolean | null;
   /** The assistant's name as help text uses it: "Maya", or "your assistant" before it has one. */
   assistantName: string;
   /** Who the assistant may make a contact's owner. */
@@ -621,7 +624,7 @@ export function BusinessSection({ value, onChange, ctx }: SectionProps<BusinessP
           <Setting id="business.hours">
             <Field
               label="Opening hours"
-              hint={ctx.bookingCalendar ? `Bookable on ${ctx.bookingCalendar.name}: ${hoursSummary(ctx.bookingCalendar.weeklyHours)} (${ctx.bookingCalendar.timezone}).` : undefined}
+              hint={ctx.bookingCalendar ? `Bookable on ${ctx.bookingCalendar.name}: ${hoursSummary(ctx.bookingCalendar.weeklyHours)} (${currentTimezoneName(ctx.bookingCalendar.timezone)}).` : undefined}
             >
               <Input maxLength={1000} value={value.hours} onChange={(e) => set('hours', e.target.value)} />
             </Field>
@@ -1195,7 +1198,7 @@ export function BookingSection({ value, onChange, ctx }: SectionProps<Booking>) 
                 <option value="">No calendar</option>
                 {ctx.calendars.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.timezone}){c.isActive ? '' : ' — inactive'}
+                    {c.name} ({currentTimezoneName(c.timezone)}){c.isActive ? '' : ' — inactive'}
                   </option>
                 ))}
               </Select>

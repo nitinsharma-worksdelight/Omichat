@@ -289,6 +289,10 @@ export function HumanHandoverModal({ open, value, ctx, onApply, onClose }: { ope
                 <input type="checkbox" className="size-4 accent-accent" checked={current.createTask} onChange={(e) => set({ createTask: e.target.checked })} />
                 Create a task on the contact <Info text="A follow-up task for whoever gets the conversation, linked to it." />
               </label>
+              <p className="-mt-3 text-caption text-muted">
+                New scenarios start with a task and a take-back after 8 hours. A scenario that was already handing chats over before these options existed starts with both off, so it keeps
+                behaving as it did; change them here if you want.
+              </p>
 
               <Field label="Add custom tags (optional)" hint="Add a tag to contact after human handover is completed">
                 <ChipsInput value={current.tags} onChange={(tags) => set({ tags })} suggestions={ctx.tags.map((x) => x.name)} placeholder="Type a tag and press Enter" />

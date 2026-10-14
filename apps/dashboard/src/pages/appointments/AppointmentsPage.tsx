@@ -164,8 +164,8 @@ function Agenda() {
                 <div key={a.id} className={cx('flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 xl:flex-nowrap', a.status === 'cancelled' && 'opacity-60')}>
                   <div className="w-20 shrink-0 border-r border-border pr-3">
                     <p className="font-display text-heading font-semibold text-fg tabular-nums">{formatLocalTime(a.localStart)}</p>
-                    <p className="truncate text-label text-muted" title={a.timezone}>
-                      {a.timezone.split('/').pop()?.replace(/_/g, ' ')}
+                    <p className="truncate text-label text-muted" title={currentTimezoneName(a.timezone)}>
+                      {currentTimezoneName(a.timezone).split('/').pop()?.replace(/_/g, ' ')}
                     </p>
                   </div>
                   {/* At least 12rem: with less room the buttons go to the next line rather than squeeze it. */}
@@ -234,7 +234,7 @@ function RescheduleDialog({ appointment, onClose }: { appointment: Appointment; 
       size="lg"
       onClose={onClose}
       title="Reschedule appointment"
-      description={`${appointment.title} with ${appointment.contact?.name || appointment.contact?.email || 'contact'} — currently ${appointment.label} (${appointment.timezone})`}
+      description={`${appointment.title} with ${appointment.contact?.name || appointment.contact?.email || 'contact'} — currently ${appointment.label} (${currentTimezoneName(appointment.timezone)})`}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -340,7 +340,7 @@ function EmailsDrawer({ appointment, canAct, onClose }: { appointment: Appointme
       open={Boolean(appointment)}
       onClose={onClose}
       title="Emails to the customer"
-      description={appointment ? `${appointment.title} · ${appointment.label} (${appointment.timezone})` : undefined}
+      description={appointment ? `${appointment.title} · ${appointment.label} (${currentTimezoneName(appointment.timezone)})` : undefined}
       footer={
         canAct && appointment?.status === 'booked' ? (
           <Button icon={<Mail className="size-3.5" />} loading={resend.isPending} onClick={() => resend.mutate()}>
@@ -589,6 +589,7 @@ function Calendars({ calendarId }: { calendarId: string | null }) {
 
 function NewCalendarDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
+  const [tried, setTried] = useState(false);
   const [timezone, setTimezone] = useState(() => currentTimezoneName(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'));
   const tzList = useMemo(() => timezones(), []);
   const create = useAction(
@@ -624,7 +625,7 @@ function NewCalendarDialog({ onClose }: { onClose: () => void }) {
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" form="new-calendar" loading={create.isPending} disabled={!name.trim()}>
+          <Button variant="primary" type="submit" form="new-calendar" loading={create.isPending}>
             Create
           </Button>
         </>
@@ -633,12 +634,15 @@ function NewCalendarDialog({ onClose }: { onClose: () => void }) {
       <form
         id="new-calendar"
         className="space-y-4"
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          create.mutate();
+          // The missing name shows once they try to create it, then updates as they type.
+          setTried(true);
+          if (name.trim()) create.mutate();
         }}
       >
-        <Field label="Name" required>
+        <Field label="Name" required error={tried && !name.trim() ? 'Name is required.' : null}>
           <Input value={name} maxLength={120} placeholder="Consultations" onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Timezone">

@@ -5,6 +5,7 @@ import { Badge, Button, Checkbox, cx, EmptyState, Field, IconButton, Input, Sele
 import { Link } from '../../../lib/router';
 import type { Actions, Booking, BookingRequiredField, LeadCapture, Qualification, Workflow } from '../../../lib/types';
 import { ActionsSection, LeadCaptureSection, QualificationSection, type EditorContext } from '../../bots/sections';
+import { currentTimezoneName } from '../../../lib/timezones';
 
 function Footer({ onRemove, onCancel, children }: { onRemove: (() => void) | null; onCancel: (() => void) | null; children: ReactNode }) {
   return (
@@ -34,6 +35,7 @@ function useLocal<T>(open: boolean, value: T): [T, (v: T) => void] {
 }
 
 const BOOKING_FIELDS: BookingRequiredField[] = ['name', 'email', 'phone'];
+const DEFAULT_APPOINTMENT_TITLE = 'Consultation';
 const BOOKING_ASK = ['book_appointment', 'reschedule_appointment', 'cancel_appointment'] as const;
 
 /** An Advanced Options checkbox (GHL's style): label, what it does, and what it needs once it's checked. */
@@ -85,6 +87,7 @@ export function BookingModal({
   booking,
   askFirst,
   qualificationOn,
+  contactInfoAsks,
   ctx,
   onApply,
   onClose,
@@ -93,6 +96,8 @@ export function BookingModal({
   booking: Booking;
   askFirst: Actions['askFirst'];
   qualificationOn: boolean;
+  /** What the Contact Info action asks for ("Asks for name and email."), when it has required details; else null. */
+  contactInfoAsks: string | null;
   ctx: EditorContext;
   onApply: (booking: Booking, askFirst: Actions['askFirst']) => void;
   onClose: () => void;
@@ -128,7 +133,8 @@ export function BookingModal({
     setTried(true);
     if (Object.values(problems).some(Boolean)) return;
     const rest = askFirst.filter((t) => !(BOOKING_ASK as readonly string[]).includes(t));
-    onApply({ ...value, bookingLink: value.bookingLink.trim(), enabled: true }, ask ? [...rest, ...BOOKING_ASK] : rest);
+    // An empty title would leave the booking unnamed: it takes the default.
+    onApply({ ...value, appointmentTitle: value.appointmentTitle.trim() || DEFAULT_APPOINTMENT_TITLE, bookingLink: value.bookingLink.trim(), enabled: true }, ask ? [...rest, ...BOOKING_ASK] : rest);
   };
   return (
     <Modal
@@ -226,7 +232,7 @@ export function BookingModal({
                 <option value="">Select calendar</option>
                 {calendars.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.timezone}){c.isActive ? '' : ' — inactive'}
+                    {c.name} ({currentTimezoneName(c.timezone)}){c.isActive ? '' : ' — inactive'}
                   </option>
                 ))}
               </Select>
@@ -362,6 +368,12 @@ export function BookingModal({
                   />
                 ))}
               </div>
+              <p className="text-caption text-muted">
+                {value.requiredFields.length === 0
+                  ? 'No details are needed for the booking itself: the agent books as soon as the time is confirmed.'
+                  : 'The agent collects these before it books.'}
+                {contactInfoAsks && ` Contact Info is also on. ${contactInfoAsks} The agent still collects those as set there, whatever is ticked here; this list only adds what a booking itself needs.`}
+              </p>
             </fieldset>
             <BookingSwitch
               label="Only book qualified leads"
@@ -371,8 +383,8 @@ export function BookingModal({
               onChange={(v) => set('requireQualification', v)}
             />
             <BookingSwitch label="Ask the team before booking" description="Bookings, changes and cancellations wait for a team member's approval." checked={ask} onChange={setAsk} />
-            <Field label="Appointment title" hint="Used when the customer doesn't name the kind of visit.">
-              <Input value={value.appointmentTitle} maxLength={120} onChange={(e) => set('appointmentTitle', e.target.value)} />
+            <Field label="Appointment title" hint={`Used when the customer doesn't name the kind of visit. Left empty, it is “${DEFAULT_APPOINTMENT_TITLE}”.`}>
+              <Input value={value.appointmentTitle} maxLength={120} placeholder={DEFAULT_APPOINTMENT_TITLE} onChange={(e) => set('appointmentTitle', e.target.value)} />
             </Field>
           </div>
         </div>

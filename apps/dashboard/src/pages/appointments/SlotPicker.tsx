@@ -6,6 +6,7 @@ import { get } from '../../lib/api';
 import { addDays, formatDayHeading, formatLocalTime, isoDay } from '../../lib/format';
 import { groupSlots } from '../../lib/slots';
 import type { Availability, Slot } from '../../lib/types';
+import { currentTimezoneName } from '../../lib/timezones';
 
 /** Open slots for one calendar, a week at a time. `value` is the slot's calendar-local start. */
 export function SlotPicker({ calendarId, value, onChange, days = 7 }: { calendarId: string; value: string | null; onChange: (slot: Slot) => void; days?: number }) {
@@ -24,7 +25,7 @@ export function SlotPicker({ calendarId, value, onChange, days = 7 }: { calendar
       <div className="flex items-center justify-between gap-2">
         <p className="text-body-sm text-fg-2">
           {formatDayHeading(from)} – {formatDayHeading(to)}
-          {availability.data && <span className="ml-1 text-caption text-muted">({availability.data.calendar.timezone})</span>}
+          {availability.data && <span className="ml-1 text-caption text-muted">({currentTimezoneName(availability.data.calendar.timezone)})</span>}
         </p>
         <div className="flex gap-1">
           <Button size="xs" variant="ghost" icon={<ChevronLeft className="size-3.5" />} disabled={from <= today} onClick={() => shift(-days)}>

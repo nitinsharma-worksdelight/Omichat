@@ -1012,7 +1012,7 @@ function AppointmentsTab({ contactId }: { contactId: string }) {
           <div>
             <p className="text-body-sm font-medium text-fg">{a.title}</p>
             <p className="text-caption text-muted">
-              {a.label} ({a.timezone}) · booked by {a.createdBy === 'ai' ? 'AI' : a.createdBy === 'user' ? 'team' : 'contact'}
+              {a.label} ({currentTimezoneName(a.timezone)}) · booked by {a.createdBy === 'ai' ? 'AI' : a.createdBy === 'user' ? 'team' : 'contact'}
             </p>
             {a.cancelReason && <p className="text-caption text-danger-text">{a.cancelReason}</p>}
           </div>

@@ -5,6 +5,7 @@ import { useConfirm } from '../../components/feedback-context';
 import { Button, Card, CardHeader, cx, ErrorBanner, Field, IconButton, Input, NumberInput, Select, SkeletonRows, Textarea, Toggle } from '../../components/ui';
 import { ApiError, del, get, patch } from '../../lib/api';
 import { addDays, formatDayHeading, formatLocalTime, isoDay } from '../../lib/format';
+import { calendarFieldLabel, calendarProblems } from '../../lib/calendarErrors';
 import { timezones } from '../../lib/hooks';
 import { currentTimezoneName } from '../../lib/timezones';
 import { useAction } from '../../lib/mutations';
@@ -104,6 +105,9 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
   const [form, setForm] = useState(() => toInput(calendar));
   const base = useMemo(() => toInput(calendar), [calendar]);
   const dirty = JSON.stringify(form) !== JSON.stringify(base);
+  // Mistakes are marked as they're typed; pressing Save with any left says so.
+  const problems = useMemo(() => calendarProblems(form), [form]);
+  const [tried, setTried] = useState(false);
   const tzList = useMemo(() => timezones(), []);
   const org = useOrg();
   const suggestedReplyTo = org.data?.settings.notificationEmails?.[0];
@@ -154,16 +158,29 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
                   Discard
                 </Button>
               )}
-              <Button size="sm" variant="primary" icon={<Save className="size-3.5" />} disabled={!dirty} loading={save.isPending} onClick={() => save.mutate()}>
+              <Button size="sm" variant="primary" icon={<Save className="size-3.5" />} disabled={!dirty} loading={save.isPending} onClick={() => {
+                  setTried(true);
+                  if (problems.count === 0) save.mutate();
+                }}
+              >
                 Save
               </Button>
             </>
           }
         />
         <div className="space-y-6 p-4">
-          {save.error ? <ErrorBanner error={save.error} title={save.error instanceof ApiError && save.error.details.length ? save.error.message : undefined} details={save.error instanceof ApiError ? save.error.details : undefined} /> : null}
+          {tried && problems.count > 0 ? (
+            <ErrorBanner error="Some settings need fixing" title={`Fix the ${problems.count} marked setting${problems.count === 1 ? '' : 's'} below, then save.`} />
+          ) : null}
+          {save.error ? (
+            <ErrorBanner
+              error={save.error}
+              title={save.error instanceof ApiError && save.error.details.length ? save.error.message : undefined}
+              details={save.error instanceof ApiError ? save.error.details.map((d) => ({ path: calendarFieldLabel(d.path), message: d.message })) : undefined}
+            />
+          ) : null}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Name" required>
+            <Field label="Name" required error={problems.fields.name}>
               <Input value={form.name} maxLength={120} onChange={(e) => set('name', e.target.value)} />
             </Field>
             <Field label="Timezone" hint="Opening hours and slot times are in this timezone.">
@@ -185,22 +202,22 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
           <fieldset>
             <legend className="mb-3 text-body font-semibold text-fg">Slots</legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <Field label="Appointment length (min)">
+              <Field label="Appointment length (min)" error={problems.fields.slotMinutes}>
                 <NumberInput min={5} max={480} value={form.slotMinutes} onChange={(v) => set('slotMinutes', Math.round(v ?? 30))} />
               </Field>
-              <Field label="Start a slot every (min)" hint="Empty = same as the length.">
+              <Field label="Start a slot every (min)" hint="Empty = same as the length." error={problems.fields.slotIntervalMinutes}>
                 <NumberInput min={5} max={480} allowEmpty value={form.slotIntervalMinutes} onChange={(v) => set('slotIntervalMinutes', v === null ? null : Math.round(v))} />
               </Field>
-              <Field label="Buffer between (min)">
+              <Field label="Buffer between (min)" error={problems.fields.bufferMinutes}>
                 <NumberInput min={0} max={240} value={form.bufferMinutes} onChange={(v) => set('bufferMinutes', Math.round(v ?? 0))} />
               </Field>
-              <Field label="Minimum notice (min)" hint="e.g. 120 = no bookings in the next 2 hours.">
+              <Field label="Minimum notice (min)" hint="e.g. 120 = no bookings in the next 2 hours." error={problems.fields.minNoticeMinutes}>
                 <NumberInput min={0} value={form.minNoticeMinutes} onChange={(v) => set('minNoticeMinutes', Math.round(v ?? 0))} />
               </Field>
-              <Field label="Book up to (days ahead)">
+              <Field label="Book up to (days ahead)" error={problems.fields.maxDaysAhead}>
                 <NumberInput min={1} max={365} value={form.maxDaysAhead} onChange={(v) => set('maxDaysAhead', Math.round(v ?? 30))} />
               </Field>
-              <Field label="Max per day" hint="Empty = no limit.">
+              <Field label="Max per day" hint="Empty = no limit." error={problems.fields.maxPerDay}>
                 <NumberInput min={1} max={500} allowEmpty value={form.maxPerDay} onChange={(v) => set('maxPerDay', v === null ? null : Math.round(v))} />
               </Field>
             </div>
@@ -229,7 +246,7 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
                     ))}
                   </Select>
                 </Field>
-                <Field label="Reply-to email" hint="Where customers' replies go.">
+                <Field label="Reply-to email" hint="Where customers' replies go." error={problems.fields.replyToEmail}>
                   <Input type="email" maxLength={254} value={form.replyToEmail ?? ''} placeholder="bookings@yourbusiness.com" onChange={(e) => set('replyToEmail', e.target.value.trim() || null)} />
                   {!form.replyToEmail && suggestedReplyTo && (
                     <Button size="xs" variant="ghost" className="mt-1 self-start" onClick={() => set('replyToEmail', suggestedReplyTo)}>
@@ -272,7 +289,14 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
                       {DAY_LABEL[day]}
                       {!ranges.length && <span className="block text-caption font-normal">Closed</span>}
                     </span>
-                    <RangesEditor label={DAY_LABEL[day]} ranges={ranges} onChange={(r) => setDay(day, r)} />
+                    <div>
+                      <RangesEditor label={DAY_LABEL[day]} ranges={ranges} onChange={(r) => setDay(day, r)} />
+                      {problems.days[day] && (
+                        <p role="alert" className="mt-1 text-caption text-danger-text">
+                          {problems.days[day]}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -295,6 +319,11 @@ export function CalendarEditor({ calendar }: { calendar: Calendar }) {
                   <div className="flex-1 pt-1">
                     {!o.hours.length && <span className="mr-2 text-caption text-muted">Closed all day</span>}
                     <RangesEditor label={`Override ${o.date || i + 1}`} ranges={o.hours} onChange={(hours) => setOverride(i, { hours })} />
+                    {problems.overrides[i] && (
+                      <p role="alert" className="mt-1 text-caption text-danger-text">
+                        {problems.overrides[i]}
+                      </p>
+                    )}
                   </div>
                   <IconButton label={`Remove override ${o.date}`} size="sm" onClick={() => set('dateOverrides', form.dateOverrides.filter((_, j) => j !== i))}>
                     <Trash2 className="size-4" />

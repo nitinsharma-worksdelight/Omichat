@@ -368,7 +368,8 @@ describe('optional details are never asked for (BUG-06)', () => {
     expect(req.system).toContain('- Optional: phone. Save these if the customer shares them, but never ask for them.');
     expect(req.system).not.toContain('phone (optional)');
     expect(req.system).toContain('"Contact details" anywhere in these instructions means the required details above, plus what a booking needs.');
-    expect(req.system).toContain('collecting their contact details (the required ones)');
+    // Offering a follow-up now also says to ask for the required details and then really create the task (HAND-002).
+    expect(req.system).toContain('offer to have the team follow up. Once you have their required contact details');
   });
 
   it('asks for what booking needs before booking, even when lead capture has it optional; booking without it is refused', async () => {

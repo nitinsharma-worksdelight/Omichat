@@ -80,6 +80,8 @@ export interface RetrievedChunk {
   category: string | null;
   similarity: number | null;
   score: number;
+  /** Close enough to the question to be shown as a source (the others only filled the list). */
+  relevant?: boolean;
 }
 
 export interface RetrievalResult {
@@ -675,6 +677,7 @@ export class KnowledgeService {
             category: r.metadata.category ?? null,
             similarity: similarity.get(id) ?? null,
             score,
+            relevant: (similarity.get(id) ?? 0) >= threshold || (textIds.has(id) && (similarity.get(id) ?? 0) >= threshold * 0.75),
           };
         })
         .filter((c): c is RetrievedChunk => c !== null);

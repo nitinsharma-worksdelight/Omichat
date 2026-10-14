@@ -253,6 +253,15 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
               checked={config.handoff.respectTeamHours}
               onChange={(v) => setConfig('handoff', { ...config.handoff, respectTeamHours: v })}
             />
+            {config.handoff.respectTeamHours && ctx.teamHoursOn === false && (
+              <p role="note" className="rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-caption text-warning-text">
+                Team hours are off, so the team counts as always available and this away message is never sent.{' '}
+                <Link to="/settings" className="font-medium underline">
+                  Turn on “Use team hours” in Settings → Organization
+                </Link>
+                .
+              </p>
+            )}
             {config.handoff.respectTeamHours && (
               <Field label="Away message" hint="Sent instead of the scenario's final message when a chat is handed over outside team hours.">
                 <Textarea rows={2} maxLength={500} value={config.handoff.awayMessage} onChange={(e) => setConfig('handoff', { ...config.handoff, awayMessage: e.target.value })} />
@@ -356,6 +365,7 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
         booking={config.booking}
         askFirst={config.actions.askFirst}
         qualificationOn={config.qualification.enabled}
+        contactInfoAsks={config.leadCapture.enabled && config.leadCapture.fields.some((f) => f.required) ? askedFor(config.leadCapture, ctx.customFields) : null}
         ctx={ctx}
         onApply={(booking, askFirst) => {
           setDraft({ ...draft, config: { ...config, booking, actions: { ...config.actions, askFirst } } });

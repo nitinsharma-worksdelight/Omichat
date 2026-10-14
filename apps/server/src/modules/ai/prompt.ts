@@ -59,6 +59,14 @@ function fieldLabel(field: string, customLabels: Map<string, string>): string {
   return customLabels.get(field) ?? field;
 }
 
+/** What makes a ready-made handover scenario apply, spelled out so it is not missed under other guidance. */
+const SCENARIO_HINTS: Record<string, string> = {
+  failed_to_resolve:
+    ". This applies as soon as the customer says your answers didn't help, asks the same thing again after you tried to answer it, or is still frustrated after you apologised. Don't apologise again or ask for contact details at that point: hand over",
+  lack_of_information:
+    '. This applies when the business facts, the <knowledge> snippets and your tools cannot answer a business question (after searching). Hand over rather than offering to have the team call back yourself',
+};
+
 /**
  * The stable part of the prompt. Depends only on the bot version and org-level definitions, never on
  * the conversation, the contact or the clock — so it is byte-identical across turns and stays cached.
@@ -76,6 +84,8 @@ export function buildSystemPrompt(
     activeTools?: string[];
     /** Some of those actions wait for the team's approval (ask first). */
     asksFirst?: boolean;
+    /** How late the booking calendar lets a booking be moved or cancelled ("any time before the appointment starts"). */
+    calendarChangePolicy?: string | null;
   },
 ): string {
   const c = bot.config;
@@ -139,10 +149,15 @@ export function buildSystemPrompt(
   ].filter(Boolean);
   if (facts.length) sections.push(`## Business facts\n${facts.join('\n')}`);
 
+  // The assistant only offers what it can really do: a follow-up needs create_task, a connection needs a handover scenario.
+  const canFollowUp = has('create_task', true);
+  const dontKnow = 'say plainly that you do not have that information, and do not promise that the team will get back to them';
+  const followUp =
+    'say you are not sure, and offer to have the team follow up. Once you have their required contact details (ask for any you do not have yet), call create_task so the follow-up really exists, and only then tell them the team will be in touch. Never say the team will follow up unless you called create_task';
   const unknown = {
-    offer_handoff: 'say you are not sure and offer to connect them with the team',
-    collect_contact: 'say you are not sure, and offer to have the team follow up — collecting their contact details (the required ones) if you do not have them yet',
-    say_dont_know: 'say plainly that you do not have that information',
+    offer_handoff: c.handoff.enabled ? 'say you are not sure and offer to connect them with the team' : canFollowUp ? followUp : dontKnow,
+    collect_contact: canFollowUp ? followUp : dontKnow,
+    say_dont_know: dontKnow,
   }[c.guardrails.unknownAnswer];
   const knowledge = [
     'Each customer message comes with a <context> block from the system: the current time, what is known about the customer, and — when relevant — <knowledge> snippets retrieved from the business\'s documents for that message.',
@@ -218,6 +233,11 @@ export function buildSystemPrompt(
         : canCancel
           ? `- To cancel a booking: call list_my_appointments, confirm with the customer, then cancel_appointment. You can't move bookings in this chat: never say one is moved; to change the time, ${toTeam}.`
           : `- You can't move or cancel bookings in this chat: never say one is moved or cancelled. For a change or cancellation, ${toTeam}.`;
+  // The calendar's own rule decides, the same for moving and for cancelling: documents can say something else.
+  const policy =
+    (canMove || canCancel) && input.calendarChangePolicy
+      ? `- This calendar lets a booking be moved or cancelled ${input.calendarChangePolicy}. That calendar rule is the only notice rule, and it is the same for moving and for cancelling: if a document or other text names a different notice period, don't apply it and don't refuse because of it. Call the tool, which enforces the real rule.`
+      : '';
   const tooClose =
     !canMove && !canCancel
       ? ''
@@ -231,8 +251,12 @@ export function buildSystemPrompt(
         '- Call check_availability before proposing any time, and offer two or three options — never invent times.',
         "- Bookable times come only from check_availability. Opening hours in the business facts or <knowledge> can differ from them: never tell a customer a day or time can be booked before checking. If a day the business is open has no slots, say there are no bookable times that day and offer the next available ones.",
         '- Times are in the calendar\'s timezone; always say which timezone. When a time also comes with your_time, the customer is in another timezone: give their time first and name both zones.',
-        `- Before calling book_appointment: the customer has confirmed the exact date and time, and you have saved their ${c.booking.requiredFields.join(' and ')}.`,
-        `- Booking needs their ${c.booking.requiredFields.join(' and ')}: ask for any that are missing before booking, even if they are optional above. Ask for nothing else to book.`,
+        c.booking.requiredFields.length
+          ? `- Before calling book_appointment: the customer has confirmed the exact date and time, and you have saved their ${c.booking.requiredFields.join(' and ')}.`
+          : '- Before calling book_appointment: the customer has confirmed the exact date and time. Booking itself needs no contact details.',
+        c.booking.requiredFields.length
+          ? `- Booking needs their ${c.booking.requiredFields.join(' and ')}: ask for any that are missing before booking, even if they are optional above. Ask for nothing else to book.`
+          : '- Booking asks for no contact details of its own: book as soon as the time is confirmed. Details the business asks for under "Capturing contact details" still follow the rules there.',
         "- check_availability's weekly_hours lists the only weekdays that can be booked. If the business is open on another day (opening hours or documents), you may say so, but that day can't be booked.",
         '- Only offer times check_availability returned in this conversation, and only say an appointment is booked after book_appointment succeeds.',
         c.booking.requireQualification ? '- Only book for leads who completed qualification successfully.' : '',
@@ -240,6 +264,7 @@ export function buildSystemPrompt(
         '- After booking, confirm the date, time and timezone back to the customer.',
         '- Never say a confirmation email is on its way unless book_appointment returned customer_confirmation_sent: true; then you can say it went to the address it gives. The same goes for change and cancellation emails (customer_update_email_sent, customer_cancellation_email_sent). Never say a text message was sent.',
         changes,
+        policy,
         tooClose,
       ]
         .filter(Boolean)
@@ -252,6 +277,7 @@ export function buildSystemPrompt(
         `- When a customer wants an appointment, send them this booking link so they can pick a time and book: ${c.booking.bookingLink}`,
         "- You can't book in this chat or see open times: never offer times as available, and never say an appointment is booked.",
         changes,
+        policy,
         tooClose,
       ]
         .filter(Boolean)
@@ -273,7 +299,7 @@ export function buildSystemPrompt(
       [
         '## Handing off to a person',
         "Hand the conversation to the team in these situations the business set up, even where other guidance here says otherwise (for example, what to do when you don't know an answer). When one happens, call transfer_to_human with its name as scenario, and write nothing else:",
-        ...activeHandoffScenarios(c).map((s) => `- ${s.name}: ${s.condition}`),
+        ...activeHandoffScenarios(c).map((s) => `- ${s.name}: ${s.condition}${SCENARIO_HINTS[s.preset ?? ''] ?? ''}`),
       ].join('\n'),
     );
   }

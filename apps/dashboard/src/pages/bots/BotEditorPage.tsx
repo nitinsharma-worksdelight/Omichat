@@ -212,6 +212,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
     knowledgeBases: kbs.data ?? [],
     otherBots: (allBots.data ?? []).filter((b) => b.id !== botId).map((b) => ({ name: b.name, questions: b.config.qualification.questions })),
     organizationName: org.data?.name ?? '',
+    teamHoursOn: org.data ? Boolean(org.data.settings.teamHours?.enabled) : null,
     assistantName: draft.config.persona.assistantName.trim() || 'your assistant',
     members: members.data ?? [],
     pipelines: pipelines.data ?? [],

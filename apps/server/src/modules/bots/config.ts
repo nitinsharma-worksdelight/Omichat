@@ -183,7 +183,13 @@ export const BOOKING_WORKFLOW_INPUTS = ['appointment_id', 'appointment_time', 'a
 export const BookingSchema = z.object({
   enabled: z.boolean().default(false),
   calendarId: z.string().uuid().nullable().default(null),
-  appointmentTitle: z.string().trim().max(120).default('Consultation'),
+  /** An empty title falls back to the default, so a booking is never saved without one. */
+  appointmentTitle: z
+    .string()
+    .trim()
+    .max(120)
+    .default('Consultation')
+    .transform((title) => title || 'Consultation'),
   /** Contact details that must be on file before a booking is made. */
   requiredFields: z.array(z.enum(['name', 'email', 'phone'])).default(['name', 'email']),
   requireQualification: z.boolean().default(false),
@@ -312,7 +318,8 @@ function migrateHandoff(raw: unknown): unknown {
     ...raw,
     scenarios: [
       { ...human!, ...asBefore, enabled: on, examples: phrases },
-      lack!,
+      // Off, and new with scenarios: it looks like the others (nothing extra) rather than like a new scenario.
+      { ...lack!, reactivate: asBefore.reactivate, createTask: false, tags: [] },
       { ...failed!, ...asBefore, enabled: on },
       {
         ...asBefore,

@@ -9,7 +9,14 @@ import { api, API_URL, get, post, type RequestOptions } from '../../lib/api';
 import { formatTime, initialsOf } from '../../lib/format';
 import { useSse } from '../../lib/sse';
 import { Link } from '../../lib/router';
-import type { ConversationStatus, OfferedStarter, PlaygroundSession, PublicMessage, Timeline, WidgetMessagesResponse } from '../../lib/types';
+import type { ConversationStatus, OfferedStarter, PlaygroundSession, PublicMessage, QuietReason, Timeline, WidgetMessagesResponse } from '../../lib/types';
+
+/** What the visitor is told when their message won't get a reply (the same words as the website chat). */
+const QUIET_NOTICE: Record<QuietReason, string> = {
+  off: "This assistant is switched off right now, so there won't be an automatic reply. Your message is saved for our team.",
+  stopped: "This conversation has ended, so there won't be an automatic reply. Your messages are saved and our team can read them.",
+};
+const QUIET_HEADER: Record<QuietReason, string> = { off: 'Not replying right now', stopped: 'This chat has ended' };
 
 function mergeMessages(current: PublicMessage[], incoming: PublicMessage[]): PublicMessage[] {
   if (!incoming.length) return current;
@@ -38,6 +45,8 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
   const [messages, setMessages] = useState<PublicMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [status, setStatus] = useState<ConversationStatus | null>(null);
+  /** Nobody will answer the next message (the agent is off, or it stopped itself here). */
+  const [quiet, setQuiet] = useState<QuietReason | null>(null);
   const [streamText, setStreamText] = useState('');
   const [activity, setActivity] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
@@ -62,6 +71,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
     setMessages([]);
     setConversationId(null);
     setStatus(null);
+    setQuiet(null);
     setStreamText('');
     setActivity(null);
     setWaiting(false);
@@ -104,6 +114,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
       if (gen !== generation.current) return;
       setMessages((m) => mergeMessages(m, res.messages));
       if (res.status) setStatus(res.status);
+      if (res.messages.some((m) => m.role !== 'user')) setQuiet(null);
       if (res.messages.some((m) => m.role !== 'user')) {
         setWaiting(false);
         setStreamText('');
@@ -118,7 +129,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
     streamUrl,
     (): Record<string, string> => (session ? { authorization: `Bearer ${session.token}` } : {}),
     (event, raw) => {
-      const data = (raw ?? {}) as { message?: PublicMessage; text?: string; label?: string; status?: ConversationStatus; messageId?: string | null };
+      const data = (raw ?? {}) as { message?: PublicMessage; text?: string; label?: string; status?: ConversationStatus; messageId?: string | null; quiet?: QuietReason };
       switch (event) {
         case 'message':
           if (data.message) {
@@ -127,6 +138,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
             if (m.role !== 'user') {
               setStreamText('');
               setWaiting(false);
+              setQuiet(null);
             }
           }
           break;
@@ -146,6 +158,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
           setWaiting(false);
           setActivity(null);
           setStreamText('');
+          if (data.quiet) setQuiet(data.quiet);
           if (data.messageId && !messagesRef.current.some((m) => m.id === data.messageId)) void fillGaps();
           refreshTimeline();
           break;
@@ -170,14 +183,16 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
     const gen = generation.current;
     setSending(true);
     try {
-      const res = await widget<{ conversationId: string; message: PublicMessage }>('/widget/v1/messages', {
+      const res = await widget<{ conversationId: string; message: PublicMessage; quiet?: QuietReason | null }>('/widget/v1/messages', {
         method: 'POST',
         body: { content, clientMessageId, ...(starterId ? { starterId } : {}) },
       });
       if (gen !== generation.current) return true;
       setMessages((m) => mergeMessages(m, [res.message]));
       setConversationId(res.conversationId);
-      if (status !== 'human_active') setWaiting(true);
+      // Nobody will answer (the agent is off, or it stopped itself here): say so instead of showing dots.
+      setQuiet(res.quiet ?? null);
+      if (status !== 'human_active' && !res.quiet) setWaiting(true);
       refreshTimeline();
       return true;
     } catch (err) {
@@ -253,8 +268,8 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
             <div className="min-w-0 flex-1">
               <p className="truncate text-body leading-5 font-semibold text-fg">{chatName || 'Test chat'}</p>
               <p className="flex min-w-0 items-center gap-1.5 text-caption leading-4 text-fg-2">
-                <span className="shrink-0 rounded-full bg-ai-soft px-1.5 text-[10px] leading-4 font-bold tracking-wider text-ai-text">AI</span>
-                <span className="truncate">{botName ? `${botName} · usually replies instantly` : 'Usually replies instantly'}</span>
+                {!quiet && <span className="shrink-0 rounded-full bg-ai-soft px-1.5 text-[10px] leading-4 font-bold tracking-wider text-ai-text">AI</span>}
+                <span className="truncate">{quiet ? QUIET_HEADER[quiet] : botName ? `${botName} · usually replies instantly` : 'Usually replies instantly'}</span>
               </p>
             </div>
           </div>
@@ -300,6 +315,11 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
                     )}
                     {activity ? <span className="min-w-0 truncate text-caption text-muted">{activity}</span> : <span className="sr-only">{botName} is typing</span>}
                   </div>
+                )}
+                {quiet && status !== 'human_active' && (
+                  <p role="status" className="py-1 text-center text-caption text-muted">
+                    {QUIET_NOTICE[quiet]}
+                  </p>
                 )}
                 {status === 'human_active' && (
                   <div className="space-y-1 py-1 text-center">

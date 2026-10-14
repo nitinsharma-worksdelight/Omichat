@@ -411,6 +411,36 @@ outside AI Agents stay separate.
     Automations → Custom fields.
   - **Tests:** `test/qa-bugsheet.test.ts` (17). Related files, 92/92. Browser: each UI fix, on a local server.
 
+- **QA sheet "Human Handover, Stop Bot and Appointment Booking" (2026-10-15): 14 bugs.** All handled; STOP-002 was
+  already fixed with the bug-sheet work (inline Timing & Pacing errors).
+  - **BOOK-001:** the assistant refused a move citing a 24 h rule from a document, then cancelled. The calendar's own
+    rule ("any time before…" or "24 hours before…") is now in the prompt, as the only notice rule and the same for moving
+    and cancelling; documents can't change it.
+  - **BOOK-002:** with no details ticked the prompt read "you have saved their ." and the bot kept asking. It now says
+    booking needs no details of its own (prompt and tool). The modal explains that Contact Info still collects what it
+    asks for, whatever is ticked there.
+  - **BOOK-003:** an empty appointment title falls back to "Consultation" (server and modal; hint and placeholder).
+  - **BOOK-004/005:** New calendar says "Name is required." The calendar editor marks each setting as typed, with plain
+    messages (`lib/calendarErrors.ts`), blocks Save with a count, and names server errors as the person sees them.
+  - **BOOK-006:** one timezone name everywhere (`currentTimezoneName` on every place a calendar's zone is shown).
+  - **HAND-001:** Failed to resolve issue / Lack of information now say when they apply in the prompt ("don't apologise
+    again or ask for contact details: hand over"). The model's choice isn't proven with a real model (see below).
+  - **HAND-002:** the unknown-answer wording only offers a follow-up the assistant can make: it asks for the required
+    details, calls `create_task`, and only then says the team will be in touch; with create_task off it says it
+    doesn't have the information. "Connect them" needs a handover scenario.
+  - **HAND-003:** trigger phrases hand over at once only in a short message (14 words or fewer); a long message with a
+    question goes to the assistant, which still hands over when asked.
+  - **HAND-004:** sources only for grounded, relevant chunks, and none under the business's own handover/stop message.
+  - **HAND-005:** the migrated "Lack of information" now matches the other migrated scenarios (no task, no take-back);
+    the modal explains why new scenarios start with both on. Bots already saved keep what they have.
+  - **HAND-006:** the Away message toggle warns when "Use team hours" is off in Settings.
+  - **STOP-001:** when nobody will answer (agent off, or stopped by Stop Bot / paused after a booking), the widget and
+    the test chat say so: header "Not replying right now" / "This chat has ended", no AI tag, and a notice in the chat
+    instead of typing dots (`quiet` on the session, message and `ai.done`).
+  - **Tests:** `test/qa-bugsheet2.test.ts` (33). Related files 310/312 before updating one prompt snapshot and one
+    wording assertion on purpose. Browser: calendar form, booking modal, handover hint, away-message warning, test chat
+    and the website widget with the agent off.
+
 **Assumptions and limits:**
 - Screens not in the screenshots were designed by us and approved with the design: the booking Advanced Options, the
   panel contents, the Workflow, Contact and Handover modals, the API Authentication, General and Test tabs, and

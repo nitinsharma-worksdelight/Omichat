@@ -6,7 +6,7 @@
  */
 
 import { clamp, fromSaved, isDrag, parseSaved, placement, toSaved, type Point, type SavedPosition, type Side } from './drag';
-import { announcesHandoff, headerLine, type Status } from './handoff';
+import { announcesHandoff, headerLine, quietNotice, type Quiet, type Status } from './handoff';
 import { safeLink } from './links';
 import { startersToOffer, type Starter } from './starters';
 
@@ -390,6 +390,9 @@ class ChatWidget {
   private visitorId: string | null = store('visitor');
   private conversationId: string | null = null;
   private status: Status = null;
+  /** Nobody will answer the next message (the agent is off, or it stopped itself here), and which of those was last told. */
+  private quiet: Quiet = null;
+  private quietTold: Quiet = null;
   /** The chat has loaded (history and status): a change of status from here on is news to the visitor. */
   private ready = false;
   /** A team member has replied since the chat passed to the team. */
@@ -685,12 +688,13 @@ class ChatWidget {
         body: JSON.stringify({ key: KEY, visitorId: this.visitorId ?? undefined }),
       });
       if (!res.ok) throw new Error(res.status === 403 ? 'This chat is not available on this website.' : 'Chat is unavailable right now.');
-      const data = (await res.json()) as { token: string; visitorId: string; conversationId: string | null; status: Status; messages: PublicMessage[] };
+      const data = (await res.json()) as { token: string; visitorId: string; conversationId: string | null; status: Status; quiet?: Quiet; messages: PublicMessage[] };
       this.token = data.token;
       this.visitorId = data.visitorId;
       store('visitor', data.visitorId);
       this.conversationId = data.conversationId;
       this.setStatus(data.status);
+      this.quiet = data.quiet ?? null;
       data.messages.forEach((m) => this.addBubble(m));
       // A chat already with the team (reload or another tab) says so after its history, as it did when it happened.
       if (data.status === 'human_active') this.showHandoffNotice();
@@ -789,14 +793,19 @@ class ChatWidget {
       }
       if (res.status === 429) throw new Error("You're sending messages quickly — please wait a moment.");
       if (!res.ok) throw new Error('Message not sent. Please try again.');
-      const data = (await res.json()) as { conversationId: string; message: PublicMessage };
+      const data = (await res.json()) as { conversationId: string; message: PublicMessage; quiet?: Quiet };
       this.rendered.add(data.message.id);
       this.track(data.message.id);
       if (this.conversationId !== data.conversationId) {
         this.conversationId = data.conversationId;
         this.openStream();
       }
-      if (this.status !== 'human_active') this.showTyping();
+      // Nobody will answer (the agent is off, or it stopped itself here): say so instead of showing dots.
+      if (data.quiet) this.setQuiet(data.quiet, true);
+      else {
+        this.setQuiet(null);
+        if (this.status !== 'human_active') this.showTyping();
+      }
       this.error('');
       this.removeStarters();
     } catch (err) {
@@ -902,6 +911,7 @@ class ChatWidget {
           this.streamingBubble?.remove();
           this.streamingBubble = null;
           this.hideTyping();
+          this.setQuiet(null);
         }
         this.addBubble(m);
         break;
@@ -910,7 +920,8 @@ class ChatWidget {
         this.streamingBubble?.remove();
         this.streamingBubble = null;
         this.hideTyping();
-        if (!data.messageId) void this.catchUp();
+        if (data.quiet) this.setQuiet(data.quiet as Quiet, true);
+        else if (!data.messageId) void this.catchUp();
         break;
       case 'conversation.status':
         this.setStatus(data.status as Status);
@@ -1049,8 +1060,22 @@ class ChatWidget {
 
   /** The header's second line, and the AI tag only while the assistant answers. */
   private renderHeader() {
-    this.subtitle.textContent = headerLine(this.status, this.teamReplied, this.usualSubtitle);
-    this.aiChip.style.display = this.status === 'human_active' ? 'none' : '';
+    this.subtitle.textContent = headerLine(this.status, this.teamReplied, this.usualSubtitle, this.quiet);
+    this.aiChip.style.display = this.status === 'human_active' || this.quiet ? 'none' : '';
+  }
+
+  /** Records whether nobody will answer; `tell` also says so in the chat, once for as long as it stays that way. */
+  private setQuiet(quiet: Quiet, tell = false) {
+    this.quiet = quiet;
+    if (!quiet) this.quietTold = null;
+    this.renderHeader();
+    if (!quiet || !tell || this.quietTold === quiet) return;
+    this.quietTold = quiet;
+    const notice = el('div', 'notice');
+    notice.append(el('span', undefined, quietNotice(quiet)));
+    this.log.appendChild(notice);
+    this.hideTyping();
+    this.scroll();
   }
 
   private showHandoffNotice() {

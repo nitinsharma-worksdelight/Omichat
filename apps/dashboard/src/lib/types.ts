@@ -584,9 +584,13 @@ export interface PublicMessage {
   sources: Array<{ title: string; url: string }>;
 }
 
+/** Why nobody will answer the visitor's next message: the agent is switched off, or it stopped itself in this chat. */
+export type QuietReason = 'off' | 'stopped';
+
 export interface WidgetMessagesResponse {
   conversationId: string | null;
   status?: ConversationStatus;
+  quiet?: QuietReason | null;
   messages: PublicMessage[];
 }
 

@@ -22,6 +22,7 @@ import { answers, notice, pendingInbound } from '../conversations/pending';
 import type { DealsService } from '../deals/service';
 import type { KnowledgeService, RetrievedChunk } from '../knowledge/service';
 import type { QualificationService } from '../leads/qualification';
+import { changePolicy } from '../scheduling/notifications';
 import type { SchedulingService } from '../scheduling/service';
 import type { ToolExecutor } from '../tools/executor';
 import { hasAskFirst, type ToolContext } from '../tools/types';
@@ -300,7 +301,8 @@ export class AiOrchestrator {
     if (aiStop) {
       if (arrivedWhileStopped(aiStop, latestInbound.createdAt)) {
         log.info({ scenario: aiStop.scenarioName }, 'assistant is stopped in this conversation; not replying');
-        await this.deps.conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId: '', messageId: null });
+        // `quiet`: the chat window tells the visitor that nobody will answer this one.
+        await this.deps.conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId: '', messageId: null, quiet: 'stopped' });
         return;
       }
       await this.deps.conversations.restartBot(scope, conv.id, { actor: 'system', reason: 'time was up' });
@@ -309,7 +311,7 @@ export class AiOrchestrator {
     const unanswered = (reason: 'ai_disabled' | 'bot_inactive' | 'no_bot') =>
       this.deps.automation
         .reportUnanswered(scope, { reason, contactId: conv.contactId, conversationId: conv.id })
-        .then(() => this.deps.conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId: '', messageId: null }));
+        .then(() => this.deps.conversations.publish(job.orgId, { type: 'ai.done', conversationId: conv.id, runId: '', messageId: null, quiet: 'off' }));
     if (!conv.botId) {
       log.warn('conversation has no bot; not replying');
       await unanswered('no_bot');
@@ -354,7 +356,7 @@ export class AiOrchestrator {
       return;
     }
     // Each message on its own, so the end of one and the start of the next can't make a phrase together.
-    if (bot.config.handoff.enabled && pending.some((m) => matchesHandoffKeyword(m.content, bot.config.handoff.keywords))) {
+    if (bot.config.handoff.enabled && pending.some((m) => asksForPerson(m.content, bot.config.handoff.keywords))) {
       await this.handoff(scope, conv.id, bot, 'Customer asked for a person', messageFor(humanRequested), { answersThrough: job.triggerMessageId, scenario: humanRequested });
       return;
     }
@@ -374,7 +376,7 @@ export class AiOrchestrator {
     // ---- 3. Context ----
     let contactId = conv.contactId;
     const calendarId = bot.config.booking.enabled ? bot.config.booking.calendarId : null;
-    const [toolSchemaCtx, contact, earlierConversations, earlierActions, knowledgeLanguages, pastAppointments, upcoming, calendarTimezone] = await Promise.all([
+    const [toolSchemaCtx, contact, earlierConversations, earlierActions, knowledgeLanguages, pastAppointments, upcoming, bookingCalendarInfo] = await Promise.all([
       this.deps.tools.schemaContext(job.orgId, bot),
       this.deps.contacts.getForConversation(scope, contactId),
       this.earlierConversations(job.orgId, conv.id, conv.contactId),
@@ -386,7 +388,7 @@ export class AiOrchestrator {
       this.deps.scheduling.listForContact(scope, contactId, { upcomingOnly: true }),
       calendarId
         ? this.deps.scheduling.getCalendar(scope, calendarId).then(
-            (cal) => cal.timezone,
+            (cal) => ({ timezone: cal.timezone, changePolicy: changePolicy(cal) }),
             () => null,
           )
         : null,
@@ -422,7 +424,7 @@ export class AiOrchestrator {
     const contextBlock = buildContextBlock({
       now: this.now(),
       timezone: org.timezone,
-      calendarTimezone: activeTools.includes('book_appointment') ? calendarTimezone : null,
+      calendarTimezone: activeTools.includes('book_appointment') ? (bookingCalendarInfo?.timezone ?? null) : null,
       channel: conv.channel,
       contact,
       customFieldLabels,
@@ -448,6 +450,7 @@ export class AiOrchestrator {
       organizationName: org.name,
       activeTools,
       asksFirst: hasAskFirst(toolSchemaCtx, activeTools),
+      calendarChangePolicy: bookingCalendarInfo?.changePolicy ?? null,
     });
     // The greeting stays while the conversation's first message is still in the history (not yet folded into the summary).
     const firstInView = history.length ? history[0]!.id : pending[0]?.id;
@@ -488,7 +491,8 @@ export class AiOrchestrator {
     const prepared = this.deps.tools.prepare(toolSchemaCtx, { conversationId: conv.id, triggerMessageId: job.triggerMessageId, runId });
     const started = Date.now();
     const streaming = this.deps.channels.get(conv.channel).streaming;
-    const citations = new Map<string, RetrievedChunk>((retrieval?.chunks ?? []).map((c) => [c.id, c]));
+    // Sources are what clearly bears on the question: nothing under a weak match, and not the chunks that only filled the list.
+    const citations = new Map<string, RetrievedChunk>((retrieval?.grounding === 'grounded' ? retrieval.chunks.filter((c) => c.relevant !== false) : []).map((c) => [c.id, c]));
     let handoffReason: string | null = null;
     /** The handover scenario the assistant said matched: its message replaces the reply, and its settings apply. */
     let handoffScenario: HandoffScenario | null = null;
@@ -691,7 +695,8 @@ export class AiOrchestrator {
             content: finalText,
             aiRunId: runId,
             metadata: answerMeta,
-            citations: [...citations.values()].slice(0, 8).map<Citation>((c) => ({ chunkId: c.id, documentId: c.documentId, title: c.title, url: c.url })),
+            // The business's own fixed message (a handover or a stop) is not an answer from the documents.
+            citations: (scenario || stopMessage !== null ? [] : [...citations.values()].slice(0, 8)).map<Citation>((c) => ({ chunkId: c.id, documentId: c.documentId, title: c.title, url: c.url })),
           },
           aiActive,
         );
@@ -953,6 +958,19 @@ export function isSmallTalk(text: string): boolean {
 /** Thrown at a checkpoint once the turn's time limit or lock is gone; the catch works out which. */
 class TurnStopped extends Error {}
 
+/** A message longer than this isn't just a request for a person: its other words may be a question to answer. */
+export const MAX_REQUEST_WORDS = 14;
+
+/**
+ * Whether a message is, in the main, a request for a person: it holds one of the trigger phrases and little else. A long
+ * message that merely contains a phrase ("a friend said I should talk to a human about pricing, what are your prices?")
+ * goes to the assistant, which still hands over when the customer really is asking for a person.
+ */
+export function asksForPerson(text: string, keywords: string[]): boolean {
+  if (!matchesHandoffKeyword(text, keywords)) return false;
+  return text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length <= MAX_REQUEST_WORDS;
+}
+
 export function matchesHandoffKeyword(text: string, keywords: string[]): boolean {
   const normalized = ` ${text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ')} `;
   return keywords.some((k) => {
@@ -1008,8 +1026,11 @@ const parseJson = (text: string): unknown => {
 function collectCitations(toolContent: string, into: Map<string, RetrievedChunk>) {
   try {
     const parsed = JSON.parse(toolContent) as {
+      grounding?: string;
       results?: Array<{ source_id: string; document_id: string; title: string; url: string | null }>;
     };
+    // A loose match is not a source.
+    if (parsed.grounding !== 'grounded') return;
     for (const r of parsed.results ?? []) {
       if (!into.has(r.source_id)) {
         into.set(r.source_id, {

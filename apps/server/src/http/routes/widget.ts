@@ -4,6 +4,7 @@ import type { Container } from '../../container';
 import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { normalizeIp } from '../../lib/ip';
 import { parseInput } from '../../lib/validation';
+import { quietReason, type Quiet } from '../../modules/ai/quiet';
 import { offeredStarters } from '../../modules/bots/config';
 import { openingGreeting } from '../../modules/channels/service';
 import { convChannel, type RealtimeEvent } from '../../modules/conversations/service';
@@ -60,6 +61,7 @@ export async function registerWidgetRoutes(app: FastifyInstance, c: Container) {
       visitorId,
       conversationId: open?.id ?? null,
       status: open?.status ?? null,
+      quiet: await quietOf(c, channel.organizationId, open?.botId ?? channel.botId ?? null, open),
       messages: messages.map(publicMessage),
     };
   });
@@ -70,7 +72,7 @@ export async function registerWidgetRoutes(app: FastifyInstance, c: Container) {
     const conv = await openConversation(c, claims);
     if (!conv) return { conversationId: null, messages: [] };
     const messages = await c.conversations.messages({ orgId: claims.orgId }, conv.id, { limit: 100, after: q.after });
-    return { conversationId: conv.id, status: conv.status, messages: messages.map(publicMessage) };
+    return { conversationId: conv.id, status: conv.status, quiet: await quietOf(c, claims.orgId, conv.botId, conv), messages: messages.map(publicMessage) };
   });
 
   app.post('/messages', { config: { rateLimit: { max: 20, timeWindow: '1 minute', keyGenerator: visitorKey } } }, async (req, reply) => {
@@ -105,8 +107,10 @@ export async function registerWidgetRoutes(app: FastifyInstance, c: Container) {
       timezone: input.timezone,
       visitorIp: req.ip,
     });
-    // `aiQueued`: a reply is on its way (false when a person has the chat, or nobody will answer): the widget shows "typing" only then.
-    return reply.status(result.duplicate ? 200 : 201).send({ conversationId: result.conversationId, message: publicMessage(result.message), aiQueued: result.aiQueued });
+    // `aiQueued`: a reply is on its way (false when a person has the chat): the widget shows "typing" only then. `quiet`: the agent is off or stopped itself, so nobody will answer: the widget says so instead.
+    const open = await openConversation(c, claims);
+    const quiet = result.aiQueued ? await quietOf(c, claims.orgId, open?.botId ?? claims.botId ?? null, open) : null;
+    return reply.status(result.duplicate ? 200 : 201).send({ conversationId: result.conversationId, message: publicMessage(result.message), aiQueued: result.aiQueued, quiet });
   });
 
   /**
@@ -144,6 +148,23 @@ function widgetEvent(event: RealtimeEvent): { type: string; data: unknown } | nu
     default:
       return null;
   }
+}
+
+/** Whether nobody will answer the visitor's next message (the agent is off, or it stopped itself here). */
+async function quietOf(
+  c: Container,
+  orgId: string,
+  botId: string | null,
+  conv: { status: string; metadata: Record<string, unknown> } | null,
+): Promise<Quiet | null> {
+  const [bot, org] = await Promise.all([
+    botId ? c.bots.get({ orgId }, botId).catch(() => null) : null,
+    c.tenancy.getOrganization(orgId).catch(() => null),
+  ]);
+  return quietReason(
+    { status: conv?.status ?? 'ai_active', metadata: conv?.metadata, hasBot: Boolean(bot), botActive: Boolean(bot?.isActive), aiEnabled: org?.aiEnabled ?? true },
+    new Date(),
+  );
 }
 
 async function openConversation(c: Container, claims: { orgId: string; channelAccountId: string; visitorId: string }) {
