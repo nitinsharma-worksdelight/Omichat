@@ -644,18 +644,19 @@ export function handoffStarter(config: BotConfig, starterIds: Array<string | und
   return config.conversationStarters.find((s) => s.enabled && s.action === 'handoff' && starterIds.includes(s.id)) ?? null;
 }
 
-/** The name the chat shows for the agent: its own, else the business's (an agent made from scratch has none). */
-export function chatDisplayName(persona: Pick<BotConfig['persona'], 'assistantName' | 'companyName'>, organizationName: string): string {
-  return persona.assistantName.trim() || persona.companyName.trim() || organizationName.trim() || 'Assistant';
-}
+/**
+ * The name the chat shows for the agent when it has none of its own. Never the business's or the organization's name:
+ * a business name is only ever what its owner typed in.
+ */
+export const DEFAULT_CHAT_NAME = 'Assistant';
 
 /** `{business_name}` and friends: values the prompt editor's "Custom Values" menu inserts into the instructions. */
 export const CUSTOM_VALUES = ['business_name', 'agent_name', 'business_hours', 'business_website', 'business_phone', 'business_email', 'business_location'] as const;
 
 /** The instructions with each custom value filled from the bot's settings (an unset one reads "not set"). */
-export function fillCustomValues(text: string, config: Pick<BotConfig, 'persona' | 'business'>, organizationName: string): string {
+export function fillCustomValues(text: string, config: Pick<BotConfig, 'persona' | 'business'>): string {
   const values: Record<(typeof CUSTOM_VALUES)[number], string> = {
-    business_name: config.persona.companyName || organizationName,
+    business_name: config.persona.companyName,
     agent_name: config.persona.assistantName,
     business_hours: config.business.hours,
     business_website: config.business.website,

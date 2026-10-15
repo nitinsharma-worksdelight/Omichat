@@ -180,7 +180,7 @@ export class AiOrchestrator {
         const transcript = rows
           .filter((m) => m.content.trim())
           .map((m) => ({ who: m.direction === 'inbound' ? ('Customer' as const) : m.senderType === 'human' ? ('Team' as const) : ('Assistant' as const), text: m.content }));
-        const prompt = buildFollowUpPrompt(bot, bot.config.persona.companyName || org.name, decided, transcript);
+        const prompt = buildFollowUpPrompt(bot, bot.config.persona.companyName || 'the business', decided, transcript);
         const response = await this.deps.llm.generate(
           {
             tier: 'reply',
@@ -447,7 +447,6 @@ export class AiOrchestrator {
       customFields: toolSchemaCtx.customFields,
       hasKnowledge: bot.knowledgeBaseIds.length > 0,
       knowledgeLanguages,
-      organizationName: org.name,
       activeTools,
       asksFirst: hasAskFirst(toolSchemaCtx, activeTools),
       calendarChangePolicy: bookingCalendarInfo?.changePolicy ?? null,

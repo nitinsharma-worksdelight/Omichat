@@ -561,7 +561,7 @@ function ChannelDialog({ channel, onClose }: { channel?: Channel; onClose: () =>
         <WidgetPreview
           color={colorValid ? form.primaryColor : '#4f46e5'}
           position={form.position}
-          title={form.title || selectedBot?.config.persona.companyName || org.data?.name || assistantName}
+          title={form.title || selectedBot?.config.persona.companyName || assistantName}
           subtitle={form.subtitle || `${assistantName} · usually replies instantly`}
           greeting={form.greeting || selectedBot?.config.persona.greeting || 'Hi! How can I help?'}
           assistantName={assistantName}

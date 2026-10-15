@@ -276,7 +276,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
           </div>
           <p className="truncate text-caption text-muted">
             {persona.assistantName}
-            {(persona.companyName || ctx.organizationName) && ` · ${persona.companyName || ctx.organizationName}`}
+            {persona.companyName && ` · ${persona.companyName}`}
           </p>
         </div>
         <button
@@ -428,7 +428,7 @@ export function BotEditorPage({ botId }: { botId: string }) {
               </div>
               <div className="min-h-0 flex-1">
                 {/* Named like the website chat, from the saved bot: that's the version the test chat talks to. */}
-                <Playground botId={botId} dirty={dirty} title={bot.data?.config.persona.companyName || ctx.organizationName} />
+                <Playground botId={botId} dirty={dirty} title={bot.data?.config.persona.companyName ?? ''} />
               </div>
             </div>
           </aside>

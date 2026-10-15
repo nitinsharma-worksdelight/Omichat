@@ -283,7 +283,7 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
               </div>
             ) : (
               <>
-                {session.greeting && <ChatRow role="assistant" face={chatName} name={botName} time={formatTime(sessionStart)} content={session.greeting} />}
+                {session.greeting && <ChatRow role="assistant" face={chatName} time={formatTime(sessionStart)} content={session.greeting} />}
                 {showStarters && (
                   <div role="group" aria-label="Suggested questions" className="flex flex-col items-end gap-2 pl-9">
                     {starters.map((s) => (
@@ -300,9 +300,9 @@ export function Playground({ botId, dirty, title }: PlaygroundProps) {
                   </div>
                 )}
                 {messages.map((m) => (
-                  <ChatRow key={m.id} role={m.role} face={chatName} name={botName} time={formatTime(m.createdAt)} content={m.content} sources={m.sources} />
+                  <ChatRow key={m.id} role={m.role} face={chatName} time={formatTime(m.createdAt)} content={m.content} sources={m.sources} />
                 ))}
-                {streamText && <ChatRow role="assistant" face={chatName} name={botName} time="" content={streamText} streaming />}
+                {streamText && <ChatRow role="assistant" face={chatName} time="" content={streamText} streaming />}
                 {(thinking || activity) && (
                   <div className="flex min-w-0 items-center gap-2">
                     <ChatFace name={chatName} className="size-7 text-[10px]" />
@@ -425,12 +425,11 @@ function ChatFace({ name, className }: { name: string; className?: string }) {
 
 /**
  * One message as the website chat draws it: the assistant's and the team's on the left with a picture, the visitor's
- * on the right, each with its time underneath (and the assistant's name).
+ * on the right. The visitor's and the team's show their time underneath; the assistant's bubble shows none.
  */
 function ChatRow({
   role,
   face,
-  name,
   time,
   content,
   sources,
@@ -439,8 +438,6 @@ function ChatRow({
   role: PublicMessage['role'];
   /** The name the chat's picture is made from. */
   face: string;
-  /** The assistant's name. */
-  name: string;
   /** When it was sent, formatted; empty while it's being written. */
   time: string;
   content: string;
@@ -448,7 +445,7 @@ function ChatRow({
   streaming?: boolean;
 }) {
   const mine = role === 'user';
-  const meta = role === 'assistant' ? [name, time].filter(Boolean).join(' · ') : time;
+  const meta = role === 'assistant' ? '' : time;
   return (
     <div className={cx('flex items-end gap-2', mine && 'justify-end')}>
       {role === 'assistant' && <ChatFace name={face} className={cx('size-7 text-[10px]', meta && 'mb-5')} />}

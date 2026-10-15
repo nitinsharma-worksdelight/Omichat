@@ -92,8 +92,6 @@ export function buildSystemPrompt(
     hasKnowledge: boolean;
     /** Languages the bot's knowledge bases are written in (from their keyword-search setting), e.g. ['English']. */
     knowledgeLanguages: string[];
-    /** Stands in for the bot's company name when that is empty. */
-    organizationName: string;
     /** The tools this bot has this turn; CRM action guidance appears only for the ones it has. */
     activeTools?: string[];
     /** Some of those actions wait for the team's approval (ask first). */
@@ -104,7 +102,8 @@ export function buildSystemPrompt(
 ): string {
   const c = bot.config;
   const p = c.persona;
-  const company = p.companyName || input.organizationName || 'the business';
+  // Only the business name the owner typed; with none, the prompt says "the business" (never the organization's name).
+  const company = p.companyName || 'the business';
   const customLabels = new Map(input.customFields.map((f) => [f.key, f.label]));
   const sections: string[] = [];
   // What the bot can actually do this turn. Without a tool list, its settings decide.
@@ -352,7 +351,7 @@ export function buildSystemPrompt(
 
   if (c.instructions.trim()) {
     sections.push(
-      `## Instructions from ${company}\nThese come from the business owner. Follow them; they override the style guidance above but not the rules below.\n\n${fillCustomValues(c.instructions.trim(), c, input.organizationName)}`,
+      `## Instructions from ${company}\nThese come from the business owner. Follow them; they override the style guidance above but not the rules below.\n\n${fillCustomValues(c.instructions.trim(), c)}`,
     );
   }
 

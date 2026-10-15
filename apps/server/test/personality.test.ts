@@ -4,7 +4,7 @@ import { authHeaders, createOrg, createTestEnv, text, type TestEnv } from './hel
 
 /**
  * F1 — Bot personality: the business's own goals and a personality in its own words reach the model; bots that
- * don't use them keep exactly the same prompt; an empty company name falls back to the organization's name.
+ * don't use them keep exactly the same prompt; an empty company name says "the business", never the organization's name.
  */
 
 let t: TestEnv;
@@ -86,17 +86,17 @@ describe('bots that use none of this', () => {
 });
 
 describe('company name', () => {
-  it("falls back to the organization's name in the prompt and the widget", async () => {
+  it("never uses the organization's name for the business: the prompt says \"the business\" and the widget shows none", async () => {
     const org = await createOrg(t.c, 'Fallback Dental');
     // A bot created in the dashboard starts without a company name.
     const created = await t.app.inject({ method: 'POST', url: '/v1/bots', headers: authHeaders(org.token), payload: { name: 'Second bot' } });
     expect(created.json().config.persona.companyName).toBe('');
-    expect(await promptOf(org, created.json().id)).toMatch(/^You are Ava, the virtual assistant for Fallback Dental\. You chat with Fallback Dental's customers/);
+    expect(await promptOf(org, created.json().id)).toMatch(/^You are Ava, the virtual assistant for the business\. You chat with the business's customers/);
 
     // The widget's own bot, with its company name cleared.
     expect((await patchBot(org, { persona: { ...org.bot.config.persona, companyName: '' } })).statusCode).toBe(200);
     const config = await t.app.inject({ method: 'GET', url: `/widget/v1/config?key=${org.webchat.publicKey}` });
-    expect(config.json().companyName).toBe('Fallback Dental');
+    expect(config.json().companyName).toBe('');
   });
 });
 
@@ -118,7 +118,7 @@ describe('limits', () => {
 });
 
 describe('end to end', () => {
-  it('the model receives the goals and the fallback company name saved through the API', async () => {
+  it('the model receives the goals, and "the business" when no company name is saved', async () => {
     const org = await createOrg(t.c, 'Relay Clinic');
     const saved = await patchBot(org, {
       persona: { ...org.bot.config.persona, companyName: '' },
@@ -130,6 +130,6 @@ describe('end to end', () => {
     await t.c.queue.drain();
     const system = t.llm.requests.at(-1)!.system;
     expect(system).toContain('- Main goal: Get visitors to book a free consultation.');
-    expect(system).toMatch(/^You are Ava, the virtual assistant for Relay Clinic\./);
+    expect(system).toMatch(/^You are Ava, the virtual assistant for the business\./);
   });
 });

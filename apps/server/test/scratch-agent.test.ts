@@ -36,14 +36,14 @@ describe('a Start from Scratch agent', () => {
     const org = await createOrg(t.c, 'Scratch Prompt Co');
     const bot = (await create(org, { persona: SCRATCH_PERSONA })).json();
     const system = await preview(org, bot.id);
-    expect(system.split('\n')[0]).toBe("You are the virtual assistant for Scratch Prompt Co. You chat with Scratch Prompt Co's customers and prospects on its behalf.");
+    expect(system.split('\n')[0]).toBe("You are the virtual assistant for the business. You chat with the business's customers and prospects on its behalf.");
     expect(system).not.toMatch(/\bAva\b/);
     expect(system).not.toMatch(/^- Tone:/m);
     expect(system).not.toMatch(/Keep replies short|Keep replies concise|well-organized answers/);
     expect(system).not.toMatch(/Do not use emojis|occasional emoji/);
     // The rest of the guidance and the safety rules are still there.
     expect(system).toContain("Reply in the language the customer writes in.");
-    expect(system).toContain('Stay on topic: Scratch Prompt Co');
+    expect(system).toContain('Stay on topic: the business and what it offers');
   });
 
   it("the prompt box's own name, tone and emoji rules are the only ones the model gets", async () => {
@@ -55,20 +55,34 @@ describe('a Start from Scratch agent', () => {
     expect(system).not.toMatch(/Do not use emojis/);
   });
 
-  it('the chat shows the business name for it and a plain greeting, until they are set', async () => {
+  it('the chat shows "Assistant" and a plain greeting until the owner sets a name, never the organization name', async () => {
     const org = await createOrg(t.c, 'Scratch Widget Co');
     const patch = await t.app.inject({ method: 'PATCH', url: `/v1/bots/${org.bot.id}`, headers: authHeaders(org.token), payload: { config: { persona: SCRATCH_PERSONA } } });
     expect(patch.statusCode, patch.body).toBe(200);
     const config = (await t.app.inject({ method: 'GET', url: `/widget/v1/config?key=${org.webchat.publicKey}` })).json();
-    expect(config).toMatchObject({ assistantName: 'Scratch Widget Co', greeting: 'Hi! How can I help?' });
+    expect(config).toMatchObject({ assistantName: 'Assistant', companyName: '', greeting: 'Hi! How can I help?' });
+    expect(config.theme.title).toBeUndefined();
     const playground = (await t.app.inject({ method: 'POST', url: `/v1/bots/${org.bot.id}/playground`, headers: authHeaders(org.token) })).json();
-    expect(playground).toMatchObject({ botName: 'Scratch Widget Co', greeting: 'Hi! How can I help?' });
+    expect(playground).toMatchObject({ botName: 'Assistant', greeting: 'Hi! How can I help?' });
 
-    // A business name of its own wins over the organization's; an agent name over both.
+    // A business name the owner typed is what the chat shows as the business; an agent name is the agent's.
     await t.app.inject({ method: 'PATCH', url: `/v1/bots/${org.bot.id}`, headers: authHeaders(org.token), payload: { config: { persona: { ...SCRATCH_PERSONA, companyName: 'Smile Dental' } } } });
-    expect((await t.app.inject({ method: 'GET', url: `/widget/v1/config?key=${org.webchat.publicKey}` })).json().assistantName).toBe('Smile Dental');
+    expect((await t.app.inject({ method: 'GET', url: `/widget/v1/config?key=${org.webchat.publicKey}` })).json()).toMatchObject({ assistantName: 'Assistant', companyName: 'Smile Dental' });
     await t.app.inject({ method: 'PATCH', url: `/v1/bots/${org.bot.id}`, headers: authHeaders(org.token), payload: { config: { persona: { ...SCRATCH_PERSONA, assistantName: 'Sarah', greeting: 'Welcome!' } } } });
     expect((await t.app.inject({ method: 'GET', url: `/widget/v1/config?key=${org.webchat.publicKey}` })).json()).toMatchObject({ assistantName: 'Sarah', greeting: 'Welcome!' });
+  });
+
+  it('no business name is ever filled in from the organization: the prompt, the custom value and the chat all leave it out', async () => {
+    const org = await createOrg(t.c, 'Org Only Name Co');
+    const bot = (await create(org, { persona: SCRATCH_PERSONA, instructions: 'We are {business_name}, the team at {business_name}.' })).json();
+    const system = await preview(org, bot.id);
+    expect(system).not.toContain('Org Only Name Co');
+    expect(system.split('\n')[0]).toBe("You are the virtual assistant for the business. You chat with the business's customers and prospects on its behalf.");
+    expect(system).toContain('We are not set, the team at not set.');
+    const config = (await t.app.inject({ method: 'GET', url: `/widget/v1/config?key=${org.webchat.publicKey}` })).json();
+    expect(JSON.stringify(config)).not.toContain('Org Only Name Co');
+    const playground = (await t.app.inject({ method: 'POST', url: `/v1/bots/${bot.id}/playground`, headers: authHeaders(org.token) })).json();
+    expect(JSON.stringify(playground)).not.toContain('Org Only Name Co');
   });
 
   it('settings filled in later reach the prompt, and can be cleared again', async () => {
@@ -90,8 +104,8 @@ describe('a Start from Scratch agent', () => {
   it("the team-approval follow-up doesn't invent a name or tone either", async () => {
     const org = await createOrg(t.c, 'Scratch Followup Co');
     const bot = (await create(org, { persona: SCRATCH_PERSONA })).json();
-    const { system } = buildFollowUpPrompt(bot, 'Scratch Followup Co', { tool: 'book_appointment', outcome: 'approved', summary: 'Book a visit', reason: null, result: {} }, []);
-    expect(system.split('\n')[0]).toBe('You are the virtual assistant for Scratch Followup Co, chatting with a customer.');
+    const { system } = buildFollowUpPrompt(bot, 'the business', { tool: 'book_appointment', outcome: 'approved', summary: 'Book a visit', reason: null, result: {} }, []);
+    expect(system.split('\n')[0]).toBe('You are the virtual assistant for the business, chatting with a customer.');
     expect(system).not.toMatch(/Tone:|Keep replies/);
   });
 });
@@ -102,7 +116,7 @@ describe('everything else keeps its defaults', () => {
     const bot = (await create(org, {})).json();
     expect(bot.config.persona).toMatchObject({ assistantName: 'Ava', tone: 'friendly', responseLength: 'short', useEmojis: false, greeting: 'Hi! How can I help you today?' });
     const system = await preview(org, bot.id);
-    expect(system).toContain('You are Ava, the virtual assistant for Defaults Kept Co.');
+    expect(system).toContain('You are Ava, the virtual assistant for the business.');
     expect(system).toContain('- Tone: warm and friendly. Keep replies short');
     expect(system).toContain('- Do not use emojis.');
   });

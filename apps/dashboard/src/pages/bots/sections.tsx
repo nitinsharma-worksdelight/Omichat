@@ -438,7 +438,7 @@ function GreetingPreview({ greeting, chatName, assistantName }: { greeting: stri
 export function PersonaSection({ value, onChange, ctx, onApplyTemplate }: SectionProps<Persona> & { onApplyTemplate: (template: PersonalityTemplate) => void }) {
   const set = <K extends keyof Persona>(key: K, v: Persona[K]) => onChange({ ...value, [key]: v });
   const name = value.assistantName.trim();
-  const company = value.companyName.trim() || ctx.organizationName;
+  const company = value.companyName.trim();
   const language = value.language.trim();
   // Tone, reply length and emojis left unset (an agent made from scratch) get no chip: its instructions decide them.
   const chips = [
@@ -482,8 +482,8 @@ export function PersonaSection({ value, onChange, ctx, onApplyTemplate }: Sectio
             </Field>
           </Setting>
           <Setting id="persona.companyName">
-            <Field label="Company name" hint={ctx.organizationName ? `Leave empty to use “${ctx.organizationName}”.` : undefined}>
-              <Input value={value.companyName} maxLength={120} placeholder={ctx.organizationName} onChange={(e) => set('companyName', e.target.value)} />
+            <Field label="Company name">
+              <Input value={value.companyName} maxLength={120} placeholder="Your business name" onChange={(e) => set('companyName', e.target.value)} />
             </Field>
           </Setting>
         </Grid>

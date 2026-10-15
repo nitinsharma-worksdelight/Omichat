@@ -541,9 +541,6 @@ class ChatWidget {
       this.renderHeader();
       // The pictures and names drawn before the settings arrived (the header, or a chat restored with its history).
       this.root.querySelectorAll<HTMLElement>('.av.bot').forEach((av) => this.fillFace(av));
-      this.root.querySelectorAll<HTMLElement>('.meta .name').forEach((name) => {
-        name.textContent = `${this.config!.assistantName} · `;
-      });
       if (t.launcherText) {
         this.launcher.classList.remove('icon-only');
         this.launcher.innerHTML = `${LAUNCHER_ICONS}<span></span>`;
@@ -953,7 +950,7 @@ class ChatWidget {
     const sent = new Date(m.createdAt);
     const at = Number.isNaN(sent.getTime()) ? new Date() : sent;
     this.dayLabel(at);
-    const { row, col, bubble, meta } = this.messageRow(m.role, at);
+    const { row, col, bubble } = this.messageRow(m.role, at);
     renderText(bubble, m.content);
     if (m.id.startsWith('local-')) {
       bubble.setAttribute('data-local', '');
@@ -974,7 +971,7 @@ class ChatWidget {
         }
         wrap.appendChild(a);
       }
-      col.insertBefore(wrap, meta);
+      bubble.after(wrap);
     }
     this.log.appendChild(row);
     this.scroll();
@@ -982,8 +979,8 @@ class ChatWidget {
   }
 
   /**
-   * A message's row: the assistant's and the team's on the left with a picture, the visitor's on the right, each with
-   * its time underneath (and the assistant's name).
+   * A message's row: the assistant's and the team's on the left with a picture, the visitor's on the right. The visitor's
+   * and the team's show their time underneath; the assistant's bubble shows no name or time (the header says who it is).
    */
   private messageRow(role: PublicMessage['role'], at: Date) {
     const row = el('div', `row ${role === 'user' ? 'me' : role}`);
@@ -992,7 +989,6 @@ class ChatWidget {
     const meta = el('div', 'meta');
     if (role === 'assistant') {
       row.append(this.botFace());
-      meta.append(el('span', 'name', this.config ? `${this.config.assistantName} · ` : ''));
     } else if (role === 'agent') {
       const face = el('div', 'av person');
       face.setAttribute('aria-hidden', 'true');
@@ -1000,10 +996,14 @@ class ChatWidget {
       row.append(face);
       col.append(el('div', 'label', 'Team member'));
     }
-    meta.append(timeOf(at));
-    col.append(bubble, meta);
+    if (role !== 'assistant') {
+      meta.append(timeOf(at));
+      col.append(bubble, meta);
+    } else {
+      col.append(bubble);
+    }
     row.append(col);
-    return { row, col, bubble, meta };
+    return { row, col, bubble };
   }
 
   /** "Today" (or the date) over the first message of each day. */

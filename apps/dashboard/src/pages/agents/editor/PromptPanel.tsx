@@ -68,7 +68,7 @@ function usePromptHistory(value: string, onChange: (v: string) => void) {
   };
 }
 
-export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { draft: BotDraft; setDraft: (d: BotDraft) => void; organizationName: string; readOnly: boolean }) {
+export function PromptPanel({ draft, setDraft, readOnly }: { draft: BotDraft; setDraft: (d: BotDraft) => void; readOnly: boolean }) {
   const ai = useAiConfig().data;
   const area = useRef<HTMLTextAreaElement>(null);
   /** Where the cursor goes once an inserted value is on screen. */
@@ -187,7 +187,7 @@ export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { d
           Business Name
           <Input
             className="h-8 w-52 text-body-sm font-normal"
-            placeholder={organizationName || 'Your business name'}
+            placeholder="Your business name"
             maxLength={120}
             value={persona.companyName}
             disabled={readOnly}
@@ -304,7 +304,7 @@ export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { d
         }
       >
         <ul className="list-disc space-y-2 pl-5 text-body text-fg-2">
-          <li>Say who the agent is and who it talks to: "You are the front desk of {persona.companyName || organizationName || 'our clinic'}, chatting with new patients."</li>
+          <li>Say who the agent is and who it talks to: "You are the front desk of {persona.companyName || 'our clinic'}, chatting with new patients."</li>
           <li>Give the goal in one sentence, then the steps: what to find out, in what order, and what to do once it knows.</li>
           <li>Put facts (prices, services, policies) in the Knowledge Base, not here. The agent searches it and quotes it exactly.</li>
           {SHOW_CUSTOM_VALUES && <li>Use Custom Values for details that change, such as {'{business_hours}'}: they're filled in from the agent's settings.</li>}

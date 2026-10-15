@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Container } from '../../container';
 import { parseInput, parsePatch } from '../../lib/validation';
 import { buildSystemPrompt } from '../../modules/ai/prompt';
-import { chatDisplayName, CUSTOM_API_BUILTINS, offeredStarters } from '../../modules/bots/config';
+import { CUSTOM_API_BUILTINS, DEFAULT_CHAT_NAME, offeredStarters } from '../../modules/bots/config';
 import { BotCreateSchema, BotUpdateSchema } from '../../modules/bots/service';
 import { openingGreeting } from '../../modules/channels/service';
 import { hasAskFirst } from '../../modules/tools/types';
@@ -81,7 +81,6 @@ export async function registerBotRoutes(app: FastifyInstance, c: Container) {
     const ctx = await c.toolExecutor.schemaContext(auth.orgId, bot);
     const tools = c.toolExecutor.prepare(ctx).specs;
     const knowledgeLanguages = await c.knowledge.languagesOf({ orgId: auth.orgId }, bot.knowledgeBaseIds);
-    const org = await c.tenancy.getOrganization(auth.orgId);
     return {
       provider: c.llm.info.provider,
       model: bot.model ?? c.llm.info.model,
@@ -90,7 +89,6 @@ export async function registerBotRoutes(app: FastifyInstance, c: Container) {
         customFields: ctx.customFields,
         hasKnowledge: bot.knowledgeBaseIds.length > 0,
         knowledgeLanguages,
-        organizationName: org.name,
         activeTools: tools.map((t) => t.name),
         asksFirst: hasAskFirst(ctx, tools.map((t) => t.name)),
       }),
@@ -112,7 +110,7 @@ export async function registerBotRoutes(app: FastifyInstance, c: Container) {
       token,
       visitorId,
       greeting: openingGreeting(channel.config, bot),
-      botName: chatDisplayName(bot.config.persona, (await c.tenancy.getOrganization(auth.orgId)).name),
+      botName: bot.config.persona.assistantName.trim() || DEFAULT_CHAT_NAME,
       starters: offeredStarters(bot.config),
     };
   });

@@ -220,7 +220,8 @@ export function AgentEditorPage({ botId }: { botId: string }) {
     setDraft((d) => (d ? { ...d, config: { ...d.config, persona: { ...d.config.persona, ...template.persona }, goals: { ...d.config.goals, primary: template.goal } } } : d));
   };
   const details = saveError instanceof ApiError ? saveError.details : [];
-  const testTitle = bot.data?.config.persona.companyName || ctx.organizationName;
+  // The business name the owner typed, if any: the test chat then shows the agent's own name.
+  const testTitle = bot.data?.config.persona.companyName ?? '';
 
   return (
     // Side by side from 1024 px, each column scrolling on its own; narrower, the columns stack and the page scrolls.
@@ -387,7 +388,7 @@ export function AgentEditorPage({ botId }: { botId: string }) {
       ) : (
         <div className="grid flex-1 gap-3 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_360px_380px]">
           <div className="flex flex-col lg:min-h-0 lg:overflow-y-auto">
-            <PromptPanel draft={draft} setDraft={setDraft} organizationName={ctx.organizationName} readOnly={!isAdmin} />
+            <PromptPanel draft={draft} setDraft={setDraft} readOnly={!isAdmin} />
           </div>
           <div className="bg-surface lg:min-h-0 lg:overflow-y-auto lg:rounded-t-lg">
             {ctx.warnings.length > 0 && (

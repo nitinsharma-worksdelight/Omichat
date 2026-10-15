@@ -5,7 +5,7 @@ import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { normalizeIp } from '../../lib/ip';
 import { parseInput } from '../../lib/validation';
 import { quietReason, type Quiet } from '../../modules/ai/quiet';
-import { chatDisplayName, offeredStarters } from '../../modules/bots/config';
+import { DEFAULT_CHAT_NAME, offeredStarters } from '../../modules/bots/config';
 import { openingGreeting } from '../../modules/channels/service';
 import { convChannel, type RealtimeEvent } from '../../modules/conversations/service';
 import { requireWidget } from '../auth';
@@ -29,13 +29,12 @@ export async function registerWidgetRoutes(app: FastifyInstance, c: Container) {
     const channel = await c.channels.byPublicKey(key);
     if (!channel || channel.status !== 'active') throw notFound('Widget');
     const bot = channel.botId ? await c.bots.get({ orgId: channel.organizationId }, channel.botId).catch(() => null) : null;
-    // A bot without a company name speaks for the organization.
-    const org = bot?.config.persona.companyName ? null : await c.tenancy.getOrganization(channel.organizationId).catch(() => null);
+    // Only the names the owner typed: with no business name, the chat shows no business name at all.
     return {
       theme: channel.config.theme ?? {},
       greeting: openingGreeting(channel.config, bot),
-      assistantName: bot ? chatDisplayName(bot.config.persona, org?.name ?? '') : 'Assistant',
-      companyName: bot?.config.persona.companyName || org?.name || '',
+      assistantName: bot?.config.persona.assistantName.trim() || DEFAULT_CHAT_NAME,
+      companyName: bot?.config.persona.companyName ?? '',
       starters: bot ? offeredStarters(bot.config) : [],
     };
   });

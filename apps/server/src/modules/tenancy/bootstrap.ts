@@ -30,7 +30,6 @@ export async function bootstrapOrganization(
     .returning({ id: schema.calendars.id });
 
   const config = BotConfigSchema.parse({
-    persona: { companyName: org.name },
     booking: { enabled: false, calendarId: calendar!.id },
     // The starter bot hands over as bots always did (Human Requested with the usual trigger phrases, Failed to resolve
     // issue, Complaint or sensitive issue). Agents created later start with GHL's three scenarios, off.
@@ -52,7 +51,8 @@ export async function bootstrapOrganization(
       name: 'Website chat',
       publicKey: randomToken('pk', 18),
       botId: bot!.id,
-      config: { allowedOrigins: [], theme: { primaryColor: '#4f46e5', position: 'right', title: org.name } },
+      // No title: the chat shows the agent's name until the owner sets one (never the organization's name).
+      config: { allowedOrigins: [], theme: { primaryColor: '#4f46e5', position: 'right' } },
     })
     .returning({ id: schema.channelAccounts.id });
 
