@@ -403,14 +403,20 @@ export function askedFor(lc: LeadCapture, customFields: CustomFieldDef[]): strin
     : `Asks for nothing; saves ${joinAnd(optional)} if shared.`;
 }
 
-const TONE_WORDS: Record<BotConfig['persona']['tone'], string> = {
+const TONE_WORDS: Record<NonNullable<BotConfig['persona']['tone']>, string> = {
   friendly: 'Friendly',
   professional: 'Professional',
   casual: 'Casual',
   enthusiastic: 'Enthusiastic',
   empathetic: 'Empathetic',
 };
-const LENGTH_WORDS: Record<BotConfig['persona']['responseLength'], string> = { short: 'short', medium: 'medium-length', detailed: 'detailed' };
+const LENGTH_WORDS: Record<NonNullable<BotConfig['persona']['responseLength']>, string> = { short: 'short', medium: 'medium-length', detailed: 'detailed' };
+
+/** " Friendly tone, short replies." — only what is set (an agent made from scratch may set neither). */
+function voiceSummary(p: BotConfig['persona']): string {
+  const parts = [p.tone && `${TONE_WORDS[p.tone]} tone`, p.responseLength && `${LENGTH_WORDS[p.responseLength]} replies`].filter(Boolean);
+  return parts.length ? ` ${parts.join(', ')}.` : '';
+}
 
 /**
  * The parts every bot needs, done or not, worked out from the settings alone. Booking counts only when the
@@ -429,7 +435,7 @@ export function essentials(draft: BotDraft, ctx: EditorContext): Essential[] {
     section: 'persona',
     done: identityDone,
     summary: identityDone
-      ? `${c.persona.assistantName.trim()}, ${c.persona.role.trim() || 'assistant'}. ${TONE_WORDS[c.persona.tone]} tone, ${LENGTH_WORDS[c.persona.responseLength]} replies.`
+      ? `${c.persona.assistantName.trim()}, ${c.persona.role.trim() || 'assistant'}.${voiceSummary(c.persona)}`
       : 'Give your assistant a name and a greeting.',
     nextStep: 'Give your assistant a name and a greeting.',
     action: 'Set up identity',

@@ -22,6 +22,8 @@ import { PromptPanel } from './PromptPanel';
 import { SettingsPanels, type ActionId, type PanelId } from './SettingsPanels';
 
 const LIST = '/ai-agents/conversation-ai';
+/** The builder covers every setting, so the older full editor isn't offered in the menu (its address still works). */
+const SHOW_FULL_EDITOR = false;
 
 /**
  * The GHL-style agent editor: Build (prompt, settings, test chat side by side) and Deploy (channels). Edits stay on
@@ -312,14 +314,16 @@ export function AgentEditorPage({ botId }: { botId: string }) {
           >
             {(close) => (
               <>
-                <MenuItem
-                  onClick={() => {
-                    close();
-                    void leave(`/bots/${botId}/advanced`);
-                  }}
-                >
-                  All settings (full editor)
-                </MenuItem>
+                {SHOW_FULL_EDITOR && (
+                  <MenuItem
+                    onClick={() => {
+                      close();
+                      void leave(`/bots/${botId}/advanced`);
+                    }}
+                  >
+                    All settings (full editor)
+                  </MenuItem>
+                )}
                 {isAdmin && (
                   <MenuItem
                     onClick={() => {

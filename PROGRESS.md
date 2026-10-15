@@ -390,8 +390,8 @@ outside AI Agents stay separate.
     Only a model that is sent is asked about, so other changes to a bot are never held up.
   - **BUG-002:** Timing & Pacing numbers are checked as they're typed (inline errors in plain words) and before the save
     (builder and full editor). The save banner names fields as the person sees them (`settingLabel`).
-  - **BUG-003:** Create Agent still creates at once (no extra step), but a new agent is now "New Employee 1", then
-    "New Employee 2"… (one past the highest number there is, asked at creation so quick repeats count up). Template
+  - **BUG-003:** Create Agent still creates at once (no extra step), but a new agent is now "Untitled 1" (it was "New Employee N" until 2026-10-16), then
+    "Untitled 2"… (one past the highest number there is, asked at creation so quick repeats count up). Template
     agents keep their template name.
   - **BUG-004:** not a code bug. The list endpoints answer in 3–32 ms with 1,500 contacts and 1,200 chats (PGlite, no
     network), so the 3–5 s is hosting (API region, cold start) and the 10–14 s test-chat reply is the model. The test
@@ -440,6 +440,18 @@ outside AI Agents stay separate.
   - **Tests:** `test/qa-bugsheet2.test.ts` (33). Related files 310/312 before updating one prompt snapshot and one
     wording assertion on purpose. Browser: calendar form, booking modal, handover hint, away-message warning, test chat
     and the website widget with the agent off.
+
+- **Instructions limit: 5,000 words, not 12,000 characters (2026-10-16).**
+  - **Counting:** words are pieces of text split on any white space (spaces, tabs, line breaks, however many in a row),
+    keeping those with a letter or a number, so a lone "-" or "—" is not a word. One rule on both sides:
+    `apps/server/src/lib/words.ts` and its identical copy `apps/dashboard/src/lib/words.ts` (a test compares them).
+  - **Server:** `instructions` is refused above 5,000 words ("The instructions can be at most 5,000 words: shorten
+    them."), on create and update. The old character cap is gone; only the request size limit bounds the text.
+  - **Dashboard:** the builder's prompt box and the full editor show "1,250 / 5,000 words". A keystroke, paste or Custom
+    Value that would go past the limit is not taken and a message says so; deleting, spaces and line breaks always work.
+  - **Existing agents:** nothing to migrate (the old cap was about 2,000 words).
+  - **Tests:** `test/instruction-word-limit.test.ts` (14). Related files 126/126. Browser: counter, spaces and line
+    breaks, exactly 5,000, one more word, big paste, deleting.
 
 **Assumptions and limits:**
 - Screens not in the screenshots were designed by us and approved with the design: the booking Advanced Options, the

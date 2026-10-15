@@ -6,6 +6,7 @@ import { initialsOf, slugify, TOOL_LABELS } from '../../lib/format';
 import { finalizeKey } from '../../lib/validate';
 import { Link } from '../../lib/router';
 import { timingFieldError } from '../../lib/settingErrors';
+import { acceptsEdit, countWords, MAX_INSTRUCTION_WORDS } from '../../lib/words';
 import { askedFor, businessFieldError, type SectionId } from './editorNav';
 import { hoursSummary, starterProblem, type BookingAbilities, type BotWarning } from './warnings';
 import { currentTimezoneName } from '../../lib/timezones';
@@ -31,6 +32,8 @@ import {
   type LeadCaptureField,
   type LeadTiming,
   type Persona,
+  type ResponseLength,
+  type Tone,
   type Qualification,
   type QualificationOutcome,
   type QualificationQuestion,
@@ -102,10 +105,12 @@ function Grid({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 | 3 })
   return <div className={cx('grid gap-4', cols === 2 ? '@sm:grid-cols-2' : cols === 3 ? '@sm:grid-cols-3' : 'grid-cols-1')}>{children}</div>;
 }
 
-function Counter({ value, max }: { value: string; max: number }) {
+function Counter({ value, max, unit }: { value: string; max: number; unit?: 'words' }) {
+  const used = unit === 'words' ? countWords(value) : value.length;
   return (
-    <span className={cx('text-caption tabular-nums', value.length > max ? 'text-danger-text' : 'text-muted')}>
-      {value.length.toLocaleString()} / {max.toLocaleString()}
+    <span className={cx('text-caption tabular-nums', used > max ? 'text-danger-text' : 'text-muted')}>
+      {used.toLocaleString()} / {max.toLocaleString()}
+      {unit ? ` ${unit}` : ''}
     </span>
   );
 }
@@ -246,7 +251,7 @@ function EmptyBox({ children }: { children: ReactNode }) {
 
 // ---------- Persona ----------
 
-const TONES: Array<{ value: Persona['tone']; label: string }> = [
+const TONES: Array<{ value: Tone; label: string }> = [
   { value: 'friendly', label: 'Friendly' },
   { value: 'professional', label: 'Professional' },
   { value: 'casual', label: 'Casual' },
@@ -317,7 +322,7 @@ export const PERSONALITY_TEMPLATES: PersonalityTemplate[] = [
   },
 ];
 
-const LENGTHS: Array<{ value: Persona['responseLength']; label: string; description: string }> = [
+const LENGTHS: Array<{ value: ResponseLength; label: string; description: string }> = [
   { value: 'short', label: 'Short', description: 'One or two sentences' },
   { value: 'medium', label: 'Medium', description: 'A short paragraph' },
   { value: 'detailed', label: 'Detailed', description: 'Several paragraphs' },
@@ -435,12 +440,13 @@ export function PersonaSection({ value, onChange, ctx, onApplyTemplate }: Sectio
   const name = value.assistantName.trim();
   const company = value.companyName.trim() || ctx.organizationName;
   const language = value.language.trim();
+  // Tone, reply length and emojis left unset (an agent made from scratch) get no chip: its instructions decide them.
   const chips = [
-    TONES.find((t) => t.value === value.tone)?.label ?? value.tone,
-    `${LENGTHS.find((l) => l.value === value.responseLength)?.label ?? value.responseLength} replies`,
+    value.tone && (TONES.find((t) => t.value === value.tone)?.label ?? value.tone),
+    value.responseLength && `${LENGTHS.find((l) => l.value === value.responseLength)?.label ?? value.responseLength} replies`,
     !language || language.toLowerCase() === 'auto' ? "Replies in the visitor's language" : `Replies in ${language}`,
-    value.useEmojis ? 'Uses emoji' : 'No emoji',
-  ];
+    value.useEmojis === null ? null : value.useEmojis ? 'Uses emoji' : 'No emoji',
+  ].filter((chip): chip is string => Boolean(chip));
   return (
     <>
       <section aria-label={`How ${ctx.assistantName} comes across`} className="flex flex-wrap items-center gap-4 rounded-[14px] border border-border bg-surface p-5">
@@ -490,10 +496,10 @@ export function PersonaSection({ value, onChange, ctx, onApplyTemplate }: Sectio
 
       <SettingsCard title="Voice" description={`How ${ctx.assistantName} talks. Save, then try it in the test chat.`}>
         <Setting id="persona.tone">
-          <Choices legend="Tone" value={value.tone} options={TONES} onChange={(v) => set('tone', v)} />
+          <Choices legend="Tone" value={value.tone ?? ''} options={TONES} onChange={(v) => set('tone', v as Tone)} />
         </Setting>
         <Setting id="persona.responseLength">
-          <Choices legend="Reply length" variant="cards" value={value.responseLength} options={LENGTHS} onChange={(v) => set('responseLength', v)} />
+          <Choices legend="Reply length" variant="cards" value={value.responseLength ?? ''} options={LENGTHS} onChange={(v) => set('responseLength', v as ResponseLength)} />
         </Setting>
         <Grid>
           <Setting id="persona.language">
@@ -502,7 +508,7 @@ export function PersonaSection({ value, onChange, ctx, onApplyTemplate }: Sectio
             </Field>
           </Setting>
           <Setting id="persona.useEmojis">
-            <Toggle label="Use emojis" description="Allow the occasional emoji in replies." checked={value.useEmojis} onChange={(v) => set('useEmojis', v)} />
+            <Toggle label="Use emojis" description="Allow the occasional emoji in replies." checked={value.useEmojis === true} onChange={(v) => set('useEmojis', v)} />
           </Setting>
         </Grid>
         <datalist id="bot-languages">
@@ -581,14 +587,17 @@ export function InstructionsSection({ value, onChange }: { value: string; onChan
       setting="instructions"
       title="Your instructions"
       description="Write them as you would brief a new team member. The assistant already knows how to capture leads, qualify and book — no need to explain that."
-      aside={<Counter value={value} max={12000} />}
+      aside={<Counter value={value} max={MAX_INSTRUCTION_WORDS} unit="words" />}
     >
       <Textarea
         aria-label="Custom instructions"
         rows={18}
         className="font-mono text-body-sm"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          // Past the word limit the text stays as it was (deleting, spaces and line breaks are always fine).
+          if (acceptsEdit(value, e.target.value)) onChange(e.target.value);
+        }}
         placeholder={'e.g. When someone asks about pricing, give the range and offer a free consultation.\nNever quote prices for custom work.'}
       />
     </SettingsCard>

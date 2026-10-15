@@ -10,7 +10,7 @@ What was done in this session, why, and where things stand. `PROGRESS.md` has th
 | `e47dda2` | Getting Started, Templates gallery, hidden tabs and actions | `main` + `feature/ui-change` |
 | `f8f88bb` | Stop Bot, scenario-only Human Handover, Booking Advanced Options, QA fixes | `main` + `feature/ui-change` |
 | `21292aa` | Empty commit to trigger the Vercel production build | `main` + `feature/ui-change` |
-| `b6afb27` | QA bug sheet fixes, "New Employee N" names, UI polish | **`feature/ui-change` only** |
+| `b6afb27` | QA bug sheet fixes, "Untitled N" names, UI polish | **`feature/ui-change` only** |
 
 - `main` is at `21292aa`. To make `b6afb27` live: `git push origin feature/ui-change:main` (the user runs this; the assistant's classifier blocks direct pushes to `main`).
 - The root `service.ts` is a stray backup. It is deliberately **never committed**.
@@ -48,7 +48,7 @@ What was done in this session, why, and where things stand. `PROGRESS.md` has th
 - 004 (slow pages and replies): not a code bug. List endpoints take 3–32 ms locally (1,500 contacts, 1,200 chats), so it is hosting, cold starts and model latency.
 - 014 (`bad_key_` custom field): the server already refuses such keys. It is old test data that the user should delete in Automations → Custom fields.
 
-**Default agent name:** "New Employee 1", then 2, 3… (one past the highest number, asked at creation). Template agents keep their template name. There is no naming step.
+**Default agent name:** "Untitled 1", then 2, 3… (one past the highest number, asked at creation). Template agents keep their template name. There is no naming step.
 
 ## 4. Decisions made
 

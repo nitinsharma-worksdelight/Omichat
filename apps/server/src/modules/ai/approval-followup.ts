@@ -1,5 +1,5 @@
 import type { BotView } from '../bots/service';
-import { escapeTags, LENGTH, TONE } from './prompt';
+import { escapeTags, toneLine, whoYouAre } from './prompt';
 
 /**
  * What the customer hears after the team answers a request the assistant made for them ("ask the team first"). When a
@@ -65,8 +65,8 @@ export function buildFollowUpPrompt(
           'Say sorry briefly and clearly that it was not done, give the reason only if one was given, and offer one possible next step (another time, or the team following up). Do not promise anything.',
         ];
   const system = [
-    `You are ${p.assistantName}, the ${p.role} for ${company}, chatting with a customer.`,
-    `Tone: ${TONE[p.tone]}. ${LENGTH[p.responseLength]}`,
+    `You are ${whoYouAre(p)} for ${company}, chatting with a customer.`,
+    ...[toneLine(p)].filter((line) => line !== null),
     "Reply in the language the customer writes in. Write plain chat text: no markdown, no emojis, no sign-off.",
     '',
     ...outcome,

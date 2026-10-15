@@ -5,7 +5,7 @@ import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { normalizeIp } from '../../lib/ip';
 import { parseInput } from '../../lib/validation';
 import { quietReason, type Quiet } from '../../modules/ai/quiet';
-import { offeredStarters } from '../../modules/bots/config';
+import { chatDisplayName, offeredStarters } from '../../modules/bots/config';
 import { openingGreeting } from '../../modules/channels/service';
 import { convChannel, type RealtimeEvent } from '../../modules/conversations/service';
 import { requireWidget } from '../auth';
@@ -34,7 +34,7 @@ export async function registerWidgetRoutes(app: FastifyInstance, c: Container) {
     return {
       theme: channel.config.theme ?? {},
       greeting: openingGreeting(channel.config, bot),
-      assistantName: bot?.config.persona.assistantName ?? 'Assistant',
+      assistantName: bot ? chatDisplayName(bot.config.persona, org?.name ?? '') : 'Assistant',
       companyName: bot?.config.persona.companyName || org?.name || '',
       starters: bot ? offeredStarters(bot.config) : [],
     };

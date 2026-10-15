@@ -20,7 +20,7 @@ Snapshot for the next AI assistant. Overview and commands: [`AI_HANDOVER.md`](AI
 - **Booking Advanced Options** (GHL layout) — booking link only, pause after booking, trigger workflows, transfer employee (`test/booking-advanced.test.ts`).
 - **QA pass on Handover / Stop Bot / Booking** — 8 bugs fixed (link scheme check, approved booking + pause, stale references blocking saves, removed assignee, workflow compatibility, stale stop after takeover, notification text, concurrent workflows). Tests: `test/qa-three-features.test.ts`, `test-integration/handover-stop-booking.test.ts` (real Postgres/Redis).
 - **QA bug sheet (`Omni AI Dashboard - QA Bug Sheet.xlsx`, 14 bugs)** — 11 fixed, 1 already fixed, 2 not code bugs. Fixes: model override validated against the provider; Timing & Pacing inline errors and plain field names; empty-submit messages; sidebar search sync; date format; Agent Logs heading; Create folder hidden; starter error after touch; Add contact phone check; unique-contacts definition shown. Tests: `test/qa-bugsheet.test.ts`.
-- **Default agent name** — "New Employee 1", "New Employee 2"… (one past the highest number, computed at creation). An intermediate "Name your agent" step was built and then **removed at the user's request**; Create Agent creates at once as before.
+- **Default agent name** — "Untitled 1", "Untitled 2"… (one past the highest number, computed at creation). An intermediate "Name your agent" step was built and then **removed at the user's request**; Create Agent creates at once as before.
 - Custom Values (`{business_name}` etc.) were explained, not changed.
 
 ## 3. Phase tracker (from PROGRESS.md) **[verified]**
@@ -50,7 +50,7 @@ None in progress. The last request handled was writing this handover pack. Befor
 - `identifiedOnly` workflows won't run after a booking in a web chat (only an activity note).
 - Partial PATCH of the `handoff` config section (API clients) replaces the whole section and can switch handover on via the legacy migration (existing contract).
 - DST fall-back hour (ambiguous local times) not tested.
-- Templates gallery "Use template" still creates an agent immediately named "<template> <date time>" (only Create Agent uses "New Employee N").
+- Templates gallery "Use template" still creates an agent immediately named "<template> <date time>" (only Create Agent uses "Untitled N").
 - No real-model (paid) checks were run in recent work; real email sending was not tested.
 
 **Older issues** are in PROGRESS.md → "Remaining issues" (e.g. several dashboard tabs stalling API requests over HTTP/1.1, README test count outdated, widget raw "Failed to fetch" message).

@@ -1,3 +1,4 @@
+import { SCRATCH_PERSONA } from '../../lib/agentDefaults';
 import type { BotConfig, Channel, ChannelType } from '../../lib/types';
 import { PERSONALITY_TEMPLATES, type PersonalityTemplate } from '../bots/sections';
 
@@ -74,7 +75,7 @@ export const AGENT_KINDS: Array<{ id: AgentKind; title: string; description: str
 
 /** What a new agent is created with, and what the editor opens on first. */
 export interface AgentPreset {
-  /** `null`: the next "New Employee <number>", worked out from the agents there already are when it is created. */
+  /** `null`: the next "Untitled <number>", worked out from the agents there already are when it is created. */
   name: string | null;
   /** Sections sent on create; fields left out get the server's defaults. */
   config: { persona?: Partial<BotConfig['persona']>; goals?: Partial<BotConfig['goals']>; instructions?: string };
@@ -98,5 +99,5 @@ export function agentPreset(kind: Exclude<AgentKind, 'market'> | PersonalityTemp
   const booking = PERSONALITY_TEMPLATES.find((t) => t.id === 'booking')!;
   if (kind === 'qa') return { name: null, config: { ...persona(support), instructions: QA_PROMPT }, knowledgeBaseIds: kbIds, setup: 'kb' };
   if (kind === 'booking') return { name: null, config: { ...persona(booking), instructions: BOOKING_PROMPT, goals: { primary: booking.goal } }, knowledgeBaseIds: [], setup: 'booking' };
-  return { name: null, config: {}, knowledgeBaseIds: [], setup: null };
+  return { name: null, config: { persona: { ...SCRATCH_PERSONA } }, knowledgeBaseIds: [], setup: null };
 }

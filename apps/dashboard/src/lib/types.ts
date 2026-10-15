@@ -241,10 +241,11 @@ export interface Persona {
   assistantName: string;
   companyName: string;
   role: string;
-  tone: Tone;
-  responseLength: ResponseLength;
+  /** null (tone, reply length, emojis): not set, so the agent follows its instructions. */
+  tone: Tone | null;
+  responseLength: ResponseLength | null;
   language: string;
-  useEmojis: boolean;
+  useEmojis: boolean | null;
   greeting: string;
   /** The voice in the business's own words; adds to the tone. */
   personality: string;

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { countWords, MAX_INSTRUCTION_WORDS } from '../../lib/words';
 import { normalizeEmail } from '../leads/capture';
 
 /**
@@ -60,11 +61,13 @@ export const PersonaSchema = z.object({
   assistantName: z.string().trim().max(60).default('Ava'),
   companyName: z.string().trim().max(120).default(''),
   role: z.string().trim().max(120).default('virtual assistant'),
-  tone: z.enum(['friendly', 'professional', 'casual', 'enthusiastic', 'empathetic']).default('friendly'),
-  responseLength: z.enum(['short', 'medium', 'detailed']).default('short'),
+  // Tone, reply length and emojis can be left unset (null): the prompt then says nothing about them and the agent
+  // follows its instructions. Agents made "from scratch" start that way; omitted values still get the defaults.
+  tone: z.enum(['friendly', 'professional', 'casual', 'enthusiastic', 'empathetic']).nullable().default('friendly'),
+  responseLength: z.enum(['short', 'medium', 'detailed']).nullable().default('short'),
   /** 'auto' mirrors the customer's language. Otherwise a language name or code, e.g. "English", "hi". */
   language: z.string().trim().max(40).default('auto'),
-  useEmojis: z.boolean().default(false),
+  useEmojis: z.boolean().nullable().default(false),
   greeting: z.string().trim().max(500).default('Hi! How can I help you today?'),
   /** The voice in the business's own words ("warm and reassuring, like our front desk"); adds to the tone. */
   personality: z.string().trim().max(600).default(''),
@@ -605,7 +608,11 @@ export const ActionsSchema = z.object({
 export const BotConfigSchema = z.object({
   persona: PersonaSchema.default(PersonaSchema.parse({})),
   goals: GoalsSchema.default(GoalsSchema.parse({})),
-  instructions: z.string().max(12_000).default(''),
+  // Counted in words, not characters: spaces, tabs and line breaks (however many) are not words.
+  instructions: z
+    .string()
+    .refine((text) => countWords(text) <= MAX_INSTRUCTION_WORDS, `The instructions can be at most ${MAX_INSTRUCTION_WORDS.toLocaleString('en-US')} words: shorten them.`)
+    .default(''),
   business: BusinessProfileSchema.default(BusinessProfileSchema.parse({})),
   leadCapture: LeadCaptureSchema.default(LeadCaptureSchema.parse({})),
   qualification: QualificationSchema.default(QualificationSchema.parse({})),
@@ -635,6 +642,11 @@ export function offeredStarters(config: BotConfig): Array<{ id: string; label: s
 export function handoffStarter(config: BotConfig, starterIds: Array<string | undefined>): ConversationStarter | null {
   if (!config.handoff.enabled) return null;
   return config.conversationStarters.find((s) => s.enabled && s.action === 'handoff' && starterIds.includes(s.id)) ?? null;
+}
+
+/** The name the chat shows for the agent: its own, else the business's (an agent made from scratch has none). */
+export function chatDisplayName(persona: Pick<BotConfig['persona'], 'assistantName' | 'companyName'>, organizationName: string): string {
+  return persona.assistantName.trim() || persona.companyName.trim() || organizationName.trim() || 'Assistant';
 }
 
 /** `{business_name}` and friends: values the prompt editor's "Custom Values" menu inserts into the instructions. */

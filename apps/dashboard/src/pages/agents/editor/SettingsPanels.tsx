@@ -276,10 +276,12 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
       <Panel id="behavior" open={open} onToggle={onToggle} icon={<MessagesSquare className="size-4.5" />} title="Response Behavior" sub="How the bot replies">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
           <Field label="Agent name">
-            <Input value={config.persona.assistantName} maxLength={60} onChange={(e) => setConfig('persona', { ...config.persona, assistantName: e.target.value })} />
+            <Input value={config.persona.assistantName} maxLength={60} placeholder="Not set" onChange={(e) => setConfig('persona', { ...config.persona, assistantName: e.target.value })} />
           </Field>
+          {/* "Not set" (null): the prompt says nothing about it and the agent follows its instructions. */}
           <Field label="Tone">
-            <Select value={config.persona.tone} onChange={(e) => setConfig('persona', { ...config.persona, tone: e.target.value as BotConfig['persona']['tone'] })}>
+            <Select value={config.persona.tone ?? ''} onChange={(e) => setConfig('persona', { ...config.persona, tone: (e.target.value || null) as BotConfig['persona']['tone'] })}>
+              <option value="">Not set</option>
               <option value="friendly">Friendly</option>
               <option value="professional">Professional</option>
               <option value="casual">Casual</option>
@@ -288,7 +290,11 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
             </Select>
           </Field>
           <Field label="Reply length">
-            <Select value={config.persona.responseLength} onChange={(e) => setConfig('persona', { ...config.persona, responseLength: e.target.value as BotConfig['persona']['responseLength'] })}>
+            <Select
+              value={config.persona.responseLength ?? ''}
+              onChange={(e) => setConfig('persona', { ...config.persona, responseLength: (e.target.value || null) as BotConfig['persona']['responseLength'] })}
+            >
+              <option value="">Not set</option>
               <option value="short">Short</option>
               <option value="medium">Medium</option>
               <option value="detailed">Detailed</option>
@@ -303,9 +309,24 @@ export function SettingsPanels({ draft, setDraft, ctx, botId, readOnly, open, on
           </Field>
         </div>
         <Field label="Greeting">
-          <Textarea rows={2} maxLength={500} value={config.persona.greeting} onChange={(e) => setConfig('persona', { ...config.persona, greeting: e.target.value })} />
+          <Textarea
+            rows={2}
+            maxLength={500}
+            value={config.persona.greeting}
+            placeholder="Not set: the chat opens with “Hi! How can I help?”"
+            onChange={(e) => setConfig('persona', { ...config.persona, greeting: e.target.value })}
+          />
         </Field>
-        <Toggle label="Use emojis" checked={config.persona.useEmojis} onChange={(v) => setConfig('persona', { ...config.persona, useEmojis: v })} />
+        <Field label="Emojis">
+          <Select
+            value={config.persona.useEmojis === null ? '' : config.persona.useEmojis ? 'yes' : 'no'}
+            onChange={(e) => setConfig('persona', { ...config.persona, useEmojis: e.target.value === '' ? null : e.target.value === 'yes' })}
+          >
+            <option value="">Not set</option>
+            <option value="yes">Use the occasional emoji</option>
+            <option value="no">No emojis</option>
+          </Select>
+        </Field>
         <Toggle label="Stay on topic" checked={config.guardrails.stayOnTopic} onChange={(v) => setConfig('guardrails', { ...config.guardrails, stayOnTopic: v })} />
         <ul className="divide-y divide-border rounded-lg border border-border">
           {(

@@ -6,7 +6,7 @@ import { useToast } from '../../components/feedback-context';
 import { DeltaPill, StatValue, type StatTone } from '../../components/stats';
 import { Button, Card, CardHeader, cx, ErrorBanner, Input, PageHeader, Select, Skeleton } from '../../components/ui';
 import { download, get } from '../../lib/api';
-import { formatNumber, formatUsd } from '../../lib/format';
+import { formatNumber, formatNumericDate, formatUsd } from '../../lib/format';
 import { roleAtLeast, useBots, useChannels, useOrg } from '../../lib/queries';
 import { reportRangeProblem } from '../../lib/validate';
 import { navigate, useRoute, withQuery } from '../../lib/router';
@@ -288,7 +288,8 @@ export function BarChart({ label, points, weekly }: { label: string; points: Arr
   const bar = Math.max(2, Math.min(28, slot * 0.7));
   const labelEvery = Math.max(1, Math.ceil(points.length / 8));
   const total = points.reduce((s, p) => s + p.value, 0);
-  const fmt = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  // Numeric like the page's date pickers and captions, so one page shows one date format.
+  const fmt = formatNumericDate;
 
   return (
     <figure>

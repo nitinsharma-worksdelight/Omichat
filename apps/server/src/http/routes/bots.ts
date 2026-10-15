@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Container } from '../../container';
 import { parseInput, parsePatch } from '../../lib/validation';
 import { buildSystemPrompt } from '../../modules/ai/prompt';
-import { CUSTOM_API_BUILTINS, offeredStarters } from '../../modules/bots/config';
+import { chatDisplayName, CUSTOM_API_BUILTINS, offeredStarters } from '../../modules/bots/config';
 import { BotCreateSchema, BotUpdateSchema } from '../../modules/bots/service';
 import { openingGreeting } from '../../modules/channels/service';
 import { hasAskFirst } from '../../modules/tools/types';
@@ -112,7 +112,7 @@ export async function registerBotRoutes(app: FastifyInstance, c: Container) {
       token,
       visitorId,
       greeting: openingGreeting(channel.config, bot),
-      botName: bot.config.persona.assistantName,
+      botName: chatDisplayName(bot.config.persona, (await c.tenancy.getOrganization(auth.orgId)).name),
       starters: offeredStarters(bot.config),
     };
   });

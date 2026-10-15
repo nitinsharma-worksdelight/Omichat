@@ -1,9 +1,9 @@
 /** The name a new agent gets until the person renames it (pure: no React or browser APIs). */
-export const DEFAULT_AGENT_NAME = 'New Employee';
+export const DEFAULT_AGENT_NAME = 'Untitled';
 
 /**
- * "New Employee 1", then "New Employee 2", and so on: one more than the highest number any agent already has, so a
- * deleted agent's number is not handed out again and other names (including "New Employee" with no number) are left alone.
+ * "Untitled 1", then "Untitled 2", and so on: one more than the highest number any agent already has, so a
+ * deleted agent's number is not handed out again and other names (including "Untitled" with no number) are left alone.
  */
 export function nextAgentName(existing: readonly string[]): string {
   const taken = new RegExp(`^${DEFAULT_AGENT_NAME} (\\d+)$`, 'i');

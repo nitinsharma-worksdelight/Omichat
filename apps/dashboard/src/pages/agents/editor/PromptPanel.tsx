@@ -3,12 +3,11 @@ import { useLayoutEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Modal, MenuItem, Popover } from '../../../components/overlay';
 import { Button, cx, Field, Input, NumberInput, Select } from '../../../components/ui';
 import { formatNumber } from '../../../lib/format';
+import { acceptsEdit, countWords, MAX_INSTRUCTION_WORDS } from '../../../lib/words';
 import { useAiConfig } from '../../../lib/queries';
 import { EFFORTS, type Effort } from '../../../lib/types';
 import type { BotDraft } from '../../bots/editorNav';
 
-/** The server's limit on the instructions. */
-const MAX_PROMPT = 12_000;
 
 /** Models offered by name for the OpenAI provider; any other id can be typed under "Other model". */
 const OPENAI_MODELS = [
@@ -17,6 +16,12 @@ const OPENAI_MODELS = [
   ['gpt-4o', 'OpenAI GPT 4o'],
   ['gpt-4o-mini', 'OpenAI GPT 4o mini'],
 ] as const;
+
+/**
+ * The "# Custom Values" menu, hidden on request (2026-10-15) but kept to switch back on. Prompts that already contain
+ * `{business_name}` and the like are still filled in by the server.
+ */
+const SHOW_CUSTOM_VALUES = false;
 
 /** What "# Custom Values" inserts; the server fills them in from the agent's settings when it builds the prompt. */
 const CUSTOM_VALUES = [
@@ -78,13 +83,22 @@ export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { d
   const [otherModel, setOtherModel] = useState(() => Boolean(draft.model) && !known.includes(draft.model));
   const modelChoice = otherModel ? '__other' : draft.model;
   const tokens = Math.ceil(prompt.length / 4);
-  const over = prompt.length > MAX_PROMPT;
+  const words = countWords(prompt);
+  const over = words > MAX_INSTRUCTION_WORDS;
+  // Shown when a keystroke or paste would have gone past the limit and was not taken.
+  const [refused, setRefused] = useState(false);
 
   const insert = (token: string) => {
     const el = area.current;
     const start = el?.selectionStart ?? prompt.length;
     const end = el?.selectionEnd ?? prompt.length;
     const next = `${prompt.slice(0, start)}${token}${prompt.slice(end)}`;
+    // A Custom Value is a word: past the limit it isn't added.
+    if (!acceptsEdit(prompt, next)) {
+      setRefused(true);
+      return;
+    }
+    setRefused(false);
     caretAfterInsert.current = start + token.length;
     history.change(next, false);
   };
@@ -188,7 +202,7 @@ export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { d
           |
         </span>
         <span className={cx('text-caption tabular-nums', over ? 'font-semibold text-danger-text' : 'text-fg-2')}>
-          {formatNumber(prompt.length)}/{formatNumber(MAX_PROMPT)} characters
+          {formatNumber(words)} / {formatNumber(MAX_INSTRUCTION_WORDS)} words
         </span>
       </div>
 
@@ -201,42 +215,44 @@ export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { d
             <Redo2 className="size-4" aria-hidden />
           </button>
           <span className="flex-1" />
-          <Popover
-            label="Custom values"
-            className="w-64"
-            trigger={({ open, toggle, id }) => (
-              <button
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={open}
-                aria-controls={open ? id : undefined}
-                disabled={readOnly}
-                onClick={toggle}
-                className="flex h-7 items-center gap-1 rounded border border-border bg-surface-2 px-2 text-caption font-medium text-fg hover:border-border-strong disabled:opacity-50"
-              >
-                <Hash className="size-3.5" aria-hidden />
-                Custom Values
-              </button>
-            )}
-          >
-            {(close) => (
-              <>
-                <p className="px-2.5 pt-1 pb-1.5 text-caption text-muted">Filled in from the agent's settings when it replies.</p>
-                {CUSTOM_VALUES.map(([label, token]) => (
-                  <MenuItem
-                    key={token}
-                    onClick={() => {
-                      close();
-                      insert(token);
-                    }}
-                  >
-                    <span className="flex-1">{label}</span>
-                    <code className="font-mono text-label text-muted">{token}</code>
-                  </MenuItem>
-                ))}
-              </>
-            )}
-          </Popover>
+          {SHOW_CUSTOM_VALUES && (
+            <Popover
+              label="Custom values"
+              className="w-64"
+              trigger={({ open, toggle, id }) => (
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={open}
+                  aria-controls={open ? id : undefined}
+                  disabled={readOnly}
+                  onClick={toggle}
+                  className="flex h-7 items-center gap-1 rounded border border-border bg-surface-2 px-2 text-caption font-medium text-fg hover:border-border-strong disabled:opacity-50"
+                >
+                  <Hash className="size-3.5" aria-hidden />
+                  Custom Values
+                </button>
+              )}
+            >
+              {(close) => (
+                <>
+                  <p className="px-2.5 pt-1 pb-1.5 text-caption text-muted">Filled in from the agent's settings when it replies.</p>
+                  {CUSTOM_VALUES.map(([label, token]) => (
+                    <MenuItem
+                      key={token}
+                      onClick={() => {
+                        close();
+                        insert(token);
+                      }}
+                    >
+                      <span className="flex-1">{label}</span>
+                      <code className="font-mono text-label text-muted">{token}</code>
+                    </MenuItem>
+                  ))}
+                </>
+              )}
+            </Popover>
+          )}
         </div>
         <label htmlFor="agent-prompt" className="sr-only">
           Prompt
@@ -249,6 +265,12 @@ export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { d
           aria-invalid={over || undefined}
           onChange={(e) => {
             const next = e.target.value;
+            // Past the word limit: the text stays as it was (deleting, spaces and line breaks are always fine).
+            if (!acceptsEdit(prompt, next)) {
+              setRefused(true);
+              return;
+            }
+            setRefused(false);
             const caret = e.target.selectionStart;
             const typed = next.length === prompt.length + 1 && !/\s/.test(next.charAt(caret - 1));
             history.change(next, typed);
@@ -257,7 +279,13 @@ export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { d
           className="min-h-0 flex-1 resize-none bg-transparent p-3 text-[15px] leading-[22px] text-fg outline-none placeholder:text-faint"
         />
       </div>
-      {over && <p className="mx-5 mb-2 text-caption text-danger-text">The prompt can be at most {formatNumber(MAX_PROMPT)} characters: shorten it before saving.</p>}
+      {(over || refused || words >= MAX_INSTRUCTION_WORDS) && (
+        <p role="alert" className="mx-5 mb-2 text-caption text-danger-text">
+          {over
+            ? `The instructions are ${formatNumber(words)} words. The limit is ${formatNumber(MAX_INSTRUCTION_WORDS)} words: shorten them before saving.`
+            : `You've reached the ${formatNumber(MAX_INSTRUCTION_WORDS)}-word limit${refused ? ', so that text was not added' : ''}. Remove some words to add more.`}
+        </p>
+      )}
       <p className="mx-5 mb-5 text-body text-fg-2">
         A good prompt will allow the bot to better interpret and respond appropriately.{' '}
         <button type="button" onClick={() => setGuidelines(true)} className="font-medium text-accent-text hover:underline">
@@ -279,7 +307,7 @@ export function PromptPanel({ draft, setDraft, organizationName, readOnly }: { d
           <li>Say who the agent is and who it talks to: "You are the front desk of {persona.companyName || organizationName || 'our clinic'}, chatting with new patients."</li>
           <li>Give the goal in one sentence, then the steps: what to find out, in what order, and what to do once it knows.</li>
           <li>Put facts (prices, services, policies) in the Knowledge Base, not here. The agent searches it and quotes it exactly.</li>
-          <li>Use Custom Values for details that change, such as {'{business_hours}'}: they're filled in from the agent's settings.</li>
+          {SHOW_CUSTOM_VALUES && <li>Use Custom Values for details that change, such as {'{business_hours}'}: they're filled in from the agent's settings.</li>}
           <li>Say what not to do: topics to avoid, promises it mustn't make, when to hand over to a person.</li>
           <li>Keep it short and plain. Test it in the panel on the right, then adjust.</li>
         </ul>

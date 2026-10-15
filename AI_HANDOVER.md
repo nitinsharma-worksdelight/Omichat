@@ -71,7 +71,7 @@ PROGRESS.md              source of truth for phase status (very large, ~2,900 li
 5. Conversation state lives partly in `conversations.metadata` (jsonb): `aiStop` (Stop Bot), `reactivateAt` / `reactivateAfterMinutes` / `handoffScenario` (handover take-back). A change of status clears them.
 6. Events outbox → signed webhooks (n8n) and staff notifications.
 
-Features touched most recently (details in PROGRESS.md and SESSION-CONTEXT.md): Stop Bot, scenario-only Human Handover (existing bots are migrated on read), Booking Advanced Options (`booking.linkOnly/bookingLink/pauseAfterBooking/triggerWorkflows/workflowKeys/transferEmployee/transferUserId`), model-override validation against the provider, "New Employee N" default agent names.
+Features touched most recently (details in PROGRESS.md and SESSION-CONTEXT.md): Stop Bot, scenario-only Human Handover (existing bots are migrated on read), Booking Advanced Options (`booking.linkOnly/bookingLink/pauseAfterBooking/triggerWorkflows/workflowKeys/transferEmployee/transferUserId`), model-override validation against the provider, "Untitled N" default agent names.
 
 ## 5. Setup, run, test commands **[verified from package.json/README]**
 

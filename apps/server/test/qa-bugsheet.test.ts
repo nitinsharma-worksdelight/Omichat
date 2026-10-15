@@ -166,25 +166,25 @@ describe('BUG-014: a custom field key with a trailing underscore cannot be creat
   });
 });
 
-describe('BUG-003: a new agent is "New Employee <number>"', () => {
+describe('BUG-003: a new agent is "Untitled <number>"', () => {
   it('starts at 1 and counts up', () => {
-    expect(DEFAULT_AGENT_NAME).toBe('New Employee');
-    expect(nextAgentName([])).toBe('New Employee 1');
-    expect(nextAgentName(['New Employee 1'])).toBe('New Employee 2');
-    expect(nextAgentName(['New Employee 1', 'New Employee 2'])).toBe('New Employee 3');
+    expect(DEFAULT_AGENT_NAME).toBe('Untitled');
+    expect(nextAgentName([])).toBe('Untitled 1');
+    expect(nextAgentName(['Untitled 1'])).toBe('Untitled 2');
+    expect(nextAgentName(['Untitled 1', 'Untitled 2'])).toBe('Untitled 3');
   });
 
   it("goes one past the highest number, so a deleted agent's number isn't handed out again", () => {
-    expect(nextAgentName(['New Employee 1', 'New Employee 3'])).toBe('New Employee 4');
-    expect(nextAgentName(['New Employee 2'])).toBe('New Employee 3');
-    expect(nextAgentName(['New Employee 9', 'New Employee 10'])).toBe('New Employee 11');
+    expect(nextAgentName(['Untitled 1', 'Untitled 3'])).toBe('Untitled 4');
+    expect(nextAgentName(['Untitled 2'])).toBe('Untitled 3');
+    expect(nextAgentName(['Untitled 9', 'Untitled 10'])).toBe('Untitled 11');
   });
 
   it('ignores names that only look similar, and is not thrown by case or spaces', () => {
-    expect(nextAgentName(['Website Assistant', 'New Employee', 'New Employee 2 copy', 'Old New Employee 5', 'New Employee 1a'])).toBe('New Employee 1');
-    expect(nextAgentName(['  new employee 4  '])).toBe('New Employee 5');
+    expect(nextAgentName(['Website Assistant', 'Untitled', 'Untitled 2 copy', 'Old Untitled 5', 'Untitled 1a'])).toBe('Untitled 1');
+    expect(nextAgentName(['  untitled 4  '])).toBe('Untitled 5');
     // Renamed agents leave their number free only when no other agent holds a higher one.
-    expect(nextAgentName(['Pizza Bot', 'New Employee 7'])).toBe('New Employee 8');
+    expect(nextAgentName(['Pizza Bot', 'Untitled 7'])).toBe('Untitled 8');
   });
 
   it('what it makes is a name the server accepts, many times over', async () => {
@@ -197,7 +197,7 @@ describe('BUG-003: a new agent is "New Employee <number>"', () => {
       expect(res.statusCode, res.body).toBe(201);
       names.push(res.json().name);
     }
-    expect(names).toEqual(['New Employee 1', 'New Employee 2', 'New Employee 3']);
+    expect(names).toEqual(['Untitled 1', 'Untitled 2', 'Untitled 3']);
   });
 });
 

@@ -29,7 +29,9 @@ export const MEMORY_LIMITS = {
 
 const OUTCOME: Record<string, string> = { completed: 'completed', no_show: 'no-show', cancelled: 'cancelled', booked: 'no outcome recorded' };
 
-export const TONE: Record<BotConfig['persona']['tone'], string> = {
+type Persona = BotConfig['persona'];
+
+export const TONE: Record<NonNullable<Persona['tone']>, string> = {
   friendly: 'warm and friendly',
   professional: 'polished and professional',
   casual: 'relaxed and conversational',
@@ -37,11 +39,23 @@ export const TONE: Record<BotConfig['persona']['tone'], string> = {
   empathetic: 'calm, patient and empathetic',
 };
 
-export const LENGTH: Record<BotConfig['persona']['responseLength'], string> = {
+export const LENGTH: Record<NonNullable<Persona['responseLength']>, string> = {
   short: 'Keep replies short: one or two sentences. This is a limit, not a target: go past two only when the customer asks for detail or a list.',
   medium: 'Keep replies concise: a short paragraph, or a few bullet points when listing options.',
   detailed: 'Give complete, well-organized answers, but never pad them.',
 };
+
+/** "Ava, the virtual assistant" or, with no name set, "the virtual assistant": the agent's instructions can name it. */
+export function whoYouAre(p: Persona): string {
+  const name = p.assistantName.trim();
+  return name ? `${name}, the ${p.role}` : `the ${p.role}`;
+}
+
+/** The tone and reply length the settings ask for, or null when neither is set (the instructions decide). */
+export function toneLine(p: Persona): string | null {
+  const parts = [p.tone ? `Tone: ${TONE[p.tone]}.` : null, p.responseLength ? LENGTH[p.responseLength] : null].filter(Boolean);
+  return parts.length ? parts.join(' ') : null;
+}
 
 const CHANNEL_NAME: Partial<Record<ChannelType, string>> = {
   webchat: 'website chat',
@@ -103,7 +117,7 @@ export function buildSystemPrompt(
   const canCancel = (canBook || sendsLink) && has('cancel_appointment', c.booking.allowCancel);
 
   sections.push(
-    `You are ${p.assistantName}, the ${p.role} for ${company}. You chat with ${company}'s customers and prospects on its behalf.`,
+    `You are ${whoYouAre(p)} for ${company}. You chat with ${company}'s customers and prospects on its behalf.`,
   );
 
   // The business's own goals come first; the built-in ones follow from what the bot has switched on.
@@ -123,12 +137,12 @@ export function buildSystemPrompt(
   );
 
   const style = [
-    `Tone: ${TONE[p.tone]}. ${LENGTH[p.responseLength]}`,
+    toneLine(p),
     p.personality ? `Personality: ${p.personality}` : null,
     p.language === 'auto'
       ? "Reply in the language the customer writes in."
       : `Reply in ${p.language}, unless the customer clearly can't read it — then use their language.`,
-    p.useEmojis ? 'An occasional emoji is fine.' : 'Do not use emojis.',
+    p.useEmojis === null ? null : p.useEmojis ? 'An occasional emoji is fine.' : 'Do not use emojis.',
     'Sound like a helpful person, not a form: ask one question at a time and weave questions into the conversation.',
     'If a request is ambiguous, ask one short clarifying question before acting on it.',
     'Once you know the customer\'s name, use it occasionally — not in every message.',

@@ -63,7 +63,7 @@ For any AI coding assistant working in this repo. These come from the user's sav
 - Only the **website chat widget** is available; other channels are hidden "Coming soon" (SMS, WhatsApp, Instagram, Facebook, TikTok, Live chat, Email, marketplace tile). Hidden things stay in code behind flags (`hidden`, `SHOW_FOLDERS`, `SHOW_MARKETPLACE_TILE`) to switch back on later.
 - Hidden: Voice AI, Content AI and Agent Studio tabs, Marketplace Templates, "Create folder", Transfer Bot / Auto Followup actions.
 - GHL look: GHL blue theme; the six pages (Conversations, Leads, Deals, Appointments, Automations, Settings) stay separate from the AI Agents flow; the left sidebar for the agents flow shows AI Agents.
-- Default new-agent name: **"New Employee N"**, no naming step in Create Agent (user reversed an earlier naming step on 2026-10-15). Templates keep "<template> <date>".
+- Default new-agent name: **"Untitled N"**, no naming step in Create Agent (user reversed an earlier naming step on 2026-10-15). Templates keep "<template> <date>".
 - Provider-neutral LLM layer; the provider and model are configuration (no model name hard-coded). A model override is checked with the provider when saved; if the provider can't say, a save is never blocked.
 
 **Human Handover (accepted 2026-10-14)**
